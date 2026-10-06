@@ -8,7 +8,6 @@ pub const MAX_TEXT: usize = 4096;
 pub const MAX_FILE: u64 = 65536;
 pub const MAX_HOST: usize = 128 * 1024;
 pub const MAX_MENU: usize = 32 * 1024;
-pub const MAX_MARKERS: usize = 64 * 1024;
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Input {
@@ -43,31 +42,6 @@ pub struct Subtitle {
     pub text: String,
 }
 #[derive(Clone, Debug, Serialize)]
-pub struct Marker {
-    pub id: i32,
-    pub text: String,
-    pub x: f64,
-    pub z: f64,
-    pub block: i32,
-    pub travel: bool,
-}
-#[derive(Clone, Debug, Serialize)]
-pub struct Ack {
-    pub seq: u64,
-    pub action: &'static str,
-    pub status: &'static str,
-    pub message: String,
-}
-pub fn travel_ack(seq: u64, accepted: bool, message: &str) -> Ack {
-    let message = text(message).unwrap_or_else(|| "Travel request could not be completed.".into());
-    Ack {
-        seq,
-        action: "travel",
-        status: if accepted { "accepted" } else { "rejected" },
-        message: message.chars().take(1024).collect(),
-    }
-}
-#[derive(Clone, Debug, Serialize)]
 pub struct State {
     pub version: u32,
     pub pid: u32,
@@ -80,35 +54,15 @@ pub struct State {
     pub menu: Option<Menu>,
     pub subtitle: Option<Subtitle>,
     pub input: Input,
-    pub markers: Vec<Marker>,
-    pub ack: Option<Ack>,
 }
 
 /// Test eligibility before suppressing any native window: JSON escaping counts.
 pub fn menu_fits(menu: &Menu) -> bool {
     serde_json::to_vec(menu).is_ok_and(|bytes| bytes.len() <= MAX_MENU)
 }
-pub fn bound_markers(markers: &mut Vec<Marker>) {
-    let mut bytes = 2;
-    let keep = markers
-        .iter()
-        .take_while(|marker| {
-            let Some(size) = serde_json::to_vec(marker).ok().map(|v| v.len() + 1) else {
-                return false;
-            };
-            bytes += size;
-            bytes <= MAX_MARKERS
-        })
-        .count();
-    markers.truncate(keep);
-}
-/// Optional map/HUD data may shrink; an already owned native menu is retained.
+/// Optional HUD data may shrink; an already owned native menu is retained.
 pub fn bound_state(state: &mut State) {
-    bound_markers(&mut state.markers);
     let fits = |state: &State| serde_json::to_vec(state).is_ok_and(|v| v.len() <= MAX_HOST);
-    if !fits(state) {
-        state.markers.clear();
-    }
     if !fits(state) {
         state.subtitle = None;
     }
@@ -142,7 +96,6 @@ pub fn valid(command: &Command, pid: u32, session: u64, last_seq: u64, now: u64)
         && now.saturating_sub(command.timestamp_ms) <= FRESH_MS
         && match command.action.as_str() {
             "ui_state" => command.token == 0 && command.open.is_some() && command.ready.is_some(),
-            "travel" => command.token == 0 && command.choice.is_some(),
             "select" => command.token > 0 && command.choice.is_some(),
             "close" | "interact" => command.token > 0,
             _ => false,
@@ -186,22 +139,6 @@ pub fn text(value: &str) -> Option<String> {
 mod tests {
     use super::*;
     #[test]
-    fn travel_ack_is_request_bound_localized_and_bounded() {
-        let ack = travel_ack(19, false, "<font>未発見</font>\0\nSelect another grace.");
-        assert_eq!(ack.seq, 19);
-        assert_eq!(ack.action, "travel");
-        assert_eq!(ack.status, "rejected");
-        assert_eq!(ack.message, "未発見\nSelect another grace.");
-        assert_eq!(
-            travel_ack(20, true, &"😀".repeat(2000))
-                .message
-                .chars()
-                .count(),
-            1024
-        );
-        assert!(!travel_ack(20, false, "<font>\0</font>").message.is_empty());
-    }
-    #[test]
     fn escaped_menu_and_total_host_output_respect_guest_transport_limits() {
         let mut menu = Menu {
             token: 4,
@@ -243,22 +180,10 @@ mod tests {
                 buttons: 0,
                 pressed: 0,
             },
-            markers: (0..512)
-                .map(|id| Marker {
-                    id,
-                    text: "😀".repeat(MAX_TEXT),
-                    x: 0.,
-                    z: 0.,
-                    block: 1,
-                    travel: false,
-                })
-                .collect(),
-            ack: None,
         };
         bound_state(&mut state);
         assert!(serde_json::to_vec(&state).unwrap().len() <= MAX_HOST);
         assert_eq!(state.menu.as_ref().unwrap().token, 4);
-        assert!(state.markers.len() < 512);
     }
     fn command() -> Command {
         Command {

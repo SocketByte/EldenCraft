@@ -1,7 +1,7 @@
 name: Release
 
 # Push a version tag to publish a GitHub Release:
-#   git tag v0.21.9 && git push origin v0.21.9
+#   git tag v0.21.10 && git push origin v0.21.10
 # The tag must equal the version in minecraft/gradle.properties and pyproject.toml.
 
 on:

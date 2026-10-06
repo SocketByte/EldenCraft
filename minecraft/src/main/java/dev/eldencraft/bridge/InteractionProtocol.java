@@ -28,21 +28,10 @@ public final class InteractionProtocol {
       Prompt prompt,
       Menu menu,
       String subtitle,
-      boolean mapOpen,
       boolean blocking,
-      Input input,
-      List<Marker> markers,
-      Ack ack) {
-    public Snapshot {
-      markers = List.copyOf(markers);
-    }
-  }
+      Input input) {}
 
   public record Input(long sequence, int buttons, int pressed) {}
-
-  public record Marker(int id, String text, double x, double z, int block, boolean travel) {}
-
-  public record Ack(long sequence, String action, String status, String message) {}
 
   private InteractionProtocol() {}
 
@@ -96,7 +85,6 @@ public final class InteractionProtocol {
     }
     String subtitle = "";
     if (present(j, "subtitle")) subtitle = text(object(j, "subtitle"), "text", 4096, true);
-    boolean mapOpen = j.has("map_open") && bool(j, "map_open");
     boolean blocking = j.has("blocking") && bool(j, "blocking");
     Input input = null;
     if (present(j, "input")) {
@@ -107,40 +95,6 @@ public final class InteractionProtocol {
               (int) integer(i, "buttons", 0, 0xfff),
               (int) integer(i, "pressed", 0, 0xfff));
     }
-    var markers = new ArrayList<Marker>();
-    if (present(j, "markers")) {
-      var values = j.get("markers");
-      if (!values.isJsonArray() || values.getAsJsonArray().size() > 2048)
-        throw new IOException("Invalid map markers");
-      var ids = new HashSet<Integer>();
-      for (var value : values.getAsJsonArray()) {
-        if (!value.isJsonObject()) throw new IOException("Invalid map marker");
-        var m = value.getAsJsonObject();
-        int id = (int) integer(m, "id", 0, Integer.MAX_VALUE);
-        if (!ids.add(id)) throw new IOException("Duplicate map marker");
-        markers.add(
-            new Marker(
-                id,
-                text(m, "text", 4096, true).replaceAll("\\s+", " "),
-                number(m, "x"),
-                number(m, "z"),
-                (int) integer(m, "block", Integer.MIN_VALUE, Integer.MAX_VALUE),
-                bool(m, "travel")));
-      }
-    }
-    Ack ack = null;
-    if (present(j, "ack")) {
-      var a = object(j, "ack");
-      String action = text(a, "action", 32, false), status = text(a, "status", 32, false);
-      if (!action.equals("travel") || !Set.of("accepted", "rejected").contains(status))
-        throw new IOException("Invalid travel acknowledgement");
-      ack =
-          new Ack(
-              integer(a, "seq", 1, Long.MAX_VALUE),
-              action,
-              status,
-              text(a, "message", 1024, true).replaceAll("\\s+", " "));
-    }
     return new Snapshot(
         pid,
         session,
@@ -150,11 +104,8 @@ public final class InteractionProtocol {
         prompt,
         menu,
         subtitle,
-        mapOpen,
         blocking,
-        input,
-        markers,
-        ack);
+        input);
   }
 
   public static boolean fresh(Snapshot s, long now, long hostPid) {
@@ -170,18 +121,6 @@ public final class InteractionProtocol {
         && s.menu() != null
         && s.menu().token() == token
         && s.menu().choices().stream().anyMatch(c -> c.id() == id && c.enabled());
-  }
-
-  public static Ack travelAcknowledgement(
-      Snapshot s, long pid, long session, long requestSequence, long now) {
-    return fresh(s, now, pid)
-            && s.session() == session
-            && requestSequence > 0
-            && s.ack() != null
-            && s.ack().action().equals("travel")
-            && s.ack().sequence() == requestSequence
-        ? s.ack()
-        : null;
   }
 
   /** Choices removed from EldenCraft's progression cannot be executed from the replacement UI. */
@@ -203,16 +142,6 @@ public final class InteractionProtocol {
 
   private static boolean present(JsonObject j, String key) {
     return j.has(key) && !j.get(key).isJsonNull();
-  }
-
-  private static double number(JsonObject j, String key) throws IOException {
-    var v = j.get(key);
-    if (v == null || !v.isJsonPrimitive() || !v.getAsJsonPrimitive().isNumber())
-      throw new IOException("Invalid map coordinate");
-    double number = v.getAsDouble();
-    if (!Double.isFinite(number) || Math.abs(number) > 30_000_000)
-      throw new IOException("Map coordinate out of bounds");
-    return number;
   }
 
   private static JsonObject object(JsonObject j, String key) throws IOException {

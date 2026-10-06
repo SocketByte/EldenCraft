@@ -52,14 +52,10 @@ The exact pause screen retains a fresh foreground host lease; losing that lease
 restores the dedicated world's normal background auto-resume behavior. Native
 pause opening is reserved while Minecraft owns the composed interface.
 
-`M` opens `CampaignMapScreen`, including from the grace menu. The map caches
-genuine shared terrain samples, displays the player's position and direction,
-and lists discovered native Sites of Grace. Coordinates are local to the
-published native block; foreign areas use a separate map view rather than
-overlapping unrelated coordinates. Drag to pan, scroll to zoom, right-click for
-a waypoint, or use arrows, `+`/`-`, `Home` and `Tab`. A seated native rest context
-enables confirmed travel; the native side revalidates discovery and restrictions
-immediately before the normal world transition.
+The map is Elden Ring's own; the native host opens it on `M` and hides the
+composed Minecraft frame while it is open, like any other native menu.
+Merchant Purchase rows appear as Shop; selecting it replaces the waiting dialog
+with `CampaignShopScreen` once the native merchant context arrives.
 
 Replacement screens close on stale state or a changed host session. Unsupported
 specialist native screens retain their original input and rendering.

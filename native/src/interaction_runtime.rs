@@ -3,12 +3,12 @@
 //! Unsupported menus continue through their original handler. UI ownership expires
 //! with the guest heartbeat; an owned choice menu is cancelled on every gate loss.
 use crate::interaction_wire::{
-    self as wire, Choice, Command, Input, Marker, Menu, Prompt, State, Subtitle,
+    self as wire, Choice, Command, Input, Menu, Prompt, State, Subtitle,
 };
 use eldenring::cs::{
-    BonfireWarpParam, CSEventFlagMan, CSEzStateTalkEnv, CSEzStateTalkEvent, CSLuaEventManImp,
-    CSNpcTalkIns, CSSessionManager, FieldInsHandle, GameMan, LobbyState, MenuType, NpcParam,
-    PlayerIns, ProtocolState, SoloParamRepository, TalkParam, WorldChrMan,
+    CSEzStateTalkEnv, CSEzStateTalkEvent, CSLuaEventManImp, CSNpcTalkIns, CSSessionManager,
+    FieldInsHandle, GameMan, LobbyState, MenuType, NpcParam, PlayerIns, ProtocolState,
+    SoloParamRepository, TalkParam, WorldChrMan,
 };
 use eldenring::ez_state::{EzStateEnvironmentQuery, EzStateRawValue, EzStateValue};
 use fromsoftware_shared::{FromStatic, program::Program};
@@ -29,7 +29,6 @@ use std::{
 const ACTION_FMG: [usize; 3] = [465, 365, 32];
 const CHOICE_FMG: [usize; 3] = [466, 366, 33];
 const TALK_FMG: [usize; 3] = [460, 360, 1];
-const PLACE_FMG: [usize; 4] = [429, 329, 120, 19];
 const DIALOG_FMG: [usize; 3] = [204, 372, 472];
 const ENV_VMT: usize = 0x2c02d68;
 const TEXT_LOOKUP: usize = 0x266fc40;
@@ -201,8 +200,13 @@ const PASS_TIME: i32 = 15000420;
 fn grace_source(talk: i32, text_id: Option<i32>) -> bool {
     talk == GRACE_TALK || text_id == Some(PASS_TIME)
 }
+/// Merchant "Purchase" runs OpenRegularShop, which the campaign replaces with
+/// the Minecraft shop. "Sell" would open the native sell menu under Minecraft.
+const PURCHASE: i32 = 20000010;
+const SELL: i32 = 20000011;
 fn omitted_choice(text_id: i32, grace: bool) -> bool {
-    matches!(text_id, 15000540 | 15000370 | 15000371 | 15000510) || grace && text_id == 15000390
+    matches!(text_id, 15000540 | 15000370 | 15000371 | 15000510 | SELL)
+        || grace && text_id == 15000390
 }
 /// Apply grace-only omissions and the Ender Chest action to captured rows.
 fn grace_choices(list: &List) -> Vec<Choice> {
@@ -219,7 +223,13 @@ fn captured_choice(slot: i32, text_id: i32, text: String, grace: bool) -> Choice
     let chest = grace && text_id == 15000395;
     Choice {
         id: slot,
-        text: if chest { "Ender Chest".into() } else { text },
+        text: if chest {
+            "Ender Chest".into()
+        } else if text_id == PURCHASE {
+            "Shop".into()
+        } else {
+            text
+        },
         enabled: true,
         action: chest.then(|| "ender_chest".into()),
     }
@@ -291,10 +301,6 @@ fn epoch() -> u64 {
 }
 fn active() -> bool {
     ACTIVE.load(Ordering::Acquire) && epoch() <= DEADLINE.load(Ordering::Acquire)
-}
-/// Atomics-only proof for compositor input: installed, admitted and guest-fresh.
-pub fn replacement_ready() -> bool {
-    active()
 }
 fn token() -> u64 {
     TOKENS.fetch_add(1, Ordering::Relaxed).min(i64::MAX as u64)
@@ -1181,9 +1187,6 @@ pub struct Driver {
     prompt_driver: crate::host_action::Driver,
     mailbox: Arc<Mutex<Mailbox>>,
     running: Arc<AtomicBool>,
-    markers: Vec<Marker>,
-    markers_at: u64,
-    ack: Option<wire::Ack>,
     pub events: VecDeque<String>,
 }
 impl Driver {
@@ -1264,9 +1267,6 @@ impl Driver {
             prompt_driver: Default::default(),
             mailbox,
             running,
-            markers: Vec::new(),
-            markers_at: 0,
-            ack: None,
             events: VecDeque::from([ready]),
         })
     }
@@ -1334,19 +1334,10 @@ impl Driver {
             }
         }
         let epoch_now = epoch();
-        let (command, ui, published_markers) = self
+        let (command, ui) = self
             .mailbox
             .lock()
-            .map(|m| {
-                (
-                    m.command.clone(),
-                    m.ui.clone(),
-                    m.state
-                        .as_ref()
-                        .map(|s| s.markers.iter().map(|marker| marker.id).collect::<Vec<_>>())
-                        .unwrap_or_default(),
-                )
-            })
+            .map(|m| (m.command.clone(), m.ui.clone()))
             .unwrap_or_default();
         if let Some(ui) = ui.filter(|c| {
             wire::valid(c, self.pid, self.session, self.ui_seq, epoch_now) && c.action == "ui_state"
@@ -1421,35 +1412,6 @@ impl Driver {
                 && c.action != "ui_state"
         }) {
             self.command_seq = command.seq;
-            if command.action == "travel" {
-                let outcome = if !enabled || !self.guest_open {
-                    Err("Open the map while seated at a Site of Grace to travel.".into())
-                } else if !published_markers
-                    .iter()
-                    .any(|id| Some(*id) == command.choice)
-                {
-                    Err("Select a discovered Site of Grace shown on the current map.".into())
-                } else {
-                    unsafe { crate::interaction_map::travel(command.choice.unwrap()) }
-                };
-                match outcome {
-                    Ok(()) => {
-                        self.ack = Some(wire::travel_ack(
-                            command.seq,
-                            true,
-                            "Travelling to the selected Site of Grace.",
-                        ));
-                        unsafe { self.release(false) };
-                        self.events.push_back(
-                            "Travelling to the selected discovered Site of Grace.".into(),
-                        );
-                    }
-                    Err(error) => {
-                        self.ack = Some(wire::travel_ack(command.seq, false, &error));
-                        self.events.push_back(error);
-                    }
-                }
-            }
             if enabled {
                 if command.action == "interact"
                     && prompt
@@ -1517,14 +1479,6 @@ impl Driver {
         } else {
             (None, None)
         };
-        if enabled && epoch_now.saturating_sub(self.markers_at) > 2000 {
-            self.markers = unsafe { grace_markers() };
-            self.markers_at = epoch_now;
-        }
-        let travel = enabled && unsafe { crate::interaction_map::permitted() };
-        for marker in &mut self.markers {
-            marker.travel = travel;
-        }
         let input = input
             .filter(|_| enabled)
             .map(|i| Input {
@@ -1549,8 +1503,6 @@ impl Driver {
             menu,
             subtitle,
             input,
-            markers: self.markers.clone(),
-            ack: self.ack.clone(),
         };
         wire::bound_state(&mut state);
         if let Ok(mut c) = CAPTURE.lock() {
@@ -1567,21 +1519,13 @@ impl Driver {
     }
     /// Lease loss: an open menu is kept for a bounded gap, then cancelled.
     pub unsafe fn suspend(&mut self) {
-        unsafe { self.release(true) };
-    }
-    unsafe fn release(&mut self, hold: bool) {
         ACTIVE.store(false, Ordering::Release);
         self.interact = false;
         if let Ok(mut c) = CAPTURE.lock() {
             let open = menu_open(&c);
-            let decision = if hold {
-                // Online, lobby and warp transitions still cancel immediately.
-                let session = unsafe { menu_session() };
-                hold_open_menu(&HOLD_UNTIL, epoch(), open, session)
-            } else {
-                HOLD_UNTIL.store(0, Ordering::Release);
-                HoldDecision::Cancel
-            };
+            // Online, lobby and warp transitions still cancel immediately.
+            let session = unsafe { menu_session() };
+            let decision = hold_open_menu(&HOLD_UNTIL, epoch(), open, session);
             match decision {
                 HoldDecision::Started => self
                     .events
@@ -1656,48 +1600,6 @@ fn read_command(path: PathBuf) -> Option<Command> {
     }
     serde_json::from_slice(&bytes).ok()
 }
-unsafe fn grace_markers() -> Vec<Marker> {
-    let Ok(params) = (unsafe { SoloParamRepository::instance() }) else {
-        return Vec::new();
-    };
-    let Ok(flags) = (unsafe { CSEventFlagMan::instance() }) else {
-        return Vec::new();
-    };
-    params
-        .rows::<BonfireWarpParam>()
-        .filter_map(|(id, row)| {
-            if row.disable_param_nt()
-                || row.eventflag_id() == 0
-                || !flags.virtual_memory_flag.get_flag(row.eventflag_id())
-            {
-                return None;
-            }
-            let text = unsafe { crate::boss_fmg::localized(&PLACE_FMG, row.text_id1()) }
-                .or_else(|| unsafe { crate::boss_fmg::localized(&CHOICE_FMG, row.text_id1()) })?;
-            let x = row.pos_x() as f64;
-            let z = row.pos_z() as f64;
-            if !x.is_finite() || !z.is_finite() {
-                return None;
-            }
-            let block = eldenring::cs::BlockId::from_parts(
-                row.area_no(),
-                row.grid_x_no(),
-                row.grid_z_no(),
-                0,
-            );
-            Some(Marker {
-                id: id as i32,
-                text,
-                x,
-                z,
-                block: i32::from(block),
-                travel: false,
-            })
-        })
-        .take(512)
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2118,6 +2020,36 @@ mod tests {
         // Merchants and other NPC scripts are not graces.
         assert!(!grace_source(800006000, Some(20000010)));
         assert!(grace_source(800006000, Some(PASS_TIME)));
+    }
+    #[test]
+    fn merchant_offers_one_shop_row_and_never_the_native_sell_menu() {
+        let owner = Owner {
+            npc: 7,
+            talk: 800006000,
+            handle: FieldInsHandle {
+                block_id: eldenring::cs::BlockId::none(),
+                selector: eldenring::cs::FieldInsSelector(0),
+            },
+            chr: 8,
+        };
+        let mut list = new_unconfirmed_list();
+        for (slot, id, label) in [
+            (1, PURCHASE, "Purchase"),
+            (2, SELL, "Sell"),
+            (3, 20000000, "Talk"),
+            (99, 20000009, "Leave"),
+        ] {
+            record_choice(&mut list, owner, slot, id, Some(label.into()), false);
+        }
+        // The Shop row keeps Purchase's slot so the script still opens its shop.
+        assert_eq!(
+            list.rows
+                .iter()
+                .map(|r| (r.id, r.text.as_str()))
+                .collect::<Vec<_>>(),
+            [(1, "Shop"), (3, "Talk"), (99, "Leave")]
+        );
+        assert!(list.rows.iter().all(|r| r.action.is_none()));
     }
     #[test]
     fn open_menu_survives_a_bounded_lease_gap_then_cancels() {

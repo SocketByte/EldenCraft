@@ -3,7 +3,7 @@ package dev.eldencraft.bridge;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
-/** Real-row authority, attachment freshness, menu geometry and cursor-stable map navigation. */
+/** Real-row authority, attachment freshness and menu geometry. */
 public final class InteractionConformance {
   private static int checks;
   private static final String VALID =
@@ -15,8 +15,7 @@ public final class InteractionConformance {
          {"id":12,"text":"Unavailable","enabled":false},
          {"id":99,"text":"Leave","enabled":true}]},
        "subtitle":{"text":"Welcome, traveller."},
-       "input":{"seq":21,"buttons":4,"pressed":4},
-       "markers":[{"id":100,"text":"Discovered grace","x":12.5,"z":-22,"block":60,"travel":false}]}
+       "input":{"seq":21,"buttons":4,"pressed":4}}
       """;
 
   public static void main(String[] args) throws Exception {
@@ -54,9 +53,6 @@ public final class InteractionConformance {
             decode(VALID.replace("\"active\":true", "\"active\":false")), 1000, 123),
         "unfocused host cannot drive UI");
     check(
-        s.markers().getFirst().x() == 12.5 && !s.markers().getFirst().travel(),
-        "real discovered markers preserve independent travel permission");
-    check(
         decode(VALID.replace("\"seq\":21", "\"seq\":0")).input().sequence() == 0,
         "inactive input baseline permits readiness handshake");
     var dialog =
@@ -67,53 +63,9 @@ public final class InteractionConformance {
     check(
         dialog.menu().title().contains("\n") && dialog.menu().title().length() > 256,
         "real long multiline dialog questions are preserved");
-    String ack =
-        "{\"seq\":321,\"action\":\"travel\",\"status\":\"rejected\",\"message\":\"Rest at a Site of"
-            + " Grace to travel.\"}";
-    String withAck = VALID.replace("\"active\":true", "\"active\":true,\"ack\":" + ack);
-    var rejected = decode(withAck);
-    check(
-        InteractionProtocol.travelAcknowledgement(rejected, 123, 456, 321, 1000)
-                .status()
-                .equals("rejected")
-            && rejected.ack().message().equals("Rest at a Site of Grace to travel."),
-        "matching rejected travel reports native reason for retry");
-    check(
-        InteractionProtocol.travelAcknowledgement(
-                decode(withAck.replace("\"status\":\"rejected\"", "\"status\":\"accepted\"")),
-                123,
-                456,
-                321,
-                1000)
-            .status()
-            .equals("accepted"),
-        "matching native acceptance preserves travel pending");
-    check(
-        InteractionProtocol.travelAcknowledgement(rejected, 123, 456, 322, 1000) == null
-            && InteractionProtocol.travelAcknowledgement(rejected, 124, 456, 321, 1000) == null
-            && InteractionProtocol.travelAcknowledgement(rejected, 123, 457, 321, 1000) == null
-            && InteractionProtocol.travelAcknowledgement(rejected, 123, 456, 321, 1500) == null
-            && InteractionProtocol.travelAcknowledgement(rejected, 123, 456, 321, 999) == null
-            && InteractionProtocol.travelAcknowledgement(s, 123, 456, 321, 1000) == null,
-        "stale, foreign, earlier and absent travel acknowledgements cannot change current pending"
-            + " state");
-    for (String invalidAck :
-        new String[] {
-          withAck.replace("\"seq\":321", "\"seq\":0"),
-          withAck.replace("\"status\":\"rejected\"", "\"status\":\"unknown\""),
-          withAck.replace("\"action\":\"travel\"", "\"action\":\"select\""),
-          withAck.replace("Rest at a Site of Grace to travel.", "x".repeat(1025)),
-          withAck.replace("Rest at a Site of Grace to travel.", "")
-        }) reject(invalidAck);
     try {
       s.menu().choices().clear();
       throw new AssertionError("Mutable choices");
-    } catch (UnsupportedOperationException expected) {
-      checks++;
-    }
-    try {
-      s.markers().clear();
-      throw new AssertionError("Mutable markers");
     } catch (UnsupportedOperationException expected) {
       checks++;
     }
@@ -126,8 +78,6 @@ public final class InteractionConformance {
           VALID.replace("\"id\":99", "\"id\":10"),
           VALID.replace("\"buttons\":4", "\"buttons\":4096"),
           VALID.replace("\"pressed\":4", "\"pressed\":-1"),
-          VALID.replace("\"x\":12.5", "\"x\":1e309"),
-          VALID.replace("\"travel\":false", "\"travel\":1"),
           VALID.replace("\"enabled\":true", "\"enabled\":1"),
           VALID.replace("\"token\":2", "\"token\":0"),
           VALID + "{}"
@@ -168,47 +118,6 @@ public final class InteractionConformance {
                     <= dialogLayout.y() + dialogLayout.height() - 28,
             "long dialog body and choices stay above footer");
       }
-    var view = new InteractionMapView();
-    view.center(100, -50);
-    double anchorX = view.worldX(45), anchorZ = view.worldZ(-30);
-    view.zoom(3, 45, -30);
-    check(
-        Math.abs(view.worldX(45) - anchorX) < 1e-9 && Math.abs(view.worldZ(-30) - anchorZ) < 1e-9,
-        "zoom keeps cursor's world point fixed");
-    double x = view.x();
-    view.pan(12, 0);
-    check(Math.abs(view.x() - (x - 12 / view.scale())) < 1e-9, "drag distance matches map scale");
-    view.zoom(1000, 0, 0);
-    check(view.scale() == 12, "zoom-in is bounded");
-    view.zoom(-1000, 0, 0);
-    check(view.scale() == .25, "zoom-out is bounded");
-    view.zoom(Double.NaN, 0, 0);
-    check(
-        Double.isFinite(view.x()) && view.scale() == .25, "invalid navigation cannot corrupt map");
-    var origin =
-        new WorldOrigin(
-            7, 60, 1, new WorldOrigin.Vec(100, 10, -20), new WorldOrigin.Vec(512, 64, 512));
-    var local = new InteractionMapCoordinates(origin, 123, 60, new WorldOrigin.Vec(0, 0, 0));
-    check(
-        local.toSource(522, 64, 542).equals(new WorldOrigin.Vec(110, 10, 10)),
-        "current-tile terrain retains original block-local coordinates");
-    var crossed = new InteractionMapCoordinates(origin, 123, 61, new WorldOrigin.Vec(96, 3, -32));
-    var current = crossed.toSource(522, 64, 542);
-    check(
-        current.equals(new WorldOrigin.Vec(14, 7, 42)) && origin.map() != crossed.sourceMap(),
-        "stable-origin terrain remains available after changing source tiles");
-    check(
-        crossed.matches(123, 61) && !crossed.matches(123, 60) && !crossed.matches(124, 61),
-        "map terrain rejects foreign publishers and old source tiles");
-    var markerGuest = origin.toGuest(current.x() + 96, current.y() + 3, current.z() - 32);
-    check(
-        markerGuest.equals(new WorldOrigin.Vec(522, 64, 542)),
-        "native block-local marker and translated terrain align in the same source tile");
-    var shifted =
-        new InteractionMapCoordinates(origin, 123, 62, new WorldOrigin.Vec(-19.25, 0, 12.5));
-    check(
-        shifted.toSource(522, 64, 542).equals(new WorldOrigin.Vec(129.25, 10, -2.5)),
-        "map projection uses the published translation rather than assumed tile sizes");
     var health = new InteractionFeedHealth();
     check(
         health.observe(123, true, false, 0) == InteractionFeedHealth.Change.NONE

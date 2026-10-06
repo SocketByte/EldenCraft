@@ -109,7 +109,7 @@ We also took a novel approach to modelling the world, which means no janky colli
 | **Arsenal** | Swords, shields, bows, crossbows, ender pearls, elytra and golden apples: all real Minecraft items. |
 | **Boss bars** | Native boss health in Minecraft boss bars, with the yellow damage trail. |
 | **Minecraftified menus** | Sites of Grace, NPC conversations and confirmations become Minecraft screens; the original quest scripts still decide the outcome. |
-| **Map and fast travel** | A Minecraft map of explored terrain and discovered graces, with travel while resting. |
+| **Map and fast travel** | Elden Ring's own map on <kbd>M</kbd> or <kbd>G</kbd>, with the Minecraft overlay out of the way so it is fully clickable. |
 | **Ender Chest at every grace** | Sort chest becomes your persistent Ender Chest. |
 | **First or third person** | <kbd>F5</kbd> works the way your muscle memory expects. |
 | **Shared GPU composition** | Both renderers merge through shared GPU textures with depth-aware composition. |
@@ -189,7 +189,7 @@ file picker, or you can pass the path:
 | <kbd>Y</kbd> | Summon or dismiss **Torrent** |
 | <kbd>R</kbd> | Elden Ring interaction: doors, items, levers and Sites of Grace |
 | <kbd>E</kbd> | Minecraft inventory |
-| <kbd>M</kbd> | Minecraft map; also opens from a grace menu |
+| <kbd>M</kbd> / <kbd>G</kbd> | Elden Ring map (Minecraft is hidden until it closes) |
 | <kbd>T</kbd> / <kbd>/</kbd> | Chat / command |
 | <kbd>1</kbd>–<kbd>9</kbd> / wheel | Hotbar selection |
 | <kbd>Q</kbd> / <kbd>F</kbd> | Drop item / swap offhand |
@@ -203,7 +203,8 @@ file picker, or you can pass the path:
 <summary><b>Menus and the map</b></summary>
 
 - In menus: <kbd>Enter</kbd> / <kbd>R</kbd> confirms; <kbd>Up</kbd> / <kbd>Down</kbd>, <kbd>W</kbd> / <kbd>S</kbd> or <kbd>Tab</kbd> navigate; <kbd>Escape</kbd> / <kbd>E</kbd> closes. Camera and gameplay controls stay locked while a menu is open.
-- On the map: drag to pan, scroll or <kbd>+</kbd>/<kbd>-</kbd> to zoom, <kbd>Home</kbd> to centre, right-click to place or remove a waypoint. Select a discovered grace to inspect it. While resting, **Travel** asks for a second confirmation and uses the native world transition. Unexplored areas stay blank.
+- The map is Elden Ring's own, with its normal mouse controls and fast travel. Close it with <kbd>M</kbd>, <kbd>G</kbd> or <kbd>Escape</kbd>; Minecraft comes back once the key is released.
+- Merchants offer a single **Shop** row that opens the Minecraft shop; native selling is not offered.
 - Grace menus drop level-up, flask and memorize-spell rows; Sort chest opens your Ender Chest. Specialist screens such as equipment and Great Runes keep their native interface for now.
 - The Minecraft world keeps running when you switch windows. Its pause menu closes when you switch away; inventory and chat stay open.
 

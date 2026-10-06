@@ -28,8 +28,6 @@ pub mod host_pose;
 mod hosting;
 mod hurt;
 #[cfg(windows)]
-mod interaction_map;
-#[cfg(windows)]
 mod interaction_runtime;
 pub mod interaction_wire;
 mod ledge;
@@ -45,6 +43,8 @@ mod mob_proxy;
 mod native_colliders;
 #[cfg(windows)]
 mod native_damage;
+#[cfg(windows)]
+mod native_map;
 #[cfg(windows)]
 mod native_teleport;
 mod overlay_input;

@@ -20,16 +20,11 @@ public final class CampaignInteractions {
       DOWN = 8,
       LEFT = 16,
       RIGHT = 32,
-      MAP = 64,
       TAB = 128,
-      ZOOM_IN = 256,
-      ZOOM_OUT = 512,
-      SHIFT = 1024,
-      HOME = 2048;
+      SHIFT = 1024;
   private static volatile InteractionProtocol.Snapshot observed;
   private static long nextRead,
       nextHeartbeat,
-      nextMapSample,
       inputSequence,
       inputSession,
       inputPid,
@@ -37,7 +32,7 @@ public final class CampaignInteractions {
   private static String lastError = "";
   private static long dismissedToken, feedLostAt;
   private static final long MENU_HOLD_NANOS = 3_000_000_000L;
-  private static boolean hadMap, closePending;
+  private static boolean closePending;
   private static int inputButtons;
   private static long inputContext;
   private static final InteractionFeedHealth FEED_HEALTH = new InteractionFeedHealth();
@@ -59,14 +54,12 @@ public final class CampaignInteractions {
   }
 
   static boolean owned(Minecraft client) {
-    return client.gui.screen() instanceof InteractionScreen
-        || client.gui.screen() instanceof CampaignMapScreen
-        || CampaignEnderChest.owned(client);
+    return client.gui.screen() instanceof InteractionScreen || CampaignEnderChest.owned(client);
   }
 
   /** Custom screens handle extended Cancel themselves; vanilla containers retain ECHS Escape. */
   static boolean consumesEscape(net.minecraft.client.gui.screens.Screen screen) {
-    return screen instanceof InteractionScreen || screen instanceof CampaignMapScreen;
+    return screen instanceof InteractionScreen;
   }
 
   public static boolean ownsInput() {
@@ -145,7 +138,6 @@ public final class CampaignInteractions {
       if (owned(client)) client.gui.setScreen(null);
       dismissedToken = inputSequence = inputSession = inputPid = inputContext = 0;
       inputButtons = 0;
-      hadMap = false;
     } else {
       feedLostAt = 0;
       if (client.gui.screen() instanceof InteractionScreen screen) screen.interrupted(false);
@@ -153,10 +145,6 @@ public final class CampaignInteractions {
         closePending = false;
         if (s.menu() != null && s.menu().token() == dismissedToken)
           write("interaction-guest.json", envelope(s, dismissedToken, "close"));
-      }
-      if (now >= nextMapSample) {
-        nextMapSample = now + 500_000_000L;
-        CampaignMapScreen.observeTerrain(s, host);
       }
       var menu = s.menu();
       if (client.gui.screen() instanceof InteractionScreen screen) {
@@ -169,9 +157,6 @@ public final class CampaignInteractions {
           && menu.token() != dismissedToken
           && !CampaignEnderChest.pending())
         client.gui.setScreen(new InteractionScreen(s.session(), menu));
-      if (s.mapOpen() && !hadMap && client.gui.screen() == null)
-        client.gui.setScreen(new CampaignMapScreen(s));
-      hadMap = s.mapOpen();
       routeMenuInput(client, s);
     }
     if (now >= nextHeartbeat) {
@@ -188,10 +173,7 @@ public final class CampaignInteractions {
   private static void routeMenuInput(Minecraft client, InteractionProtocol.Snapshot s) {
     var input = s.input();
     if (input == null || input.sequence() == 0) return;
-    long context =
-        client.gui.screen() instanceof InteractionScreen screen
-            ? screen.token()
-            : client.gui.screen() instanceof CampaignMapScreen ? -1 : 0;
+    long context = client.gui.screen() instanceof InteractionScreen screen ? screen.token() : 0;
     if (inputPid != s.pid() || inputSession != s.session() || inputContext != context) {
       inputPid = s.pid();
       inputSession = s.session();
@@ -204,18 +186,9 @@ public final class CampaignInteractions {
     inputSequence = input.sequence();
     int pressed = input.pressed() | (input.buttons() & ~inputButtons);
     inputButtons = input.buttons();
-    if ((pressed & MAP) != 0 && (s.menu() == null || s.menu().kind().equals("grace"))) {
-      if (client.gui.screen() instanceof CampaignMapScreen screen) screen.onClose();
-      else if (client.gui.screen() == null || client.gui.screen() instanceof InteractionScreen)
-        openMap();
-      inputContext = client.gui.screen() instanceof CampaignMapScreen ? -1 : 0;
-      return;
-    }
     if ((pressed & CANCEL) != 0 && consumesEscape(client.gui.screen()))
       HostController.consumeEscape();
     if (client.gui.screen() instanceof InteractionScreen screen)
-      screen.hostInput(pressed, input.buttons());
-    else if (client.gui.screen() instanceof CampaignMapScreen screen)
       screen.hostInput(pressed, input.buttons());
     else if (client.gui.screen() != null
         && !(client.gui.screen() instanceof net.minecraft.client.gui.screens.ChatScreen)) {
@@ -251,37 +224,6 @@ public final class CampaignInteractions {
     closePending = s == null;
     if (s != null && s.menu() != null && s.menu().token() == token)
       write("interaction-guest.json", envelope(s, token, "close"));
-  }
-
-  static void closeMap() {
-    var s = snapshot();
-    if (s != null) {
-      var state = envelope(s, 0, "ui_state");
-      state.addProperty("open", false);
-      state.addProperty("ready", true);
-      write("interaction-ui.json", state);
-    }
-  }
-
-  static long travel(int markerId) {
-    var s = snapshot();
-    if (s == null
-        || (s.menu() != null && !s.menu().kind().equals("grace"))
-        || s.markers().stream().noneMatch(m -> m.id() == markerId && m.travel())) return 0;
-    var request = envelope(s, 0, "travel");
-    request.addProperty("choice", markerId);
-    return write("interaction-guest.json", request) ? request.get("seq").getAsLong() : 0;
-  }
-
-  static void openMap() {
-    var s = snapshot();
-    if (s != null && (s.menu() == null || s.menu().kind().equals("grace"))) {
-      Minecraft.getInstance().gui.setScreen(new CampaignMapScreen(s));
-      var state = envelope(s, 0, "ui_state");
-      state.addProperty("open", true);
-      state.addProperty("ready", true);
-      write("interaction-ui.json", state);
-    }
   }
 
   private static JsonObject envelope(InteractionProtocol.Snapshot s, long token, String action) {
