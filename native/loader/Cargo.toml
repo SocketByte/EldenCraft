@@ -1,0 +1,16 @@
+[package]
+name = "eldencraft-loader"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Persistent host for the hot-reloadable core. Keeps the DLL name the launcher,
+# me3 profile and ReShade add-on already use.
+[lib]
+name = "eldencraft_native"
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(windows)'.dependencies]
+eldenring = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }
+fromsoftware-shared = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }

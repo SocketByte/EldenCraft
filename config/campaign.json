@@ -1,0 +1,4574 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "debugKits": false,
+  "hud": {
+    "hideAchievementPopups": true,
+    "hideRecipePopups": true,
+    "hideTutorialPopups": true,
+    "stamina": {
+      "enabled": true,
+      "width": 182,
+      "height": 9,
+      "offsetY": 0,
+      "showNumbers": true,
+      "trailHoldSeconds": 0.12,
+      "trailPerSecond": 1.75,
+      "recoveryHighlightSeconds": 0.12,
+      "fill": "#75B946",
+      "exhausted": "#C18B46",
+      "trail": "#BCC475",
+      "border": "#726C47",
+      "background": "#172015",
+      "text": "#DBE7CD"
+    },
+    "bossBar": {
+      "enabled": true,
+      "width": 320,
+      "height": 10,
+      "top": 12,
+      "spacing": 8,
+      "showNumbers": false,
+      "damageHoldSeconds": 0.6,
+      "damageTrailPerSecond": 0.35,
+      "fillTint": "#C2443B",
+      "trailTint": "#FFE39A",
+      "border": "#A08A55",
+      "background": "#281916",
+      "text": "#ECE2C6"
+    }
+  },
+  "combat": {
+    "nativeDamageScale": 15,
+    "crossbowBaseDamage": 2,
+    "bowBaseDamage": 1,
+    "nativeIncomingDamageScale": 1,
+    "nativeEnemyDamageMultipliers": {}
+  },
+  "weapons": {
+    "minecraft:wooden_sword": {
+      "damage": 4,
+      "attackSpeed": 1.6
+    },
+    "minecraft:wooden_axe": {
+      "damage": 7,
+      "attackSpeed": 0.8
+    },
+    "minecraft:stone_sword": {
+      "damage": 5,
+      "attackSpeed": 1.6
+    },
+    "minecraft:stone_axe": {
+      "damage": 8,
+      "attackSpeed": 0.8
+    },
+    "minecraft:copper_sword": {
+      "damage": 6,
+      "attackSpeed": 1.6
+    },
+    "minecraft:copper_axe": {
+      "damage": 10,
+      "attackSpeed": 0.8
+    },
+    "minecraft:iron_sword": {
+      "damage": 9,
+      "attackSpeed": 1.6
+    },
+    "minecraft:iron_axe": {
+      "damage": 15,
+      "attackSpeed": 0.9
+    },
+    "minecraft:diamond_sword": {
+      "damage": 13,
+      "attackSpeed": 1.6
+    },
+    "minecraft:diamond_axe": {
+      "damage": 21,
+      "attackSpeed": 1
+    },
+    "minecraft:netherite_sword": {
+      "damage": 18,
+      "attackSpeed": 1.6
+    },
+    "minecraft:netherite_axe": {
+      "damage": 29,
+      "attackSpeed": 1
+    }
+  },
+  "armors": {
+    "minecraft:leather_helmet": {
+      "armor": 1,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:leather_chestplate": {
+      "armor": 3,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:leather_leggings": {
+      "armor": 2,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:leather_boots": {
+      "armor": 1,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:copper_helmet": {
+      "armor": 2,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:copper_chestplate": {
+      "armor": 4,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:copper_leggings": {
+      "armor": 3,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:copper_boots": {
+      "armor": 1,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:iron_helmet": {
+      "armor": 2,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:iron_chestplate": {
+      "armor": 6,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:iron_leggings": {
+      "armor": 5,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:iron_boots": {
+      "armor": 2,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:golden_helmet": {
+      "armor": 2,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:golden_chestplate": {
+      "armor": 5,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:golden_leggings": {
+      "armor": 3,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:golden_boots": {
+      "armor": 1,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:chainmail_helmet": {
+      "armor": 2,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:chainmail_chestplate": {
+      "armor": 5,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:chainmail_leggings": {
+      "armor": 4,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:chainmail_boots": {
+      "armor": 1,
+      "toughness": 0,
+      "knockbackResistance": 0
+    },
+    "minecraft:diamond_helmet": {
+      "armor": 3,
+      "toughness": 2,
+      "knockbackResistance": 0
+    },
+    "minecraft:diamond_chestplate": {
+      "armor": 8,
+      "toughness": 2,
+      "knockbackResistance": 0
+    },
+    "minecraft:diamond_leggings": {
+      "armor": 6,
+      "toughness": 2,
+      "knockbackResistance": 0
+    },
+    "minecraft:diamond_boots": {
+      "armor": 3,
+      "toughness": 2,
+      "knockbackResistance": 0
+    },
+    "minecraft:netherite_helmet": {
+      "armor": 3,
+      "toughness": 3,
+      "knockbackResistance": 0.1
+    },
+    "minecraft:netherite_chestplate": {
+      "armor": 8,
+      "toughness": 3,
+      "knockbackResistance": 0.1
+    },
+    "minecraft:netherite_leggings": {
+      "armor": 6,
+      "toughness": 3,
+      "knockbackResistance": 0.1
+    },
+    "minecraft:netherite_boots": {
+      "armor": 3,
+      "toughness": 3,
+      "knockbackResistance": 0.1
+    },
+    "minecraft:turtle_helmet": {
+      "armor": 2,
+      "toughness": 0,
+      "knockbackResistance": 0
+    }
+  },
+  "progression": {
+    "shares": 15,
+    "startVigor": 10,
+    "endVigor": 60,
+    "startEndurance": 10,
+    "endEndurance": 30,
+    "baseMinecraftHealth": 20,
+    "healthCurve": [
+      {
+        "level": 10,
+        "value": 414
+      },
+      {
+        "level": 15,
+        "value": 522
+      },
+      {
+        "level": 20,
+        "value": 652
+      },
+      {
+        "level": 25,
+        "value": 800
+      },
+      {
+        "level": 30,
+        "value": 994
+      },
+      {
+        "level": 35,
+        "value": 1216
+      },
+      {
+        "level": 40,
+        "value": 1450
+      },
+      {
+        "level": 50,
+        "value": 1704
+      },
+      {
+        "level": 60,
+        "value": 1900
+      }
+    ],
+    "staminaCurve": [
+      {
+        "level": 10,
+        "value": 50
+      },
+      {
+        "level": 11,
+        "value": 51
+      },
+      {
+        "level": 12,
+        "value": 52
+      },
+      {
+        "level": 13,
+        "value": 55
+      },
+      {
+        "level": 14,
+        "value": 57
+      },
+      {
+        "level": 15,
+        "value": 59
+      },
+      {
+        "level": 16,
+        "value": 62
+      },
+      {
+        "level": 17,
+        "value": 64
+      },
+      {
+        "level": 18,
+        "value": 66
+      },
+      {
+        "level": 19,
+        "value": 68
+      },
+      {
+        "level": 20,
+        "value": 70
+      },
+      {
+        "level": 21,
+        "value": 72
+      },
+      {
+        "level": 22,
+        "value": 73
+      },
+      {
+        "level": 23,
+        "value": 74
+      },
+      {
+        "level": 24,
+        "value": 76
+      },
+      {
+        "level": 25,
+        "value": 79
+      },
+      {
+        "level": 26,
+        "value": 81
+      },
+      {
+        "level": 27,
+        "value": 83
+      },
+      {
+        "level": 28,
+        "value": 85
+      },
+      {
+        "level": 29,
+        "value": 87
+      },
+      {
+        "level": 30,
+        "value": 90
+      }
+    ]
+  },
+  "stamina": {
+    "costs": {
+      "sword": 12,
+      "axe": 24,
+      "bow": 24,
+      "crossbow": 24,
+      "other": 12
+    },
+    "regenPerSecond": 20,
+    "regenDelaySeconds": 0.5,
+    "guardBase": 4,
+    "guardPerDamage": 1.5,
+    "guardRecovery": 5
+  },
+  "mining": {
+    "allowedBlocks": [
+      "minecraft:stone",
+      "minecraft:cobblestone",
+      "minecraft:bricks",
+      "minecraft:stone_bricks",
+      "minecraft:dirt",
+      "minecraft:coarse_dirt"
+    ],
+    "regrowTicks": 12000,
+    "resourceZones": [
+      {
+        "sourceMap": 536870912,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      },
+      {
+        "sourceMap": 536936448,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      },
+      {
+        "sourceMap": 537001984,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      },
+      {
+        "sourceMap": 537133056,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      },
+      {
+        "sourceMap": 537198592,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      },
+      {
+        "sourceMap": 537329664,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      },
+      {
+        "sourceMap": 537395200,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      },
+      {
+        "sourceMap": 537591808,
+        "hitMaterials": [
+          6
+        ],
+        "block": "minecraft:lapis_ore"
+      }
+    ]
+  },
+  "starterItems": [
+    {
+      "item": "minecraft:wooden_sword",
+      "count": 1
+    },
+    {
+      "item": "minecraft:wooden_axe",
+      "count": 1
+    },
+    {
+      "item": "minecraft:wooden_pickaxe",
+      "count": 1
+    },
+    {
+      "item": "minecraft:shield",
+      "count": 1
+    },
+    {
+      "item": "minecraft:bow",
+      "count": 1
+    },
+    {
+      "item": "minecraft:arrow",
+      "count": 16
+    },
+    {
+      "item": "minecraft:bread",
+      "count": 16
+    },
+    {
+      "item": "minecraft:leather_boots",
+      "count": 1
+    }
+  ],
+  "bosses": [
+    {
+      "id": "margit",
+      "eventFlag": 9101,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:copper_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:copper_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:crafting_table",
+          "count": 1
+        },
+        {
+          "item": "minecraft:oak_log",
+          "count": 8
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 12
+        }
+      ],
+      "experience": 200
+    },
+    {
+      "id": "godrick",
+      "eventFlag": 9100,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 8
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 16
+        }
+      ],
+      "experience": 500
+    },
+    {
+      "id": "rennala",
+      "eventFlag": 9118,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:crossbow",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 32
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 12
+        }
+      ],
+      "experience": 600
+    },
+    {
+      "id": "radahn",
+      "eventFlag": 9130,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 8
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 48
+        }
+      ],
+      "experience": 800
+    },
+    {
+      "id": "regal_ancestor",
+      "eventFlag": 9133,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 4
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 24
+        }
+      ],
+      "experience": 700
+    },
+    {
+      "id": "astel",
+      "eventFlag": 9108,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 8
+        },
+        {
+          "item": "minecraft:ender_pearl",
+          "count": 4
+        }
+      ],
+      "experience": 900
+    },
+    {
+      "id": "fortissax",
+      "eventFlag": 9111,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 6
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 24
+        }
+      ],
+      "experience": 1000
+    },
+    {
+      "id": "rykard",
+      "eventFlag": 9122,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 8
+        },
+        {
+          "item": "minecraft:golden_apple",
+          "count": 2
+        }
+      ],
+      "experience": 1000
+    },
+    {
+      "id": "golden_godfrey",
+      "eventFlag": 9105,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 24
+        }
+      ],
+      "experience": 300
+    },
+    {
+      "id": "morgott",
+      "eventFlag": 9104,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 12
+        },
+        {
+          "item": "minecraft:golden_carrot",
+          "count": 24
+        }
+      ],
+      "experience": 1200
+    },
+    {
+      "id": "fire_giant",
+      "eventFlag": 9131,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:smithing_table",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_upgrade_smithing_template",
+          "count": 2
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 2
+        }
+      ],
+      "experience": 1500
+    },
+    {
+      "id": "godskin_duo",
+      "eventFlag": 13000850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_upgrade_smithing_template",
+          "count": 2
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 2
+        }
+      ],
+      "experience": 600
+    },
+    {
+      "id": "mohg",
+      "eventFlag": 9112,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 2
+        },
+        {
+          "item": "minecraft:golden_apple",
+          "count": 3
+        }
+      ],
+      "experience": 1600
+    },
+    {
+      "id": "maliketh",
+      "eventFlag": 9116,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_upgrade_smithing_template",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 1
+        }
+      ],
+      "experience": 1800
+    },
+    {
+      "id": "placidusax",
+      "eventFlag": 9115,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 3
+        },
+        {
+          "item": "minecraft:golden_apple",
+          "count": 4
+        }
+      ],
+      "experience": 1800
+    },
+    {
+      "id": "hoarah_loux",
+      "eventFlag": 9107,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 3
+        },
+        {
+          "item": "minecraft:golden_carrot",
+          "count": 32
+        }
+      ],
+      "experience": 2000
+    },
+    {
+      "id": "malenia",
+      "eventFlag": 9120,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:golden_apple",
+          "count": 4
+        }
+      ],
+      "experience": 2400
+    },
+    {
+      "id": "elden_beast",
+      "eventFlag": 9123,
+      "remembrance": true,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 5
+        },
+        {
+          "item": "minecraft:golden_apple",
+          "count": 5
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 16
+        }
+      ],
+      "experience": 3000
+    },
+    {
+      "id": "grafted_scion",
+      "eventFlag": 9103,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "soldier_of_godrick",
+      "eventFlag": 18000850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "stranded_tree_spirit",
+      "eventFlag": 18000800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "tombsward_shade",
+      "eventFlag": 30000800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "impalers_watchdog",
+      "eventFlag": 30010800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "stormfoot_watchdog",
+      "eventFlag": 30020800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "murkwater_duelist",
+      "eventFlag": 30040800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "deathtouched_assassin",
+      "eventFlag": 30110800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "earthbore_runebear",
+      "eventFlag": 31010800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "tombsward_miranda",
+      "eventFlag": 31020800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "groveside_beastman",
+      "eventFlag": 31030800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "coastal_demi_humans",
+      "eventFlag": 31150800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "highroad_golem",
+      "eventFlag": 31170800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "morne_misbegotten",
+      "eventFlag": 32000800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "limgrave_troll",
+      "eventFlag": 32010800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "tree_sentinel",
+      "eventFlag": 1042360800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "stormhill_crucible",
+      "eventFlag": 1042370800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "stormgate_deathbird",
+      "eventFlag": 1042380800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "warmaster_hunter",
+      "eventFlag": 1042380850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "leonine_misbegotten",
+      "eventFlag": 1043300800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "weeping_avatar",
+      "eventFlag": 1043330800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "agheel",
+      "eventFlag": 1043360800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "limgrave_cavalry",
+      "eventFlag": 1043370800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "morne_deathbird",
+      "eventFlag": 1044320800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "weeping_cavalry",
+      "eventFlag": 1044320850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "darriwil",
+      "eventFlag": 1044350800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "waypoint_pumpkin",
+      "eventFlag": 1044360800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "summonwater_mariner",
+      "eventFlag": 1045390800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "weeping_zamor",
+      "eventFlag": 1042330800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:leather_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:bread",
+          "count": 8
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "roads_end_snail",
+      "eventFlag": 30030800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "blackknife_shade",
+      "eventFlag": 30050800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "blackknife_assassin",
+      "eventFlag": 30050850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "cliffbottom_watchdog",
+      "eventFlag": 30060800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "stillwater_cleanrot",
+      "eventFlag": 31040800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "lakeside_bloodhound",
+      "eventFlag": 31050800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "academy_crystalians",
+      "eventFlag": 31060800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "raya_crystalian",
+      "eventFlag": 32020800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "red_wolf_radagon",
+      "eventFlag": 14000850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "bols",
+      "eventFlag": 1033450800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "liurnia_avatar",
+      "eventFlag": 1033430800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "smarag",
+      "eventFlag": 1034450800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "royal_revenant",
+      "eventFlag": 1034480800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "albinauric_omenkiller",
+      "eventFlag": 1035420800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "caria_loretta",
+      "eventFlag": 1035500800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "liurnia_deathbird",
+      "eventFlag": 1036450340,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "liurnia_cavalry",
+      "eventFlag": 1036480340,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "royal_grave_onyx",
+      "eventFlag": 1036500800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "laskyar_deathbird",
+      "eventFlag": 1037420340,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "church_vows_hunter",
+      "eventFlag": 1037460800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "adan",
+      "eventFlag": 1038410800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "bellum_avatar",
+      "eventFlag": 1038480800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "liurnia_highway_cavalry",
+      "eventFlag": 1039430340,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "liurnia_mariner",
+      "eventFlag": 1039440800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "nokstella_dragonkin",
+      "eventFlag": 9109,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "ancestor_spirit",
+      "eventFlag": 12080800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "magma_wyrm_makar",
+      "eventFlag": 39200800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "golden_lineage",
+      "eventFlag": 1039500800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "wyndham_watchdog",
+      "eventFlag": 30070800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "sainted_zamor",
+      "eventFlag": 30080800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "gelmir_red_wolf",
+      "eventFlag": 30090800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "ordovis",
+      "eventFlag": 30100800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "unsightly_tricia",
+      "eventFlag": 30120800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "auriza_duelist",
+      "eventFlag": 30130800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "minor_erdtree_watchdog",
+      "eventFlag": 30140800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "caelid_shade",
+      "eventFlag": 30150800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "war_dead_spirit",
+      "eventFlag": 30160800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "seethewater_kindred",
+      "eventFlag": 31070800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "volcano_margot",
+      "eventFlag": 31090800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "dragonbarrow_beastmen",
+      "eventFlag": 31100800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "sellia_crystalians",
+      "eventFlag": 31110800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "perfumer_omenkiller",
+      "eventFlag": 31180800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "sages_assassin",
+      "eventFlag": 31190800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "necromancer_garris",
+      "eventFlag": 31190850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "abandoned_cleanrot",
+      "eventFlag": 31200800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "gaol_duelist",
+      "eventFlag": 31210800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "old_altus_troll",
+      "eventFlag": 32040800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "altus_crystalians",
+      "eventFlag": 32050800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "gael_magma_wyrm",
+      "eventFlag": 32070800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "sellia_fallingstar",
+      "eventFlag": 32080800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "west_altus_onyx",
+      "eventFlag": 34120800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "caelid_godskin_apostle",
+      "eventFlag": 34130800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "fell_twins",
+      "eventFlag": 34140850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "mohg_omen",
+      "eventFlag": 35000800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "esgar",
+      "eventFlag": 35000850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "godskin_noble",
+      "eventFlag": 16000850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "abductor_virgins",
+      "eventFlag": 16000860,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "seethewater_magma_wyrm",
+      "eventFlag": 1035530800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "gelmir_fallingstar",
+      "eventFlag": 1036540800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "lansseax",
+      "eventFlag": 1037510800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "queen_maggie",
+      "eventFlag": 1037530800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "gelmir_tree_spirit",
+      "eventFlag": 1037540810,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "wyndham_mariner",
+      "eventFlag": 1038520800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "hermit_hunter",
+      "eventFlag": 1043530800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "elemer",
+      "eventFlag": 9182,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "sainted_assassin",
+      "eventFlag": 1040520800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "writheblood_noble",
+      "eventFlag": 1040530800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "altus_fallingstar",
+      "eventFlag": 1041500800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 16
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "altus_sentinels",
+      "eventFlag": 1041510800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "wormface",
+      "eventFlag": 1041530800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "draconic_sentinel",
+      "eventFlag": 1045520800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "caelid_putrid_avatar",
+      "eventFlag": 1047400800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "ekzykes",
+      "eventFlag": 1048370800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "dragonbarrow_pumpkin",
+      "eventFlag": 1048400800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "isolated_hunter",
+      "eventFlag": 1048410800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "caelid_cavalry",
+      "eventFlag": 1049370800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "caelid_deathbird",
+      "eventFlag": 1049370850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "commander_oneil",
+      "eventFlag": 1049380800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 80
+    },
+    {
+      "id": "nox_duo",
+      "eventFlag": 1049390800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "redmane_crucible",
+      "eventFlag": 1051360800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:iron_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "count": 4
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "dragonbarrow_avatar",
+      "eventFlag": 1051400800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "bestial_kindred",
+      "eventFlag": 1051430800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "greyll",
+      "eventFlag": 1052410800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "lennes_cavalry",
+      "eventFlag": 1052410850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "nokron_gargoyles",
+      "eventFlag": 12020800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "nokron_dragonkin",
+      "eventFlag": 12020830,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "mimic_tear",
+      "eventFlag": 12020850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "nokron_crucible",
+      "eventFlag": 12020390,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "lake_rot_dragonkin",
+      "eventFlag": 9134,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "fia_champions",
+      "eventFlag": 9135,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "alecto",
+      "eventFlag": 1033420800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "adula",
+      "eventFlag": 1034420800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "giants_zamor",
+      "eventFlag": 30170800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "giants_tree_spirit",
+      "eventFlag": 30180800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "snowfield_duelist",
+      "eventFlag": 30190800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "stray_mimic",
+      "eventFlag": 30200810,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "forlorn_crusader",
+      "eventFlag": 31120800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "spiritcaller_snail",
+      "eventFlag": 31220800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "astel_stars_darkness",
+      "eventFlag": 32110800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "forbidden_cavalry",
+      "eventFlag": 1048510800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "snowfield_deathbird",
+      "eventFlag": 1048570800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "rold_kindred",
+      "eventFlag": 1049520800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "theodorix",
+      "eventFlag": 1050560800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "castle_sol_deathbird",
+      "eventFlag": 1050570800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_helmet",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "snowfield_putrid_avatar",
+      "eventFlag": 1050570850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "commander_niall",
+      "eventFlag": 9184,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "giants_avatar",
+      "eventFlag": 1052560800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "vyke",
+      "eventFlag": 1053560800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_sword",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 150
+    },
+    {
+      "id": "borealis",
+      "eventFlag": 1254560800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_chestplate",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "snowfield_cavalry",
+      "eventFlag": 1248550800,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_leggings",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "haligtree_loretta",
+      "eventFlag": 15000850,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:diamond_boots",
+          "count": 1
+        },
+        {
+          "item": "minecraft:diamond",
+          "count": 2
+        },
+        {
+          "item": "minecraft:arrow",
+          "count": 24
+        }
+      ],
+      "experience": 35
+    },
+    {
+      "id": "gideon",
+      "eventFlag": 9106,
+      "remembrance": false,
+      "rewards": [
+        {
+          "item": "minecraft:netherite_axe",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_ingot",
+          "count": 1
+        },
+        {
+          "item": "minecraft:cooked_beef",
+          "count": 12
+        }
+      ],
+      "experience": 250
+    }
+  ],
+  "shops": [
+    {
+      "id": "campaign",
+      "title": "Merchant",
+      "merchant_ids": [
+        "*"
+      ],
+      "offers": [
+        {
+          "id": "wood_sword",
+          "item": "minecraft:wooden_sword",
+          "count": 1,
+          "price": 100,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "wood_axe",
+          "item": "minecraft:wooden_axe",
+          "count": 1,
+          "price": 100,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "wood_pickaxe",
+          "item": "minecraft:wooden_pickaxe",
+          "count": 1,
+          "price": 100,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "wood_shovel",
+          "item": "minecraft:wooden_shovel",
+          "count": 1,
+          "price": 100,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "shield",
+          "item": "minecraft:shield",
+          "count": 1,
+          "price": 400,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "bow",
+          "item": "minecraft:bow",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "arrows",
+          "item": "minecraft:arrow",
+          "count": 16,
+          "price": 200,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "bread",
+          "item": "minecraft:bread",
+          "count": 8,
+          "price": 120,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "leather_helmet",
+          "item": "minecraft:leather_helmet",
+          "count": 1,
+          "price": 350,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "leather_chestplate",
+          "item": "minecraft:leather_chestplate",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "leather_leggings",
+          "item": "minecraft:leather_leggings",
+          "count": 1,
+          "price": 500,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "leather_boots",
+          "item": "minecraft:leather_boots",
+          "count": 1,
+          "price": 300,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "torch",
+          "item": "minecraft:torch",
+          "count": 16,
+          "price": 80,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "dirt",
+          "item": "minecraft:dirt",
+          "count": 32,
+          "price": 40,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "cobblestone",
+          "item": "minecraft:cobblestone",
+          "count": 32,
+          "price": 60,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "bricks",
+          "item": "minecraft:bricks",
+          "count": 32,
+          "price": 120,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "crafting_table",
+          "item": "minecraft:crafting_table",
+          "count": 1,
+          "price": 300,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "oak_logs",
+          "item": "minecraft:oak_log",
+          "count": 16,
+          "price": 800,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_ingots",
+          "item": "minecraft:copper_ingot",
+          "count": 8,
+          "price": 1200,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_sword",
+          "item": "minecraft:copper_sword",
+          "count": 1,
+          "price": 1600,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_axe",
+          "item": "minecraft:copper_axe",
+          "count": 1,
+          "price": 2000,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_pickaxe",
+          "item": "minecraft:copper_pickaxe",
+          "count": 1,
+          "price": 2000,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_shovel",
+          "item": "minecraft:copper_shovel",
+          "count": 1,
+          "price": 2000,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_helmet",
+          "item": "minecraft:copper_helmet",
+          "count": 1,
+          "price": 1500,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_chestplate",
+          "item": "minecraft:copper_chestplate",
+          "count": 1,
+          "price": 4000,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_leggings",
+          "item": "minecraft:copper_leggings",
+          "count": 1,
+          "price": 3300,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_boots",
+          "item": "minecraft:copper_boots",
+          "count": 1,
+          "price": 1200,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_ingots",
+          "item": "minecraft:iron_ingot",
+          "count": 4,
+          "price": 3000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_sword",
+          "item": "minecraft:iron_sword",
+          "count": 1,
+          "price": 6500,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_axe",
+          "item": "minecraft:iron_axe",
+          "count": 1,
+          "price": 9000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_pickaxe",
+          "item": "minecraft:iron_pickaxe",
+          "count": 1,
+          "price": 9000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_shovel",
+          "item": "minecraft:iron_shovel",
+          "count": 1,
+          "price": 9000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_helmet",
+          "item": "minecraft:iron_helmet",
+          "count": 1,
+          "price": 14000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_chestplate",
+          "item": "minecraft:iron_chestplate",
+          "count": 1,
+          "price": 23000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_leggings",
+          "item": "minecraft:iron_leggings",
+          "count": 1,
+          "price": 20000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_boots",
+          "item": "minecraft:iron_boots",
+          "count": 1,
+          "price": 11500,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "crossbow",
+          "item": "minecraft:crossbow",
+          "count": 1,
+          "price": 8500,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "cooked_beef",
+          "item": "minecraft:cooked_beef",
+          "count": 8,
+          "price": 800,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "anvil",
+          "item": "minecraft:anvil",
+          "count": 1,
+          "price": 23000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "lapis",
+          "item": "minecraft:lapis_lazuli",
+          "count": 8,
+          "price": 3000,
+          "stock": 12,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamonds",
+          "item": "minecraft:diamond",
+          "count": 2,
+          "price": 14000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_sword",
+          "item": "minecraft:diamond_sword",
+          "count": 1,
+          "price": 28000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_axe",
+          "item": "minecraft:diamond_axe",
+          "count": 1,
+          "price": 42000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_pickaxe",
+          "item": "minecraft:diamond_pickaxe",
+          "count": 1,
+          "price": 42000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_shovel",
+          "item": "minecraft:diamond_shovel",
+          "count": 1,
+          "price": 42000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_helmet",
+          "item": "minecraft:diamond_helmet",
+          "count": 1,
+          "price": 65000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_chestplate",
+          "item": "minecraft:diamond_chestplate",
+          "count": 1,
+          "price": 105000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_leggings",
+          "item": "minecraft:diamond_leggings",
+          "count": 1,
+          "price": 90000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_boots",
+          "item": "minecraft:diamond_boots",
+          "count": 1,
+          "price": 52000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "golden_carrots",
+          "item": "minecraft:golden_carrot",
+          "count": 8,
+          "price": 2400,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "golden_apples",
+          "item": "minecraft:golden_apple",
+          "count": 1,
+          "price": 20000,
+          "stock": 8,
+          "unlock_any": [
+            "radahn",
+            "rykard",
+            "astel",
+            "fortissax",
+            "morgott",
+            "fire_giant"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_ingot",
+          "item": "minecraft:netherite_ingot",
+          "count": 1,
+          "price": 130000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_template",
+          "item": "minecraft:netherite_upgrade_smithing_template",
+          "count": 1,
+          "price": 160000,
+          "stock": 12,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "smithing_table",
+          "item": "minecraft:smithing_table",
+          "count": 1,
+          "price": 15000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_sword",
+          "item": "minecraft:netherite_sword",
+          "count": 1,
+          "price": 105000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_axe",
+          "item": "minecraft:netherite_axe",
+          "count": 1,
+          "price": 155000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_pickaxe",
+          "item": "minecraft:netherite_pickaxe",
+          "count": 1,
+          "price": 155000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_shovel",
+          "item": "minecraft:netherite_shovel",
+          "count": 1,
+          "price": 155000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_helmet",
+          "item": "minecraft:netherite_helmet",
+          "count": 1,
+          "price": 230000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_chestplate",
+          "item": "minecraft:netherite_chestplate",
+          "count": 1,
+          "price": 380000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_leggings",
+          "item": "minecraft:netherite_leggings",
+          "count": 1,
+          "price": 320000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_boots",
+          "item": "minecraft:netherite_boots",
+          "count": 1,
+          "price": 190000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
+        },
+        {
+          "count": 1,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": [],
+          "id": "enchanting_table",
+          "item": "minecraft:enchanting_table",
+          "price": 50000
+        },
+        {
+          "count": 1,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": [],
+          "id": "book",
+          "item": "minecraft:book",
+          "price": 500
+        },
+        {
+          "count": 3,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": [],
+          "id": "bookshelf",
+          "item": "minecraft:bookshelf",
+          "price": 12000
+        }
+      ]
+    }
+  ],
+  "experience": {
+    "mobBase": 3,
+    "mobPerNativeHp": 0.005,
+    "maxPerKill": 100
+  }
+}

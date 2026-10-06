@@ -1,0 +1,32 @@
+[package]
+name = "eldencraft-native"
+version = "0.5.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+# loader: eldencraft_native.dll, the persistent hot-reload host of this core.
+members = ["loader"]
+
+[lib]
+name = "eldencraft_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# float_roundtrip: Minecraft echoes cumulative guard damage; the default
+# parser can return a value 1 ULP above what native published.
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[target.'cfg(windows)'.dependencies]
+eldenring = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }
+fromsoftware-shared = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }
+pelite = "0.10"
+sha2 = "0.10"
+ilhook = { version = "=2.3.0", default-features = false, features = ["x64"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "unwind"

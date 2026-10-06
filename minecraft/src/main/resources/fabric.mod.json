@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "eldencraft_bridge",
+  "version": "${version}",
+  "name": "EldenCraft Bridge",
+  "description": "Minecraft rendering, items and controls integrated with offline Elden Ring.",
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "main": ["dev.eldencraft.bridge.ProxyEntities"],
+    "client": ["dev.eldencraft.bridge.client.EldenCraftClient"]
+  },
+  "mixins": [{"config": "eldencraft.client.mixins.json", "environment": "client"}],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "26.3",
+    "java": ">=25",
+    "fabric-api": ">=0.161.0+26.3"
+  }
+}

@@ -1,0 +1,24 @@
+# Local dependencies, build output and runtime state.
+.cache/
+.tools/
+.local/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.gradle/
+**/run/
+build/
+dist/
+**/target/
+*.egg-info/
+.env
+/config/local.json
+/minecraft/logs/
+
+# Editors and operating systems.
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

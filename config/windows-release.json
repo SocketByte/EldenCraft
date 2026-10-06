@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "windows_min_build": 19041,
+  "elden_ring": {
+    "product_version": "2.7.1.0",
+    "sha256": "1a3547101327f65d0c76da2f9190ac0aa66871ea42bae2aecc61e11a8b597891",
+    "steam_app_id": "1245620"
+  },
+  "minecraft": {
+    "version": "26.3",
+    "fabric_loader": "0.19.5",
+    "lwjgl": "3.4.3",
+    "fabric_api": {
+      "version": "0.161.0+26.3",
+      "url": "https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/0.161.0+26.3/fabric-api-0.161.0+26.3.jar",
+      "sha256": "86f16178a3cecc887a85a4cfe9a79d92fa7341d8f39b5951a4d6ad800ab657a6"
+    }
+  },
+  "prism": {
+    "version": "11.1.1",
+    "url": "https://github.com/PrismLauncher/PrismLauncher/releases/download/11.1.1/PrismLauncher-Windows-MinGW-w64-Portable-11.1.1.zip",
+    "sha256": "05841d0b3bfc0a8212658457cc6035e1c29cd7ffae919464e874e384cbe8d062",
+    "executable": "prismlauncher.exe"
+  },
+  "java": {
+    "version": "25.0.4.1+1",
+    "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jre_x64_windows_hotspot_25.0.4.1_1.zip",
+    "sha256": "4c95451cea98556def2c54f7782933f52a26d4a36bd85e1d59f0364464828b07",
+    "executable": "jdk-25.0.4.1+1-jre/bin/javaw.exe"
+  },
+  "me3": {
+    "version": "0.13.0",
+    "url": "https://github.com/garyttierney/me3/releases/download/v0.13.0/me3-windows-amd64.zip",
+    "sha256": "a8b693c574106f20532ab1e8b58b2452f37370679b938a884fe75f87f9b68c2b",
+    "executable": "bin/me3.exe"
+  },
+  "reshade": {
+    "version": "6.8.0",
+    "url": "https://reshade.me/downloads/ReShade_Setup_6.8.0_Addon.exe",
+    "sha256": "afe4c8f13048306307983b8b3d41d5bf00a86820440b0e57dea10950e1176445",
+    "runtime_sha256": "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"
+  }
+}

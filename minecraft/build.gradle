@@ -1,0 +1,95 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+repositories { mavenCentral() }
+
+loom {
+    splitEnvironmentSourceSets()
+    mods {
+        "eldencraft_bridge" {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+    runs {
+        client { vmArgs "--enable-native-access=ALL-UNNAMED" }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+processResources {
+    from('../config/campaign.json') { rename { 'eldencraft-campaign-default.json' } }
+    def modVersion = project.version
+    inputs.property "version", modVersion
+    filesMatching("fabric.mod.json") { expand "version": modVersion }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+    options.compilerArgs += ['-Xlint:deprecation', '-Xlint:removal']
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+    withSourcesJar()
+}
+
+sourceSets.test.compileClasspath += sourceSets.client.output
+sourceSets.test.runtimeClasspath += sourceSets.client.output
+tasks.named('compileTestJava') { dependsOn tasks.named('clientClasses') }
+
+// Every conformance executable runs in its own JVM, with shared wiring kept here.
+def conformanceSuites = [
+    interactionConformance: ['dev.eldencraft.bridge.InteractionConformance', 'Check native menu row authority, freshness, bounded map data and cursor-stable navigation.'],
+    interactionContainerConformance: ['dev.eldencraft.bridge.InteractionContainerConformance', 'Check exact grace container ownership, offline paired-player admission and pinned vanilla Ender Chest APIs.'],
+    campaignBridgeConformance: ['dev.eldencraft.bridge.client.CampaignBridgeConformance', 'Check native campaign identity, wallet, vitality and bounded damage observations.'],
+    campaignShopConformance: ['dev.eldencraft.bridge.CampaignShopConformance', 'Check configured shops, bounded prices, inventory receipts and transaction recovery.'],
+    campaignConformance: ['dev.eldencraft.bridge.CampaignConformance', 'Check shipped campaign JSON, material tiers, unique remembrance progression and authoritative stamina boundaries.'],
+    jsonConformance: ['dev.eldencraft.bridge.JsonWireConformance', 'Validate bounded strict JSON for host configuration and shared world messages.'],
+    hostStateConformance: ['dev.eldencraft.bridge.client.HostStateConformance', 'Check bounded ECHS host state decoding and stale input rejection.'],
+    healthDisplayConformance: ['dev.eldencraft.bridge.HealthDisplayConformance', 'Check scoped health restoration, host loss, genuine packets and player/world replacement.'],
+    hostClockConformance: ['dev.eldencraft.bridge.HostClockConformance', 'Check host clock phase conversion, day preservation and invalid values.'],
+    combatEventConformance: ['dev.eldencraft.bridge.CombatEventConformance', 'Check accepted vanilla swing lifecycle and pre-reset cooldown gating.'],
+    hostDamageConformance: ['dev.eldencraft.bridge.HostDamageConformance', 'Check host hurt feedback lifecycle, stale gaps, duplicate frames and health-cap changes.'],
+    proxyConformance: ['dev.eldencraft.bridge.ProxyConformance', 'Check bounded authoritative combat packets, handshake, receipt ACKs and no replay across loss.'],
+    proxyShapeConformance: ['dev.eldencraft.bridge.ProxyShapeConformance', 'Check actual target dimensions and vanilla particle sampling bounds.'],
+    proxyViewConformance: ['dev.eldencraft.bridge.ProxyViewConformance', 'Check coherent camera-relative geometry and host screen-right projection.'],
+    healingConformance: ['dev.eldencraft.bridge.HealingConformance', 'Check golden apple server cadence, healing frame bounds, acknowledgements and disconnect resets.'],
+    framePipelineConformance: ['dev.eldencraft.bridge.FramePipelineConformance', 'Check active-host frame limits and bounded frame pipeline freshness.'],
+    worldConformance: ['dev.eldencraft.bridge.WorldConformance', 'Check shared world framing, stable origins, bounded events and acknowledged sessions.'],
+    blockMeshConformance: ['dev.eldencraft.bridge.BlockMeshConformance', 'Check block mesh bounds, upload acknowledgement freshness, full-area coverage and vanilla lightmap sampling.'],
+    blockDetailsConformance: ['dev.eldencraft.bridge.client.BlockDetailsConformance', 'Check real vanilla mining-crack geometry and texture coordinates across every cube face and damage stage.'],
+    hostMiningConformance: ['dev.eldencraft.bridge.HostMiningConformance', 'Check held mining ownership, release, reacquisition and publisher/map replacement.'],
+    rangedConformance: ['dev.eldencraft.bridge.RangedConformance', 'Check actual-flight bounds, per-impact immutable evidence, native contact validation and stale-use cancellation.'],
+    labCommandsConformance: ['dev.eldencraft.bridge.client.LabCommandsConformance', 'Check the actual lab command permission predicate with vanilla serverless validation sources.'],
+    worldStartupConformance: ['dev.eldencraft.bridge.client.EldenCraftWorldConformance', 'Check automatic world creation, reopening, startup cancellation and vanilla world settings.'],
+    worldFocusConformance: ['dev.eldencraft.bridge.client.WorldFocusConformance', 'Check background focus handoff, pause recovery and preservation of inventory, chat and unrelated sessions.'],
+    presentationConformance: ['dev.eldencraft.bridge.PresentationConformance', 'Check confirmed projectile feedback and fresh host footstep displacement without starting a game.'],
+    hostAvatarConformance: ['dev.eldencraft.bridge.HostAvatarConformance', 'Check F5 frame timing, animation cadence, angle wrap and context loss.'],
+    worldSpawnConformance: ['dev.eldencraft.bridge.WorldSpawnConformance', 'Check eggs-only mob admission across all Minecraft spawn reasons and lifecycle exceptions.'],
+    flightConformance: ['dev.eldencraft.bridge.FlightConformance', 'Check flight input edges, stale velocity bounds and native collision feedback.'],
+    torrentConformance: ['dev.eldencraft.bridge.TorrentConformance', 'Check Torrent summon areas, refusals, revival cost, shared damage, rest and render heading.'],
+    chatConformance: ['dev.eldencraft.bridge.ChatConformance', 'Check ordered Unicode chat, editing controls, stale/gapped input cancellation and session isolation.'],
+    sharedLightingConformance: ['dev.eldencraft.bridge.SharedLightingConformance', 'Check actual hidden-terrain skylight and ambient shading against vanilla barrier behavior.'],
+    netherConformance: ['dev.eldencraft.bridge.NetherConformance', 'Check the shared Nether layout rules, ECNH page encoding and the scoped wave admission.']
+]
+conformanceSuites.each { taskName, suite ->
+    tasks.register(taskName, JavaExec) {
+        description = suite[1]
+        group = 'verification'
+        dependsOn testClasses
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = suite[0]
+        if (taskName == 'hostStateConformance') jvmArgs '--enable-native-access=ALL-UNNAMED'
+    }
+    check.dependsOn taskName
+}
+
+// This project uses the integration executable above instead of a JUnit engine.
+tasks.named('test') { enabled = false }

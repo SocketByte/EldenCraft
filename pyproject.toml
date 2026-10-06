@@ -1,0 +1,17 @@
+[project]
+name = "eldencraft"
+version = "0.21.9"
+description = "Offline Elden Ring and Minecraft integration with local development tools."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = ["pillow>=10"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "passthrough"]

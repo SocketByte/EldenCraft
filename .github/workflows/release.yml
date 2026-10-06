@@ -1,0 +1,96 @@
+name: Release
+
+# Push a version tag to publish a GitHub Release:
+#   git tag v0.21.9 && git push origin v0.21.9
+# The tag must equal the version in minecraft/gradle.properties and pyproject.toml.
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Check tag version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: version
+        name: Match tag to project version
+        shell: bash
+        run: |
+          gradle=$(sed -n 's/^version=//p' minecraft/gradle.properties | tr -d '\r')
+          python=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -n 1)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$gradle" ] || [ "$tag" != "$python" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match gradle.properties ($gradle) and pyproject.toml ($python)."
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build
+    needs: version
+    uses: ./.github/workflows/windows.yml
+
+  publish:
+    name: Publish GitHub Release
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: EldenCraft-windows-x64
+          path: dist
+      - name: Verify package
+        working-directory: dist
+        shell: bash
+        run: |
+          archive="EldenCraft-$VERSION-windows-x64.zip"
+          test -f "$archive" || { echo "::error::Missing $archive"; ls -la; exit 1; }
+          sha256sum -c "$archive.sha256"
+          echo "SHA256=$(cut -d ' ' -f 1 "$archive.sha256")" >> "$GITHUB_ENV"
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          1. Download **EldenCraft-$VERSION-windows-x64.zip** below and extract it to a writable folder.
+          2. Sign in to Steam and close both games.
+          3. Double-click **EldenCraft.cmd** and follow the first-run setup.
+
+          Requires Windows 10/11 x64, Elden Ring **2.7.1.0** (Steam) and Minecraft Java Edition **26.3**.
+          Updating? Extract into a new folder and run its \`EldenCraft.cmd\`; your worlds, saves and settings carry over.
+
+          \`SHA256 $SHA256\`
+          EOF
+      - name: Create or update release
+        shell: bash
+        run: |
+          files=(dist/EldenCraft-$VERSION-windows-x64.zip dist/EldenCraft-$VERSION-windows-x64.zip.sha256)
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" \
+              --verify-tag \
+              --title "EldenCraft $VERSION" \
+              --notes-file notes.md \
+              --generate-notes
+          fi

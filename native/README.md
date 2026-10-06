@@ -1,0 +1,98 @@
+# Native host and loader
+
+The Rust workspace produces `eldencraft_native.dll`, the persistent loader, and
+`eldencraft_core.dll`, the gameplay bridge. Minecraft owns its items, blocks and
+simulation; the host adapts Elden Ring camera, motion, collision, input and damage.
+
+```powershell
+.\scripts\eldencraft.ps1 build-native --offline
+.\scripts\eldencraft.ps1 test-native --offline
+```
+
+Run these commands from the repository root. Artifacts are written to
+`.local/native-build/release`. Both DLLs link the C runtime statically.
+
+## Compatibility and ownership
+
+The SDK revision is `59fbd3b3b7daaf14aca47c9f73530493dba6bc79`. The supported Elden
+Ring product version is 2.7.1.0, with executable SHA256:
+
+```text
+1a3547101327f65d0c76da2f9190ac0aa66871ea42bae2aecc61e11a8b597891
+```
+
+The launcher and native host both enforce compatibility. Offline session, active
+player, foreground window, menu state and publication freshness gate native
+ownership. Restoration requires the same live object and a value still owned by
+the bridge. Player releases use me3 with `start_online=false` and a separate
+`EldenCraft.sl2`.
+
+## Interaction menus
+
+`interaction_runtime` captures the pinned ESD talk events and environment queries.
+Campaign shops and interaction menus share one idempotent talk-event dispatcher;
+each event reaches the original handler once unless a replacement handles it.
+The environment-query and text hooks verify their own targets before installing.
+Event and query values are read through the executable's verified virtual
+accessors, including script implementations with different memory layouts.
+It replaces complete TalkList and ConversationChoices menus and verified generic
+dialogs, preserving their original row IDs, result codes, rest actions and quest
+side effects. Its message lookup hook supplies localized action text and NPC
+speech. Only text with a fresh Minecraft replacement is suppressed. Unsupported
+specialist windows retain native rendering and controls.
+
+Replacement ownership requires a foreground offline player, fresh compositor
+input and a ready Minecraft heartbeat. ESD menu capture validates its live script
+owner and current offline session using that fresh bridge lease; movement-phase
+player physics and activity checks apply only to the separate reset recovery.
+Losing a bridge gate releases input and restores camera/HUD ownership. An open
+owned menu is held for up to 3 seconds so a brief gap (for example, focus or
+readiness changes when an NPC conversation starts) does not answer the script
+with Leave; it is cancelled if the lease is not regained, and immediately on
+online, lobby or warp transitions. Holds, cancellations and script-initiated
+closes are logged. Delivered script results remain available for the owning NPC
+to consume. A bounded, same-player grace reset retains passive source rows while
+gameplay writes remain suspended; after readiness returns, a still-open native
+grace list can transfer to Minecraft.
+Grace menus are identified by the common grace talk script (t000001000) or its
+grace-only Pass time row, independently of rest/bonfire flags, and their rules are
+reapplied when the menu is shown. Native levelling, flask and memorize-spell
+grace entries are excluded; Sort chest becomes the Minecraft Ender Chest action.
+
+The transient HUD controller also reserves the documented native Pause permission
+while the composed interface is available. It uses verified native
+reset/getter/setter fingerprints, changes only the permission bit, and restores
+it with live menu identity and value checks. Minecraft supplies the ordinary
+pause/options screens. The native UI task timing still requires gameplay QA.
+
+`interaction_map` permits travel only during an established native grace rest
+loop, between verified discovered BonfireWarpParam destinations. It checks the
+current player/rest identities, load/session state and native dungeon travel
+prohibition before calling the byte-verified Lua warp handler. Map browsing does
+not grant travel admission.
+
+## Hot reload
+
+The loader owns the game task registrations and compositor exports. It starts a
+private copy of the core from the runtime's `loaded/` directory.
+`ELDENCRAFT_HOT_RELOAD=1` enables replacement on the post-physics task; the old core
+releases its owned changes first. Retired copies remain in memory. For a developer
+runtime, `scripts/eldencraft.ps1 reload-native` rebuilds and copies the core.
+Minecraft and compositor updates require a restart.
+
+## Diagnostics
+
+`ELDENCRAFT_DATA_DIR` selects the runtime data directory. Native and loader logs
+are written there. Fault reports are under `crash/`; inspect dumps before sharing.
+`ELDENCRAFT_DIAGNOSTIC_MODE=task-only` exercises task registration without running
+gameplay callbacks.
+
+The optional `ELDENCRAFT_FILE_CONTROL=1` interface accepts increasing, bounded
+command sequences through `command.json`. See `src/control.rs` and
+`scripts/eldencraft-control.ps1`. Acknowledgements report dispatch, not completion
+of game actions.
+
+Subsystem implementations: [transport index](../PROTOCOL.md),
+[movement](src/movement_driver.rs), [flight](src/player_flight.rs),
+[damage](src/native_damage.rs), [colliders](src/native_colliders.rs)
+and [camera](src/scene_camera.rs).

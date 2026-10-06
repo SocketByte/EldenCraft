@@ -1,0 +1,10 @@
+# Keep the tested LF line endings on every checkout, including Windows CI.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.jar binary
+*.zip binary

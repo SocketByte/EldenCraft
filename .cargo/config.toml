@@ -1,0 +1,3 @@
+# Release DLLs carry their C runtime so players do not need Visual Studio runtimes.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
