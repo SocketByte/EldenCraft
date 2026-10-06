@@ -39,7 +39,7 @@
     }
   },
   "combat": {
-    "nativeDamageScale": 15,
+    "nativeDamageScale": 15, 
     "crossbowBaseDamage": 2,
     "bowBaseDamage": 1,
     "nativeIncomingDamageScale": 1,

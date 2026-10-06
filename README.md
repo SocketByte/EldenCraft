@@ -295,6 +295,15 @@ toolchain, tests and packaging. Pushing a `v<version>` tag that matches
 `minecraft/gradle.properties` builds, tests and publishes a GitHub Release
 automatically through [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
+## Support the project
+
+EldenCraft is free and open source. If it made you laugh, die to the Tree Sentinel
+with a wooden sword, or both, you can help keep it going:
+
+<p align="center">
+  <a href="https://buymeacoffee.com/socketbyte"><img alt="Buy me a coffee" src="https://img.shields.io/badge/Buy_me_a_coffee-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=black&labelColor=1b1a17&color=ffdd00"></a>
+</p>
+
 ## Credits and license
 
 Inspired by [Minecraft-Ring](https://github.com/siddoff/Minecraft-Ring) by siddoff

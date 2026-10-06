@@ -21,9 +21,5 @@ distribution endpoints. They retain their own licenses and notices:
 - [ReShade](https://reshade.me/): graphics runtime.
 - [Fabric API](https://fabricmc.net/): Minecraft event API.
 
-The project acknowledges [Minecraft-Ring](https://github.com/siddoff/Minecraft-Ring)
-by siddoff and [minecraft-crossover-bridge](https://github.com/justbustin/minecraft-crossover-bridge)
-by justbustin as technical inspiration. Their implementations are MIT licensed.
-
 Minecraft and Elden Ring are separately owned products. EldenCraft does not
 distribute their executables, assets, worlds, account data or decompiled source.
