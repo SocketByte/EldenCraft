@@ -35,6 +35,43 @@ the checks. It still validates versions, architecture, source files and native
 runtime dependencies. ZIP entries have fixed timestamps and sorted paths, making
 packaging deterministic for identical build artifacts.
 
+## Reproducible builds
+
+Release builds are byte-for-byte reproducible: the same source and toolchain
+produce the same release ZIP, whatever folder the repository is cloned into.
+
+- **Rust DLLs:** `scripts/native-env.ps1` links with `/Brepro` (no timestamps; the
+  PDB identity comes from the content) and remaps the repository and Cargo paths
+  to `/eldencraft` and `/cargo`. Builds therefore embed no machine paths.
+- **Compositor add-on:** compiled and linked with `/Brepro`; Release builds carry no
+  debug information.
+- **Minecraft jar:** Loom writes fixed entry timestamps. Gradle's configuration
+  cache is off because it made Loom's client-only manifest list depend on leftovers
+  from earlier builds.
+- **Release ZIP:** `tools/package_release.py` writes sorted entries with fixed
+  timestamps.
+
+Use these exact toolchain versions to reproduce a release:
+
+| Tool | Version |
+| --- | --- |
+| Rust | 1.99.0 (installed by `setup-native`) |
+| MSVC (Visual Studio 2022 Build Tools) | toolset 14.44.35207, `cl` 19.44.35229, `link` 14.44.35229.0 |
+| Windows SDK | 10.0.26100.0 |
+| CMake / Ninja | 3.31.6 / 1.12.1 (bundled with the Build Tools) |
+| Java | Eclipse Temurin 25.0.4.1 |
+
+A different MSVC version changes linker metadata and the static C runtime, so
+the DLL hashes then differ even though the code is the same. To verify a
+release, build it, then compare checksums:
+
+```powershell
+.\scripts\eldencraft.ps1 setup
+.\scripts\eldencraft.ps1 setup-native
+.\scripts\build-release.ps1
+Get-Content .local\releases\EldenCraft-<version>-windows-x64.zip.sha256
+```
+
 ## Individual checks
 
 ```powershell

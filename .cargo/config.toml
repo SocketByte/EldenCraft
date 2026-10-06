@@ -1,3 +1,4 @@
-# Release DLLs carry their C runtime so players do not need Visual Studio runtimes.
+# Release DLLs carry their C runtime so players do not need Visual Studio runtimes,
+# and /Brepro keeps rebuilds byte-identical. scripts/native-env.ps1 mirrors these.
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/Brepro"]

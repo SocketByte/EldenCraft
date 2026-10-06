@@ -62,7 +62,9 @@ if(WIN32)
     target_include_directories(frame_inspect PRIVATE include)
     target_compile_definitions(frame_inspect PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
     if(MSVC)
-        target_compile_options(EldenCraftCompositor PRIVATE /W4 /EHsc)
+        # /Brepro: no timestamps, so the same toolchain rebuilds a byte-identical add-on.
+        target_compile_options(EldenCraftCompositor PRIVATE /W4 /EHsc /Brepro)
+        target_link_options(EldenCraftCompositor PRIVATE /Brepro)
         target_compile_options(frame_inspect PRIVATE /W4 /EHsc)
     endif()
     add_custom_command(TARGET EldenCraftCompositor POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
