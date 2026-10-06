@@ -233,11 +233,15 @@ function Find-EldenRing([string]$Explicit, [string]$Saved, [string]$SourceRoot) 
             }
         }
         foreach ($library in $libraries) {
-            $manifest = Join-Path $library 'steamapps/appmanifest_1245620.acf'
-            if (Test-Path -LiteralPath $manifest) {
+            # Steam keeps libraries on drives that may be gone (an unplugged disk), and
+            # Windows PowerShell's Join-Path throws for a missing drive. Build the paths
+            # directly and skip any library entry that cannot be read.
+            try {
+                $manifest = [IO.Path]::Combine($library, 'steamapps', 'appmanifest_1245620.acf')
+                if (-not (Test-Path -LiteralPath $manifest)) { continue }
                 $match = [regex]::Match((Get-Content -LiteralPath $manifest -Raw -Encoding UTF8), '"installdir"\s+"([^"]+)"')
-                if ($match.Success) { $candidates.Add((Join-Path $library ('steamapps/common/' + $match.Groups[1].Value + '/Game/eldenring.exe'))) }
-            }
+                if ($match.Success) { $candidates.Add([IO.Path]::Combine($library, 'steamapps', 'common', $match.Groups[1].Value, 'Game', 'eldenring.exe')) }
+            } catch { continue }
         }
     }
     foreach ($candidate in $candidates) {

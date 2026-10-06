@@ -98,6 +98,28 @@ Assert-Throws { Read-Release $package } 'Checksum'
 Write-Utf8File (Join-Path $package 'payload/eldencraft_core.dll') 'fixture: eldencraft_core.dll'
 Assert-Throws { Find-EldenRing (Join-Path $scratch 'missing.exe') $game $package } 'not found'
 
+# A Steam library on a drive that no longer exists (an unplugged disk) must be
+# skipped, not abort discovery: Windows PowerShell's Join-Path throws for it.
+$missingDrive = [char[]](68..90) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
+$steamRoot = Join-Path $scratch 'steam'
+$library = Join-Path $scratch 'library'
+New-Item -ItemType Directory -Force -Path (Join-Path $steamRoot 'steamapps'), (Join-Path $library 'steamapps/common/ELDEN RING/Game') | Out-Null
+Write-Utf8File (Join-Path $steamRoot 'steamapps/libraryfolders.vdf') @"
+"libraryfolders"
+{
+    "0" { "path" "$($missingDrive):\\SteamLibrary" }
+    "1" { "path" "$($library.Replace('\', '\\'))" }
+}
+"@
+Write-Utf8File (Join-Path $library 'steamapps/appmanifest_1245620.acf') '"AppState" { "installdir" "ELDEN RING" }'
+$libraryGame = Join-Path $library 'steamapps/common/ELDEN RING/Game/eldenring.exe'
+Write-Utf8File $libraryGame 'game executable fixture'
+function Get-ItemProperty { param($LiteralPath, $ErrorAction) return [pscustomobject]@{ SteamPath = $steamRoot } }
+try {
+    Assert-True ([bool]$missingDrive) 'A free drive letter is needed for the missing-drive fixture.'
+    Assert-True ((Find-EldenRing '' '' $package) -eq [IO.Path]::GetFullPath($libraryGame)) 'A missing-drive Steam library must be skipped.'
+} finally { Remove-Item -LiteralPath function:Get-ItemProperty }
+
 $oldAppData = $env:APPDATA
 try {
     $env:APPDATA = Join-Path $scratch 'appdata'
