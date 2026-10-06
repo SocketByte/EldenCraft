@@ -22,7 +22,7 @@ final class InteractionHud {
       gui.fill(x - 6, y - 4, x + font.width(text) + 6, y + font.lineHeight + 4, 0xb0000000);
       gui.text(font, text, x, y, s.prompt().enabled() ? 0xffffffff : 0xffa0a0a0, true);
     }
-    if (!s.subtitle().isBlank() && !(client.gui.screen() instanceof CampaignMapScreen)) {
+    if (!s.subtitle().isBlank()) {
       var lines = font.split(Component.literal(s.subtitle()), maximum);
       int count = Math.min(5, lines.size());
       int bottom = client.gui.screen() == null ? height - 106 : height - 12;

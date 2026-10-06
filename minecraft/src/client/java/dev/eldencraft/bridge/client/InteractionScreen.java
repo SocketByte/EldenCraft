@@ -22,7 +22,6 @@ final class InteractionScreen extends Screen {
   private String status = "";
   private List<FormattedCharSequence> body = List.of();
   private int bodyOffset;
-  private Button mapButton;
 
   InteractionScreen(long session, InteractionProtocol.Menu menu) {
     super(Component.literal(menu.title()));
@@ -37,6 +36,10 @@ final class InteractionScreen extends Screen {
 
   long token() {
     return menu.token();
+  }
+
+  boolean pending() {
+    return pending;
   }
 
   private static List<InteractionProtocol.Choice> visibleChoices(InteractionProtocol.Menu menu) {
@@ -69,13 +72,6 @@ final class InteractionScreen extends Screen {
     if (width < 100
         || height < 90
         || (!body.isEmpty() && layout.bodyHeight() < font.lineHeight + 8)) return;
-    if (menu.kind().equals("grace") && layout.width() >= 180)
-      mapButton =
-          addRenderableWidget(
-              Button.builder(Component.literal("Map"), b -> CampaignInteractions.openMap())
-                  .bounds(layout.x() + layout.width() - 56, layout.y() + 8, 44, 20)
-                  .build());
-    if (mapButton != null) mapButton.active = !pending && !interrupted;
     for (int row = 0; row < layout.rows(); row++) {
       int index = page * layout.rows() + row;
       if (index >= choices.size()) break;
@@ -124,7 +120,6 @@ final class InteractionScreen extends Screen {
       pending = true;
       status = "Waiting...";
       for (var button : rows) button.active = false;
-      if (mapButton != null) mapButton.active = false;
     } else status = "This interaction is no longer available.";
   }
 
@@ -138,7 +133,6 @@ final class InteractionScreen extends Screen {
       rows.get(i).active =
           !value && !pending && index < choices.size() && choices.get(index).enabled();
     }
-    if (mapButton != null) mapButton.active = !value && !pending;
   }
 
   void containerOpenFailed(String message) {
@@ -229,7 +223,7 @@ final class InteractionScreen extends Screen {
         MinecraftUi.clipped(
             font,
             menu.kind().equals("dialog") ? "Interaction" : menu.title(),
-            layout.width() - (menu.kind().equals("grace") && layout.width() >= 180 ? 84 : 24));
+            layout.width() - 24);
     gui.text(font, heading, layout.x() + 12, layout.y() + 12, MinecraftUi.TEXT, false);
     if (width < 100
         || height < 90

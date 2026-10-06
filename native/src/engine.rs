@@ -76,12 +76,10 @@ pub extern "C" fn eldencraft_menu_input(buttons: u32, x: f32, y: f32, wheel: i32
     }
     let now = unsafe { GetTickCount64() };
     let pressed = crate::overlay_input::publish_menu(now, buttons, [x, y], wheel);
-    let map_open = pressed & crate::overlay_input::MENU_MAP != 0
-        && crate::interaction_runtime::replacement_ready();
     // Vanilla Pause imports Escape through ECHS independently of the interaction
-    // mailbox. A failed or stale interaction bridge cannot open a usable map.
+    // mailbox. M opens Elden Ring's own map, which needs no Minecraft GUI.
     let pause_open = pressed & crate::overlay_input::MENU_CANCEL != 0;
-    if (map_open || pause_open) && eldencraft_gui_open() == 0 {
+    if pause_open && eldencraft_gui_open() == 0 {
         MENU_OPEN_DEADLINE.store(now + 500, Ordering::Release);
         LOOK_DEADLINE.store(0, Ordering::Release);
         crate::movement_driver::set_input_ready(false);
@@ -658,6 +656,7 @@ pub fn start(module: usize) {
         last_gate: "",
         snapshot_stage: 0,
         last_player_flags: None,
+        native_map: Default::default(),
         input_capture: input_capture::Capture::new(),
         last_camera_error: "",
         combat_trace: std::env::var("ELDENCRAFT_COMBAT_TRACE").is_ok_and(|s| s == "1"),
@@ -935,6 +934,11 @@ fn snapshot(
     }
 }
 
+const VK_M: i32 = 0x4d;
+const VK_ESCAPE: i32 = 0x1b;
+fn key_down(key: i32) -> bool {
+    unsafe { GetAsyncKeyState(key) < 0 }
+}
 const KEY_COUNT: usize = 4;
 const KEYS: [i32; KEY_COUNT] = [0x75, 0x74, 0x73, 0x52]; // F6 composition, F5 view, F4 hitboxes, R interaction.
 struct Host {
@@ -947,6 +951,7 @@ struct Host {
     last_gate: &'static str,
     snapshot_stage: u8,
     last_player_flags: Option<(u8, u8)>,
+    native_map: crate::native_map::Driver,
     input_capture: input_capture::Capture,
     last_camera_error: &'static str,
     passthrough_camera: Arc<Mutex<crate::camera_driver::Driver>>,
@@ -1632,6 +1637,21 @@ impl Host {
                 state
             }
             Err(reason) => {
+                // A native world map that blocks the snapshot still closes
+                // through its keys; a load or warp ends it outright.
+                if crate::settle::relocating(reason) {
+                    unsafe { self.native_map.reset() };
+                } else {
+                    unsafe {
+                        self.native_map.tick(
+                            now_ms,
+                            key_down(VK_M),
+                            key_down(VK_ESCAPE),
+                            None,
+                            false,
+                        )
+                    };
+                }
                 if passive_grace_reset
                     && reason == "local player activity/update tasks are not ready"
                 {
@@ -1672,6 +1692,34 @@ impl Host {
             if self.last_gate != "settling" {
                 log(&self.io, "Gate: settling after a load, death or warp.");
                 self.last_gate = "settling";
+            }
+            return;
+        }
+        // Elden Ring's own map: give it the whole frame and every input, as
+        // for any native menu, until it closes.
+        let gameplay = self.enabled
+            && self.guest_status.poll() == Some(false)
+            && !self.interactions.as_ref().is_some_and(|ui| ui.blocking())
+            && !crate::chat_input::active(now_ms)
+            && !state.native_menu_blocked;
+        let native_map = unsafe {
+            self.native_map.tick(
+                now_ms,
+                key_down(VK_M),
+                key_down(VK_ESCAPE),
+                Some(state.player),
+                gameplay,
+            )
+        };
+        if native_map {
+            acknowledge(&self.io, command, "native map open");
+            self.suspend();
+            if self.last_gate != "native_map" {
+                log(
+                    &self.io,
+                    "Gate: native map open; Minecraft composition and input released.",
+                );
+                self.last_gate = "native_map";
             }
             return;
         }

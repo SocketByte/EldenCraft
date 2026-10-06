@@ -138,7 +138,7 @@ Lapis ore also follows vanilla mining XP rules. Merchants sell an enchanting tab
 
 ## Shops
 
-Native Purchase commands open the custom Minecraft screen. Talk and quest dialogue continue through Elden Ring. The shop uses dark pixel panels with bright cream text and gold rune prices. It displays vanilla item icons, prerequisites and stock, with single-bundle and stack purchases. Inventory delivery runs on the integrated server.
+The merchant's Purchase row is shown as **Shop** and its native Purchase command opens the custom Minecraft screen; the native Sell row is hidden. Talk and quest dialogue continue through Elden Ring. The shop uses dark pixel panels with bright cream text and gold rune prices. It displays vanilla item icons, prerequisites and stock, with single-bundle and stack purchases. Inventory delivery runs on the integrated server.
 
 The catalog and selected-item details have separate panels, with purchase feedback above the vanilla inventory grid. Page buttons and scrolling navigate the catalog. Bulk labels show the quantity currently affordable within stock and item stack limits; unavailable purchases explain their reason in the feedback strip or tooltip. Smaller GUI dimensions show a readable prompt to increase window size or reduce GUI scale, with Close and Escape available.
 

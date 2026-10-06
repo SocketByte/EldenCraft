@@ -55,9 +55,8 @@ public final class WorldFocusConformance {
         "Vanilla Ender Chest keeps imported Escape so it closes through its normal container"
             + " protocol");
     check(
-        CampaignInteractions.consumesEscape(screen(InteractionScreen.class))
-            && CampaignInteractions.consumesEscape(screen(CampaignMapScreen.class)),
-        "Custom grace and map screens consume Escape exactly once");
+        CampaignInteractions.consumesEscape(screen(InteractionScreen.class)),
+        "Custom interaction screens consume Escape exactly once");
     check(
         Minecraft.class.getMethod("pauseGame", boolean.class).getReturnType() == void.class,
         "The pinned client exposes the cancellable pause entry point");

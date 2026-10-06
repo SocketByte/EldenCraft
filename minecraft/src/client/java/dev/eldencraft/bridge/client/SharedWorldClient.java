@@ -190,35 +190,6 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
     return new BlockMeshContext(o, l.host.pid(), l.session);
   }
 
-  /** Fresh terrain paired with its native source-block translation, including tile crossings. */
-  public record MapTerrainSnapshot(
-      InteractionMapCoordinates coordinates,
-      Map<Long, net.minecraft.world.phys.shapes.VoxelShape> shapes) {}
-
-  public static MapTerrainSnapshot mapTerrainSnapshot(HostState.Snapshot control) {
-    var l = lease;
-    var k = kinematicsLease;
-    var completed = completedLease;
-    var o = worldOrigin;
-    if (control == null
-        || !active()
-        || !serverActive()
-        || l == null
-        || o == null
-        || !sameContext(l, k)
-        || !sameContext(l, completed)
-        || o.epoch() != l.host.epoch()
-        || o.map() != l.host.map()
-        || control.publisherPid() != l.host.pid()
-        || control.mapId() != l.host.sourceMap()) return null;
-    var shapes = SharedTerrain.snapshot();
-    var coordinates =
-        new InteractionMapCoordinates(o, l.host.pid(), l.host.sourceMap(), l.host.sourceToRegion());
-    return l == lease && k == kinematicsLease && completed == completedLease && o == worldOrigin
-        ? new MapTerrainSnapshot(coordinates, shapes)
-        : null;
-  }
-
   /** Server thread: the stable origin of the current map, or null before the first publication. */
   public static WorldOrigin serverOrigin() {
     return serverActive() ? worldOrigin : null;

@@ -65,11 +65,13 @@ reset/getter/setter fingerprints, changes only the permission bit, and restores
 it with live menu identity and value checks. Minecraft supplies the ordinary
 pause/options screens. The native UI task timing still requires gameplay QA.
 
-`interaction_map` permits travel only during an established native grace rest
-loop, between verified discovered BonfireWarpParam destinations. It checks the
-current player/rest identities, load/session state and native dungeon travel
-prohibition before calling the byte-verified Lua warp handler. Map browsing does
-not grant travel admission.
+`native_map` follows Elden Ring's own world map. `M` opens it by briefly holding
+the native Map binding's digital input; the player's own Map binding is followed
+as well. While it is open the engine suspends exactly as for a blocking native
+menu, releasing composition, ECHS input and native input reservations. Close
+keys resume Minecraft once released; any player movement or load also ends it.
+Merchant Sell rows are omitted from replacement menus and Purchase is shown as
+Shop, so only the campaign's intercepted shop is reachable.
 
 ## Hot reload
 

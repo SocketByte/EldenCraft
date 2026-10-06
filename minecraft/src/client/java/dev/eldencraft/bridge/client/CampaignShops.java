@@ -103,7 +103,10 @@ public final class CampaignShops {
       return;
     }
     View v = view;
-    if (client.gui.screen() == null
+    // Selecting Shop closes the native talk list before the merchant context
+    // arrives; replace the waiting dialog rather than racing its close.
+    if ((client.gui.screen() == null
+            || client.gui.screen() instanceof InteractionScreen screen && screen.pending())
         && !dismissedToken.equals(s.merchant().token())
         && v != null
         && v.character().equals(s.character())
@@ -162,7 +165,7 @@ public final class CampaignShops {
         if (!request.character().equals(s.character())
             || s.merchant() == null
             || !request.token().equals(s.merchant().token())) {
-          status = "Merchant context changed. Open Purchase again.";
+          status = "Merchant context changed. Open Shop again.";
           continue;
         }
         var shop = catalog.forMerchant(s.merchant().id());

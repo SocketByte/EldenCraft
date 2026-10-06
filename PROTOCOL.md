@@ -127,39 +127,38 @@ older than 500 ms. The native side requires a matching identity, new sequence an
 request age of at most 500 ms, with a 100 ms future-clock allowance. Host files
 are bounded to 128 KiB by the guest and commands to 64 KiB by native.
 
-The host publishes `active`, `blocking`, optional `prompt`, `menu`, `subtitle`,
-`input` and `markers`. A prompt is `{token,text_id,text,enabled}`. A menu is
+The host publishes `active`, `blocking`, optional `prompt`, `menu`, `subtitle`
+and `input`. A prompt is `{token,text_id,text,enabled}`. A menu is
 `{token,kind,title,choices:[{id,text,enabled,action?}]}`, where `kind` is `npc`, `grace` or
 `dialog`; there are at most 64 unique actual native rows. Tokens bind selection
 to the current live menu. Text is bounded, localized and stripped of native
 display markup. The optional choice action `ender_chest` is valid only in grace
 menus. It opens the paired Minecraft player's persistent vanilla Ender Chest;
 it sends no native selection and keeps the grace result context open underneath.
-A subtitle contains `{text}`. Markers contain
-`{id,text,x,z,block,travel}` and use native block-local coordinates. Only
-discovered native grace destinations are published. The `travel` capability is
-an observation and must be revalidated on command execution.
+Merchant Purchase rows (text 20000010) are published as `Shop` with their
+original row ID; Sell rows (20000011) are omitted. A subtitle contains `{text}`.
 
 `interaction-ui.json` carries `action:"ui_state"`, `token:0`, `ready` and `open`
 every 100 ms. Its separate mailbox prevents a heartbeat from overwriting a
 choice request. `interaction-guest.json` carries `select` plus `choice`, `close`
-or `interact` with the current token, or `travel` plus a published grace row ID
-and `token:0`. Unknown fields/actions, stale commands, disabled rows and context
-mismatches cannot execute a game action. Selecting a choice returns the original
-ESD result; travel additionally requires the verified native seated rest state.
-
-Optional host `ack:{seq,action:"travel",status,message}` reports the exact travel
-request's `accepted` or `rejected` result. Messages are bounded to 1024 Unicode
-characters. The map accepts only an acknowledgement matching its pending request
-in the current fresh session; rejection displays the reason and enables retry.
+or `interact` with the current token. Unknown fields/actions, stale commands,
+disabled rows and context mismatches cannot execute a game action. Selecting a
+choice returns the original ESD result.
 
 The optional `eldencraft_menu_input(buttons,x,y,wheel)` core/loader export keeps
 the existing ECHS gameplay buttons unchanged. The 12 menu bits are confirm, cancel,
-up, down, left, right, map, tab, zoom-in, zoom-out, shift and home. The mailbox
+up, down, left, right, map, tab, zoom-in, zoom-out, shift and home; map, zoom
+and home are reserved and unused by the guest. The mailbox
 retains short discrete presses for 80 ms and expires after 250 ms. Published
 `input:{seq,buttons,pressed}` is deduplicated by the guest with rising-held-bit
 fallback. Mouse clicks, cursor and wheel retain the existing ECHS screen path.
-Opening a map acquires a bounded pending input lease before the next GUI frame.
+
+The world map is Elden Ring's own. Native opens it for M by holding the native
+Map binding's digital input for 120 ms, or follows the player's own Map binding
+press. While it is open the host publishes no gameplay state, exactly as for a
+blocking native menu, so composition, ECHS input and native input reservations
+are released. It is closed after M, Escape or the Map binding is pressed and
+released for 250 ms, or immediately once the player moves or a load begins.
 
 ## Torrent
 
