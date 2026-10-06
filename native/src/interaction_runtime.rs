@@ -1008,6 +1008,17 @@ unsafe fn query_intercept(regs: &Registers, query: &ScriptInvocation) -> Option<
         return None;
     }
     let env = unsafe { &*(regs.rcx as *const CSEzStateTalkEnv) };
+    // After OpenRegularShop the merchant script waits while
+    // CheckSpecificPersonMenuIsOpen(RegularShop) holds. The native query does
+    // not see the Minecraft replacement and would loop straight back to the
+    // talk list, hiding the shop until Leave.
+    if crate::campaign_runtime::replacement_shop_open(env.npc_talk_ins.as_ptr() as usize) {
+        match query.id() {
+            25 | 59 if query.arg(0) == Some(MenuType::RegularShop as i32) => return Some(1),
+            58 => return Some(0),
+            _ => {}
+        }
+    }
     let mut c = CAPTURE.try_lock().ok()?;
     apply_capture_gap(&mut c, LIST_GAP.swap(0, Ordering::AcqRel));
     // Expire a held menu even if the bridge task stops ticking entirely.

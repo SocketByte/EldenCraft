@@ -57,6 +57,7 @@ mod scene_camera;
 mod settle;
 mod surface;
 mod torrent;
+mod weather_sync;
 #[cfg(windows)]
 mod world_bridge;
 mod world_incoming;

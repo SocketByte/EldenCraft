@@ -8,7 +8,7 @@ below are the source of truth for their layouts, version numbers and validation.
 | --- | --- | --- |
 | MCPT | World, hand/HUD and avatar frame metadata; CPU fallback pixels | [Python decoder](passthrough/frames.py), [C++ frame header](compositor/include/frame_protocol.hpp) |
 | ECGT | Shared GPU textures, adapter identity and synchronization fences | [GPU header](compositor/include/gpu_transport.hpp), [guest transport](minecraft/src/client/java/dev/eldencraft/bridge/client/GpuTransport.java) |
-| ECHS | Host pose, input, health and clock | [Native publisher](native/src/host_pose.rs), [guest reader](minecraft/src/client/java/dev/eldencraft/bridge/client/HostState.java) |
+| ECHS | Host pose, input, health, clock and weather | [Native publisher](native/src/host_pose.rs), [guest reader](minecraft/src/client/java/dev/eldencraft/bridge/client/HostState.java) |
 | Combat | Native targets and Minecraft-resolved damage receipts | [Native wire](native/src/combat_wire.rs), [guest protocol](minecraft/src/main/java/dev/eldencraft/bridge/ProxyProtocol.java) |
 | Healing | Item consumption and acknowledged regeneration | [Native wire](native/src/healing_wire.rs), [guest protocol](minecraft/src/main/java/dev/eldencraft/bridge/HealingProtocol.java) |
 | Shared world | Terrain, blocks, entities and acknowledged events | [Native wire](native/src/world_wire.rs), [guest client](minecraft/src/client/java/dev/eldencraft/bridge/client/SharedWorldClient.java) |
@@ -116,6 +116,17 @@ the UUID with delivered inventory, flushes the integrated world/player save,
 reads back the receipt, then commits its shop ledger. An uncertain native save
 is quarantined rather than retried as a fresh debit. Restoring mismatched save
 generations or deleting the journals falls outside this recovery contract.
+
+## Weather
+
+ECHS v2's extension word at byte 160 carries `RUNES_VALID` (1, balance at 164)
+and `WEATHER_VALID` (2, weather at 168: 0 clear, 1 rain, 2 thunder). Unset
+fields and bytes 172 onward are zero; readers reject anything else. Native reads
+the `WorldAreaWeather` singleton exactly as the game's consumer at RVA 0x6a32e3
+does, after fingerprinting both reads. IDs 20, 21, 40, 41 and 52 (rain, heavy
+rain, snow, heavy snow, heavy fog rain) become rain; 30 and 31 (storms) become
+thunder; every other known ID is clear. Minecraft re-asserts the matching server
+weather each second while fresh, and leaves its own cycle alone otherwise.
 
 ## Interaction JSON and navigation
 

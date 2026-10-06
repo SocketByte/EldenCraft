@@ -123,6 +123,15 @@ public final class HostStateConformance {
     v2.putInt(164, -1);
     check(HostState.decode(extended, 10_000).runes() == 0xffffffffL);
     v2.putInt(160, 0).putInt(164, 0);
+    check(HostState.decode(extended, 10_000).weather() == -1);
+    v2.putInt(160, HostState.WEATHER_VALID);
+    check(HostState.decode(extended, 10_000).weather() == HostState.CLEAR);
+    v2.putInt(160, HostState.RUNES_VALID | HostState.WEATHER_VALID)
+        .putInt(164, 5)
+        .putInt(168, HostState.THUNDER);
+    var stormy = HostState.decode(extended, 10_000);
+    check(stormy.weatherValid() && stormy.weather() == HostState.THUNDER && stormy.runes() == 5);
+    v2.putInt(160, 0).putInt(164, 0).putInt(168, 0);
     v2.putInt(36, 11 | HostState.SPRINTING);
     check(HostState.decode(extended, 10_000).sprinting());
     v2.putInt(36, 11);
@@ -144,9 +153,12 @@ public final class HostStateConformance {
             b -> b.putFloat(144, 361),
             b -> b.putFloat(148, -1),
             b -> b.putInt(152, 2),
-            b -> b.putInt(160, 2),
+            b -> b.putInt(160, 4),
             b -> b.putInt(164, 1),
-            b -> b.putInt(168, 1))) {
+            b -> b.putInt(168, 1),
+            b -> b.putInt(160, HostState.WEATHER_VALID).putInt(168, 3),
+            b -> b.putInt(160, HostState.WEATHER_VALID).putInt(168, -1),
+            b -> b.putInt(172, 1))) {
       byte[] changed = extended.clone();
       invalid.accept(ByteBuffer.wrap(changed).order(ByteOrder.LITTLE_ENDIAN));
       try {

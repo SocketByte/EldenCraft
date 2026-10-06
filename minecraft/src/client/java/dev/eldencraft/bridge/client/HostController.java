@@ -80,7 +80,7 @@ public final class HostController {
       if (bytes.length > 4096) throw new IllegalArgumentException();
       var config = JsonWire.parse(bytes);
       for (String key : config.keySet())
-        if (!Set.of("schema", "input", "camera", "health", "time").contains(key))
+        if (!Set.of("schema", "input", "camera", "health", "time", "weather").contains(key))
           throw new IllegalArgumentException();
       JsonWire.integer(config.get("schema"), 1, 1);
       if (!config.get("input").isJsonPrimitive()
@@ -100,12 +100,19 @@ public final class HostController {
           throw new IllegalArgumentException();
         HostTimeSync.configure(config.get("time").getAsBoolean());
       }
+      if (config.has("weather")) {
+        if (!config.get("weather").isJsonPrimitive()
+            || !config.getAsJsonPrimitive("weather").isBoolean())
+          throw new IllegalArgumentException();
+        HostWeatherSync.configure(config.get("weather").getAsBoolean());
+      }
     } catch (Exception failure) {
       configured = false;
       inputEnabled = false;
       cameraEnabled = false;
       HostHealthDisplay.configure(false);
       HostTimeSync.configure(false);
+      HostWeatherSync.configure(false);
     }
   }
 
@@ -313,6 +320,7 @@ public final class HostController {
   public static void tick(Minecraft client) {
     beginFrame();
     HostTimeSync.tick(client, latest);
+    HostWeatherSync.tick(client, latest);
     boolean active = inputEnabled && latest != null && singleplayer(client);
     var inputFrame = active ? READER.poll(250) : null;
     if (inputFrame == null || inputFrame.publisherPid() != pid || inputFrame.mapId() != mapId) {

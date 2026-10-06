@@ -1516,6 +1516,14 @@ unsafe fn install_shared_talk_hook() -> Result<(), String> {
 /// The caller validates owner/rest/session identity immediately before this call.
 /// Verified event67 ea89ba -> e9f500 finalizes this owner's NpcMenuState job;
 /// event12 is a no-op in this executable and cannot be used to hide its window.
+/// The Minecraft shop stands in for this talk instance's RegularShop until
+/// Minecraft closes it. A busy lock reports closed, as the native query would.
+pub(crate) fn replacement_shop_open(npc: usize) -> bool {
+    SHOP.try_lock()
+        .ok()
+        .is_some_and(|shop| shop.as_ref().is_some_and(|c| c.npc == npc))
+}
+
 pub(crate) unsafe fn close_original_talk_menu(npc: &eldenring::cs::CSNpcTalkIns) -> bool {
     let original = TALK_EVENT_ORIGINAL.load(Ordering::Acquire);
     if original == 0

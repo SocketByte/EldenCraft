@@ -13,6 +13,7 @@ pub const TIME_VALID: u32 = 8;
 pub const SPRINTING: u32 = 16;
 /// ECHS v2 extension at offset160; independent of the pose/input flag word.
 pub const RUNES_VALID: u32 = 1;
+pub const WEATHER_VALID: u32 = 2;
 pub const BUTTON_ATTACK: u32 = 1;
 pub const BUTTON_USE: u32 = 1 << 1;
 pub const BUTTON_INVENTORY: u32 = 1 << 2;
@@ -58,6 +59,8 @@ pub struct Snapshot {
     pub map_id: u32,
     /// Current native currency, including a valid zero. Never Minecraft XP.
     pub runes: Option<u32>,
+    /// Native weather as Minecraft can show it; None when unavailable.
+    pub weather: Option<crate::weather_sync::Sky>,
 }
 
 impl Default for Snapshot {
@@ -81,6 +84,7 @@ impl Default for Snapshot {
             grounded: false,
             map_id: 0,
             runes: None,
+            weather: None,
         }
     }
 }
@@ -199,8 +203,17 @@ fn encode(
     put!(148, s.movement_speed);
     put!(152, u32::from(s.grounded));
     put!(156, s.map_id);
-    put!(160, if s.runes.is_some() { RUNES_VALID } else { 0 });
+    put!(
+        160,
+        if s.runes.is_some() { RUNES_VALID } else { 0 }
+            | if s.weather.is_some() {
+                WEATHER_VALID
+            } else {
+                0
+            }
+    );
     put!(164, s.runes.unwrap_or(0));
+    put!(168, s.weather.map_or(0, |sky| sky as u32));
     Ok(bytes)
 }
 
@@ -440,6 +453,26 @@ mod tests {
         }
         let b = encode(Snapshot::default(), 2, 3, 1000, 99).unwrap();
         assert!(b[160..].iter().all(|v| *v == 0));
+    }
+    #[test]
+    fn weather_extension_carries_minecraft_sky_beside_runes() {
+        use crate::weather_sync::Sky;
+        for (sky, value) in [(Sky::Clear, 0), (Sky::Rain, 1), (Sky::Thunder, 2)] {
+            let s = Snapshot {
+                flags: ACTIVE | FOREGROUND | FIRST_PERSON,
+                runes: Some(7),
+                weather: Some(sky),
+                ..Snapshot::default()
+            };
+            let b = encode(s, 2, 3, 1000, 99).unwrap();
+            assert_eq!(
+                u32::from_le_bytes(b[160..164].try_into().unwrap()),
+                RUNES_VALID | WEATHER_VALID
+            );
+            assert_eq!(u32::from_le_bytes(b[164..168].try_into().unwrap()), 7);
+            assert_eq!(u32::from_le_bytes(b[168..172].try_into().unwrap()), value);
+            assert!(b[172..].iter().all(|v| *v == 0));
+        }
     }
     #[test]
     fn normalizes_direction_and_serializes_fixed_layout() {

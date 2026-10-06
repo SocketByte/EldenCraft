@@ -121,8 +121,8 @@ Releases are published by GitHub Actions. Set the same version in
 `minecraft/gradle.properties` and `pyproject.toml`, then push a matching tag:
 
 ```powershell
-git tag v0.21.10
-git push origin v0.21.10
+git tag v0.22.0
+git push origin v0.22.0
 ```
 
 `.github/workflows/release.yml` rejects a tag that differs from those versions,

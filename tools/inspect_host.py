@@ -101,8 +101,11 @@ def sample(combat: bool = False) -> dict:
                 map_id=region,
                 sprinting=bool(result["flags"] & 16),
             )
-            extension_flags, runes = struct.unpack_from("<II", data, 160)
+            extension_flags, runes, sky = struct.unpack_from("<III", data, 160)
             result["runes"] = runes if extension_flags & 1 else None
+            result["weather"] = (
+                ("clear", "rain", "thunder")[sky] if extension_flags & 2 and sky < 3 else None
+            )
             if result["flags"] & 8:
                 result["minecraft_day_ticks"] = int(((seconds - 21600) % 86400) / 3.6)
         return result

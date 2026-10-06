@@ -32,6 +32,9 @@ public final class CampaignShops {
   private static UUID ledgerPlayer;
   private static long nextSend, nextSave;
   private static String dismissedToken = "";
+  private static String waitingToken = "";
+  private static long waitingSince;
+  private static final long SHOP_WAIT_NANOS = 5_000_000_000L;
 
   private record Request(String character, String token, String offer, int quantity) {}
 
@@ -103,14 +106,29 @@ public final class CampaignShops {
       return;
     }
     View v = view;
+    String token = s.merchant().token();
+    boolean ready = v != null && v.character().equals(s.character()) && v.token().equals(token);
     // Selecting Shop closes the native talk list before the merchant context
     // arrives; replace the waiting dialog rather than racing its close.
     if ((client.gui.screen() == null
             || client.gui.screen() instanceof InteractionScreen screen && screen.pending())
-        && !dismissedToken.equals(s.merchant().token())
-        && v != null
-        && v.character().equals(s.character())
-        && v.token().equals(s.merchant().token())) client.gui.setScreen(new CampaignShopScreen(v));
+        && !dismissedToken.equals(token)
+        && ready) {
+      client.gui.setScreen(new CampaignShopScreen(v));
+      return;
+    }
+    // The merchant script waits on the shop; if it can never be shown, hand the
+    // merchant back rather than leave the player waiting on an invisible shop.
+    long now = System.nanoTime();
+    if (ready || dismissedToken.equals(token)) waitingToken = "";
+    else if (!waitingToken.equals(token)) {
+      waitingToken = token;
+      waitingSince = now;
+    } else if (now - waitingSince > SHOP_WAIT_NANOS) {
+      LOG.warn("Campaign shop could not open ({}); returning to the merchant.", status);
+      waitingToken = "";
+      dismiss(token);
+    }
   }
 
   public static void serverTick(ServerPlayer player) {
@@ -340,13 +358,14 @@ public final class CampaignShops {
 
   private static void verifySavedReceipt(MinecraftServer server, ServerPlayer player, String id)
       throws IOException {
-    Path root = server.getWorldPath(LevelResource.ROOT);
-    Path data = root.resolve("playerdata/" + player.getUUID() + ".dat");
+    // The game's own player directory: 26.x saves players/data, not playerdata.
+    Path data =
+        server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(player.getUUID() + ".dat");
     if (!Files.isRegularFile(data)) throw new IOException("Player inventory save is missing");
     var tag = NbtIo.readCompressed(data, NbtAccounter.create(16 * 1024 * 1024));
     if (!id.equals(tag.getStringOr("EldenCraftShopReceipt", "")))
       throw new IOException("Player inventory save is not confirmed");
-    Path level = root.resolve("level.dat");
+    Path level = server.getWorldPath(LevelResource.LEVEL_DATA_FILE);
     if (Files.isRegularFile(level)) {
       var world = NbtIo.readCompressed(level, NbtAccounter.create(32 * 1024 * 1024));
       var embedded = world.getCompoundOrEmpty("Data").getCompound("Player");
@@ -373,6 +392,7 @@ public final class CampaignShops {
     ledgerServer = null;
     parsedConfig = null;
     dismissedToken = "";
+    waitingToken = "";
     status = "";
     lastError = "";
   }

@@ -21,6 +21,9 @@ public final class HostState implements AutoCloseable {
       FIRST_PERSON = 4,
       TIME_VALID = 8,
       SPRINTING = 16;
+  // ECHS v2 extension word at 160: runes at 164, weather at 168.
+  public static final int RUNES_VALID = 1, WEATHER_VALID = 2;
+  public static final int CLEAR = 0, RAIN = 1, THUNDER = 2;
   public static final int ATTACK = 1, USE = 1 << 1, INVENTORY = 1 << 2, ESCAPE = 1 << 3;
   public static final int HOTBAR_1 = 1 << 4, JUMP = 1 << 13, SNEAK = 1 << 14, SPRINT = 1 << 15;
   public static final int FORWARD = 1 << 16, BACKWARD = 1 << 17, LEFT = 1 << 18, RIGHT = 1 << 19;
@@ -62,7 +65,8 @@ public final class HostState implements AutoCloseable {
       float movementSpeed,
       boolean grounded,
       long mapId,
-      long runes) {
+      long runes,
+      int weather) {
     public boolean firstPerson() {
       return (flags & FIRST_PERSON) != 0;
     }
@@ -86,6 +90,11 @@ public final class HostState implements AutoCloseable {
     /** -1 means unavailable; zero is a valid native currency balance. */
     public boolean runesValid() {
       return runes >= 0;
+    }
+
+    /** Native weather as Minecraft shows it: CLEAR, RAIN or THUNDER, or -1 when unavailable. */
+    public boolean weatherValid() {
+      return weather >= 0;
     }
   }
 
@@ -272,6 +281,7 @@ public final class HostState implements AutoCloseable {
         movementSpeed = 0;
     boolean grounded = true;
     long mapId = 0, runes = -1;
+    int weather = -1;
     if (version == 2) {
       viewMode = b.getInt(136);
       timeSeconds = b.getFloat(140);
@@ -298,12 +308,18 @@ public final class HostState implements AutoCloseable {
       grounded = ground == 1;
       int extensions = b.getInt(160);
       long balance = Integer.toUnsignedLong(b.getInt(164));
+      int sky = b.getInt(168);
       require(
-          (extensions & ~1) == 0 && (extensions == 1 || balance == 0),
+          (extensions & ~(RUNES_VALID | WEATHER_VALID)) == 0
+              && ((extensions & RUNES_VALID) != 0 || balance == 0),
           "invalid host rune extension");
-      if ((extensions & 1) != 0) runes = balance;
+      require(
+          (extensions & WEATHER_VALID) != 0 ? sky >= CLEAR && sky <= THUNDER : sky == 0,
+          "invalid host weather extension");
+      if ((extensions & RUNES_VALID) != 0) runes = balance;
+      if ((extensions & WEATHER_VALID) != 0) weather = sky;
     }
-    for (int i = version == 1 ? 136 : 168; i < BYTES; i++)
+    for (int i = version == 1 ? 136 : 172; i < BYTES; i++)
       require(bytes[i] == 0, "nonzero reserved byte");
     if ((flags & (ACTIVE | FOREGROUND)) != (ACTIVE | FOREGROUND)) {
       flags &= ~ACTIVE;
@@ -334,7 +350,8 @@ public final class HostState implements AutoCloseable {
         movementSpeed,
         grounded,
         mapId,
-        runes);
+        runes,
+        weather);
   }
 
   private static Vec3 position(ByteBuffer b, int offset) {

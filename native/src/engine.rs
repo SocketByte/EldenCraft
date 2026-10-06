@@ -657,6 +657,7 @@ pub fn start(module: usize) {
         snapshot_stage: 0,
         last_player_flags: None,
         native_map: Default::default(),
+        last_weather: None,
         input_capture: input_capture::Capture::new(),
         last_camera_error: "",
         combat_trace: std::env::var("ELDENCRAFT_COMBAT_TRACE").is_ok_and(|s| s == "1"),
@@ -952,6 +953,8 @@ struct Host {
     snapshot_stage: u8,
     last_player_flags: Option<(u8, u8)>,
     native_map: crate::native_map::Driver,
+    /// Last native weather ID (None: unread), for change diagnostics only.
+    last_weather: Option<Option<i16>>,
     input_capture: input_capture::Capture,
     last_camera_error: &'static str,
     passthrough_camera: Arc<Mutex<crate::camera_driver::Driver>>,
@@ -1406,6 +1409,21 @@ impl Host {
         });
         self.previous_pose = Some((state.player, now));
         let time = unsafe { crate::clock_sync::read_seconds_since_midnight() };
+        let native_weather = unsafe { crate::weather_sync::read() };
+        let weather = native_weather.and_then(crate::weather_sync::classify);
+        if self.last_weather != Some(native_weather) {
+            self.last_weather = Some(native_weather);
+            log(
+                &self.io,
+                match native_weather {
+                    Some(id) => format!("Native weather {id}: Minecraft {weather:?}."),
+                    None if !crate::weather_sync::supported() => {
+                        "Native weather unavailable: executable fingerprint mismatch.".into()
+                    }
+                    None => "Native weather unavailable.".into(),
+                },
+            );
+        }
         let healed_hp = match unsafe { self.healing.tick(compositor_ready, state.map as i32) } {
             Ok(hp) => hp,
             Err(reason) => {
@@ -1491,6 +1509,7 @@ impl Host {
                 grounded: state.grounded,
                 map_id: state.map,
                 runes: state.runes,
+                weather,
             });
             if let (Ok(()), Some(pose)) = (published, locked)
                 && let Ok(mut lock) = crate::pose_lock::lock().try_lock()
@@ -1629,13 +1648,7 @@ impl Host {
                 .as_ref()
                 .is_some_and(|ui| ui.supports_blocking() || ui.pending_grace_recovery()),
         ) {
-            Ok(state) => {
-                if self.last_gate != "ready" {
-                    log(&self.io, "Gate: offline world/player/camera ready.");
-                    self.last_gate = "ready";
-                }
-                state
-            }
+            Ok(state) => state,
             Err(reason) => {
                 // A native world map that blocks the snapshot still closes
                 // through its keys; a load or warp ends it outright.
@@ -1722,6 +1735,12 @@ impl Host {
                 self.last_gate = "native_map";
             }
             return;
+        }
+        // Logged only once every gate above passed, so a gate that holds
+        // across ticks does not alternate with this line.
+        if self.last_gate != "ready" {
+            log(&self.io, "Gate: offline world/player/camera ready.");
+            self.last_gate = "ready";
         }
         // A complete, settled snapshot is the only source of a new reset lease.
         // Ignore a mismatched second read rather than refresh another player.

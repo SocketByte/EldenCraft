@@ -111,6 +111,7 @@ We also took a novel approach to modelling the world, which means no janky colli
 | **Minecraftified menus** | Sites of Grace, NPC conversations and confirmations become Minecraft screens; the original quest scripts still decide the outcome. |
 | **Map and fast travel** | Elden Ring's own map on <kbd>M</kbd> or <kbd>G</kbd>, with the Minecraft overlay out of the way so it is fully clickable. |
 | **Ender Chest at every grace** | Sort chest becomes your persistent Ender Chest. |
+| **Weather sync** | When it rains or storms in the Lands Between, it rains or thunders in Minecraft too. |
 | **First or third person** | <kbd>F5</kbd> works the way your muscle memory expects. |
 | **Shared GPU composition** | Both renderers merge through shared GPU textures with depth-aware composition. |
 | **Save safety** | A dedicated Minecraft world and Elden Ring save, verified ZIP backups before every change. |
