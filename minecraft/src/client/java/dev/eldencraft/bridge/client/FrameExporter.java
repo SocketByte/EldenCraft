@@ -171,7 +171,8 @@ public final class FrameExporter {
     float far;
     long frame;
     long captureNanos;
-    boolean guiOpen;
+    /** MCPT +104: 0 no screen, 1 screen, 2 screen that takes typed text. */
+    int guiState;
     boolean fullWorld;
     SceneCapture.Snapshot scene;
     float[] avatarInverse;
@@ -433,7 +434,8 @@ public final class FrameExporter {
     }
 
     long generation = c.generation;
-    c.guiOpen = Minecraft.getInstance().gui.screen() != null;
+    var screen = Minecraft.getInstance().gui.screen();
+    c.guiState = screen == null ? 0 : HostChat.textScreen(screen) ? 2 : 1;
     if (c.gpuSet >= 0) {
       if (!GpuTransport.copyColor(target.getColorTexture(), c.gpuSet, 2)) {
         abort(c);
@@ -556,7 +558,7 @@ public final class FrameExporter {
       m.set(INT, desc + 84, p.firstPerson() ? 1 : 0);
       m.set(LONG, desc + 88, c.captureNanos);
       m.set(LONG, desc + 96, System.nanoTime());
-      m.set(INT, desc + 104, c.guiOpen ? 1 : 0);
+      m.set(INT, desc + 104, c.guiState);
       m.set(INT, desc + 112, gpu ? GpuTransport.generation() : 0);
       m.set(INT, desc + 116, gpu ? c.gpuSet : 0);
       if (gpu) m.set(INT, desc + 44, m.get(INT, desc + 44) | GpuTransport.FLAG);

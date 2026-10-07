@@ -504,6 +504,7 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
         scrubbedSections = new HashSet<>();
         TerrainMaterials.clear();
         TerrainMining.clear();
+        BlockWork.clear();
         terrainRevision = -1;
         terrainLease = null;
         completeTerrain = null;

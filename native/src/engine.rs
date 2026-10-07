@@ -1083,6 +1083,10 @@ impl Host {
         let raw = crate::overlay_input::take(now_ms);
         let compositor_ready = raw.is_some() && guest_gui.is_some();
         crate::chat_input::update(now_ms, compositor_ready, state.map, guest_gui == Some(true));
+        crate::chat_input::text_screen(
+            now_ms,
+            compositor_ready && guest_gui == Some(true) && self.guest_status.text_entry(),
+        );
         // Pending-open text ownership closes the gap before the next guest GUI frame.
         let host_ui = self.interactions.as_ref().is_some_and(|ui| ui.blocking());
         let supported_host_menu = self

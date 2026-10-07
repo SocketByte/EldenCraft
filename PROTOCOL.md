@@ -14,7 +14,7 @@ below are the source of truth for their layouts, version numbers and validation.
 | Shared world | Terrain, blocks, entities and acknowledged events | [Native wire](native/src/world_wire.rs), [guest client](minecraft/src/client/java/dev/eldencraft/bridge/client/SharedWorldClient.java) |
 | Block mesh | Baked geometry, atlas/lightmap identity and handoff | [Mesh header](compositor/include/block_protocol.hpp), [block details](compositor/include/block_details.hpp) |
 | Scene camera | Host camera, projection and coordinate alignment | [Camera publisher](native/src/scene_camera.rs), [scene header](compositor/include/scene_protocol.hpp) |
-| Chat | Ordered Unicode events and GUI ownership | [Native input](native/src/chat_input.rs), [guest protocol](minecraft/src/main/java/dev/eldencraft/bridge/ChatProtocol.java) |
+| Chat | Ordered Unicode events for chat and text screens (signs); GUI ownership | [Native input](native/src/chat_input.rs), [guest protocol](minecraft/src/main/java/dev/eldencraft/bridge/ChatProtocol.java) |
 | ECNH | Shared Nether state and terrain layout | [Nether header](compositor/include/nether_protocol.hpp) |
 | Campaign JSON | Native victories, capacities, wallet, merchant context and saved purchases | [Native runtime](native/src/campaign_runtime.rs), [guest bridge](minecraft/src/client/java/dev/eldencraft/bridge/client/CampaignBridge.java) |
 
@@ -116,6 +116,15 @@ the UUID with delivered inventory, flushes the integrated world/player save,
 reads back the receipt, then commits its shop ledger. An uncertain native save
 is quarantined rather than retried as a fresh debit. Restoring mismatched save
 generations or deleting the journals falls outside this recovery contract.
+
+## Text screens
+
+MCPT's descriptor word at +104 is 0 without a Minecraft screen, 1 with one, and
+2 when that screen takes typed text (a sign editor). On 2, native attaches the
+ordered chat channel to it with event kind 5 instead of opening chat (kinds 1
+and 2). The session starts with that event and ends when the screen closes;
+characters and editing keys then go to the screen, and ECHS keyboard input is
+not applied to it.
 
 ## Weather
 

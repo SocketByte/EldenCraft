@@ -48,10 +48,18 @@ public final class ChatProtocol {
     return new Packet(sequence, pid, map, session, flags == 1, List.copyOf(events));
   }
 
+  /** Attach to a text screen Minecraft already shows, such as a sign editor. */
+  public static final int TEXT_SCREEN = 5;
+
+  /** Chat, command or text-screen sessions start with their opening event. */
+  public static boolean opens(int kind) {
+    return kind == 1 || kind == 2 || kind == TEXT_SCREEN;
+  }
+
   public static boolean valid(int kind, int code, int mods) {
     if ((mods & ~15) != 0) return false;
     return switch (kind) {
-      case 1, 2 -> code == 0 && mods == 0;
+      case 1, 2, TEXT_SCREEN -> code == 0 && mods == 0;
       case 3 ->
           code >= 32
               && code != 127
@@ -94,7 +102,7 @@ public final class ChatProtocol {
       var next = packet.events().stream().filter(e -> e.sequence() > last).toList();
       if (next.isEmpty()) return next;
       if (next.getFirst().sequence() != last + 1
-          || last == 0 && (next.getFirst().kind() != 1 && next.getFirst().kind() != 2)
+          || last == 0 && !opens(next.getFirst().kind())
           || next.stream().anyMatch(e -> now < e.time() || now - e.time() >= 500)) {
         cancel();
         throw new IllegalArgumentException("chat input lost, stale, or out of order");

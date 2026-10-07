@@ -1,4 +1,7 @@
-//! Ordered Unicode/chat controls only while the offline foreground guest owns chat.
+//! Ordered Unicode/chat controls only while the offline foreground guest owns chat
+//! or an already open text screen such as a sign editor.
+//! Event kinds: 0 cancel, 1 open chat, 2 open command, 3 character, 4 editing
+//! key, 5 attach to the text screen Minecraft already has open.
 //! No SDK pointers or OS input injection. Lost focus, a missing GUI acknowledgement,
 //! a changed map, or a stale reader cancels rather than replaying a partial command.
 use std::{
@@ -12,6 +15,7 @@ const BYTES: usize = 4160;
 const CAPACITY: usize = 128;
 const PERMIT_MS: u64 = 250;
 const OPEN_MS: u64 = 1000;
+const TEXT_SCREEN: u32 = 5;
 #[derive(Clone, Copy)]
 struct Event {
     sequence: u64,
@@ -76,15 +80,16 @@ impl State {
             self.cancel();
             return true;
         }
-        if kind == 1 || kind == 2 {
-            if self.opened != 0 || self.gui {
+        if kind == 1 || kind == 2 || kind == TEXT_SCREEN {
+            // Chat opens over gameplay; a text screen is already on screen.
+            if self.opened != 0 || self.gui != (kind == TEXT_SCREEN) {
                 return false;
             }
             self.session = self.session.wrapping_add(1).max(1);
             self.opened = now;
             self.next = 0;
             self.events.clear();
-            self.confirmed = false;
+            self.confirmed = kind == TEXT_SCREEN;
         } else if self.opened == 0 {
             return false;
         }
@@ -140,7 +145,7 @@ fn valid_event(kind: u32, code: u32, modifiers: u32) -> bool {
         return false;
     }
     match kind {
-        0..=2 => code == 0 && modifiers == 0,
+        0..=2 | TEXT_SCREEN => code == 0 && modifiers == 0,
         3 => char::from_u32(code).is_some() && code >= 32 && code != 127,
         4 => matches!(code, 65 | 67 | 86 | 88 | 256..=269),
         _ => false,
@@ -178,6 +183,12 @@ pub fn update(now: u64, allowed: bool, map: u32, gui: bool) {
         state.publish(now);
     } else if !allowed {
         CHAT_DEADLINE.store(0, Ordering::Release);
+    }
+}
+/// Route typed text into an open guest text screen (a sign editor) while it wants it.
+pub fn text_screen(now: u64, wanted: bool) {
+    if wanted && !active(now) {
+        event(now, TEXT_SCREEN, 0, 0);
     }
 }
 pub fn suspend(now: u64) {
@@ -309,6 +320,23 @@ mod tests {
         s.event(1031, 1, 0, 0);
         s.update(1040, false, 43, false);
         assert!(!s.event(1041, 4, 257, 0));
+    }
+    #[test]
+    fn open_text_screen_takes_typing_until_it_closes() {
+        let mut s = State::new();
+        s.update(1000, true, 42, false);
+        // Nothing to attach to without an open guest screen.
+        assert!(!s.event(1001, TEXT_SCREEN, 0, 0));
+        s.update(1010, true, 42, true);
+        assert!(s.event(1011, TEXT_SCREEN, 0, 0));
+        assert!(s.confirmed);
+        assert!(s.event(1012, 3, 'h' as u32, 0));
+        assert!(s.event(1013, 4, 257, 0));
+        // Chat cannot open over it, and closing the screen ends the session.
+        assert!(!s.event(1014, 1, 0, 0));
+        s.update(1020, true, 42, false);
+        assert_eq!(s.opened, 0);
+        assert!(!s.event(1021, 3, 'h' as u32, 0));
     }
     #[test]
     fn expired_permit_never_replays_submit() {

@@ -67,6 +67,11 @@ public final class TerrainMining {
   }
 
   /** Pure policy: cells regrow after REGROW_TICKS. */
+  /** True while the player is mining a hidden terrain cell. */
+  public static boolean mining(ServerPlayer player) {
+    return JOBS.containsKey(player.getUUID());
+  }
+
   static boolean spent(Long minedAt, long now) {
     long regrow =
         CampaignConfig.current().enabled

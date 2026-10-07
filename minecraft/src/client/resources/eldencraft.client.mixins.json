@@ -76,6 +76,8 @@
     "BlockMeshLightMixin",
     "GuestResolutionWindowMixin",
     "TerrainMiningMixin",
+    "BlockWorkMixin",
+    "BlockWorkAccessor",
     "TerrainPlacementMixin",
     "NetherPortalDimensionMixin",
     "NetherPortalShapeMixin",

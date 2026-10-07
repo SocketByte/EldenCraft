@@ -207,6 +207,7 @@ file picker, or you can pass the path:
 - The map is Elden Ring's own, with its normal mouse controls and fast travel. Close it with <kbd>M</kbd>, <kbd>G</kbd> or <kbd>Escape</kbd>; Minecraft comes back once the key is released.
 - Merchants offer a single **Shop** row that opens the Minecraft shop; native selling is not offered.
 - Grace menus drop level-up, flask and memorize-spell rows; Sort chest opens your Ender Chest. Specialist screens such as equipment and Great Runes keep their native interface for now.
+- Signs: place one and type its text directly; Escape or **Done** saves it.
 - The Minecraft world keeps running when you switch windows. Its pause menu closes when you switch away; inventory and chat stay open.
 
 </details>

@@ -86,9 +86,13 @@ fn gui_open(bytes: &[u8], stride: u64) -> Option<bool> {
     }
     match u32_at(bytes, 104)? {
         0 => Some(false),
-        1 => Some(true),
+        // 2: the open screen takes typed text (a sign editor).
+        1 | 2 => Some(true),
         _ => None,
     }
+}
+fn text_entry(bytes: &[u8]) -> bool {
+    u32_at(bytes, 104) == Some(2)
 }
 
 /// Host frame (ECHS frame counter) of Minecraft's newest fresh publication, for
@@ -173,6 +177,7 @@ mod windows {
         pid: u32,
         next_open: u64,
         freshness: Freshness,
+        text: bool,
     }
     // Only poll(&mut self) touches the mapping; no references into it are exposed.
     unsafe impl Send for Reader {}
@@ -194,6 +199,7 @@ mod windows {
                 pid: 0,
                 next_open: 0,
                 freshness: Freshness::default(),
+                text: false,
             }
         }
         fn close_mapping(&mut self) {
@@ -253,8 +259,13 @@ mod windows {
             fence(Ordering::SeqCst);
             value
         }
+        /// True when the last fresh poll saw an open screen that takes typed text.
+        pub fn text_entry(&self) -> bool {
+            self.text
+        }
         /// Some(true/false) is a fresh actual guest GUI state; None means unverified/stale.
         pub fn poll(&mut self) -> Option<bool> {
+            self.text = false;
             let now = unsafe { GetTickCount64() };
             if !self.open(now) {
                 return None;
@@ -309,6 +320,7 @@ mod windows {
                     return None;
                 };
                 let observed = self.freshness.observe(h.pid, h.publication, gui, now);
+                self.text = observed == Some(true) && text_entry(&descriptor);
                 if observed.is_some()
                     && let Some(frame) = u64_at(&descriptor, 16)
                 {
@@ -441,7 +453,11 @@ mod tests {
         let mut b = good;
         b[360..364].copy_from_slice(&1u32.to_le_bytes());
         assert_eq!(gui_open(&b[256..384], STRIDE), Some(true));
+        assert!(!text_entry(&b[256..384]));
         b[360..364].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(gui_open(&b[256..384], STRIDE), Some(true));
+        assert!(text_entry(&b[256..384]));
+        b[360..364].copy_from_slice(&3u32.to_le_bytes());
         assert_eq!(gui_open(&b[256..384], STRIDE), None);
         b = good;
         b[280..284].copy_from_slice(&1921u32.to_le_bytes());

@@ -105,13 +105,6 @@ public final class CampaignHud {
           (textAlpha << 24) | (settings.exhausted() & 0xffffff),
           true);
     }
-    // A small pixel lightning mark identifies stamina without a full-width label.
-    int icon = CampaignCombat.shieldReady(client.player) ? settings.fill() : settings.exhausted();
-    gui.fill(left - 6, top + 1, left - 3, top + 2, icon);
-    gui.fill(left - 7, top + 2, left - 4, top + 4, icon);
-    gui.fill(left - 6, top + 4, left - 2, top + 5, icon);
-    gui.fill(left - 4, top + 5, left - 2, top + 7, icon);
-    gui.fill(left - 5, top + 7, left - 3, top + 8, icon);
     if (settings.showNumbers()) {
       String text = Math.round(value) + " / " + Math.round(maximum);
       float scale = Math.min(.75f, (width - 8f) / Math.max(1, client.font.width(text)));

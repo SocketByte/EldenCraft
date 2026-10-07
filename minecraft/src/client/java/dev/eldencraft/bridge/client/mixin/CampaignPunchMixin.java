@@ -1,6 +1,7 @@
 package dev.eldencraft.bridge.client.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.*;
+import dev.eldencraft.bridge.client.BlockWork;
 import dev.eldencraft.bridge.client.CampaignCombat;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -24,6 +25,8 @@ abstract class CampaignPunchMixin {
       SwingAnimation animation,
       boolean force,
       Operation<Boolean> original) {
+    // Mining and placing are free: let the swing through without charging it.
+    if (BlockWork.active(player)) return original.call(player, hand, animation, force);
     boolean charged = CampaignCombat.consumeAttackPunch(player);
     if (!charged && !CampaignCombat.punch(player)) return false;
     boolean accepted = original.call(player, hand, animation, force);

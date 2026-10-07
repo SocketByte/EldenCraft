@@ -109,6 +109,21 @@ public final class ChatConformance {
         mapCursor
             .accept(new ChatProtocol.Packet(4, 42, 8, 9, true, List.of(e)), 42, 8, 1011)
             .isEmpty());
+    // A sign editor's session starts with the text-screen attach event.
+    check(ChatProtocol.valid(ChatProtocol.TEXT_SCREEN, 0, 0));
+    check(!ChatProtocol.valid(ChatProtocol.TEXT_SCREEN, 97, 0));
+    check(!ChatProtocol.valid(6, 0, 0));
+    var sign =
+        new ChatProtocol.Packet(
+            10,
+            42,
+            7,
+            12,
+            true,
+            List.of(
+                new ChatProtocol.Event(1, 1040, ChatProtocol.TEXT_SCREEN, 0, 0),
+                new ChatProtocol.Event(2, 1040, 3, 'h', 0)));
+    check(new ChatProtocol.Cursor().accept(sign, 42, 7, 1041).size() == 2);
     System.out.println("Chat conformance: " + checks + " checks passed");
   }
 }

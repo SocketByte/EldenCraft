@@ -191,7 +191,8 @@ public final class CampaignInteractions {
     if (client.gui.screen() instanceof InteractionScreen screen)
       screen.hostInput(pressed, input.buttons());
     else if (client.gui.screen() != null
-        && !(client.gui.screen() instanceof net.minecraft.client.gui.screens.ChatScreen)) {
+        && !(client.gui.screen() instanceof net.minecraft.client.gui.screens.ChatScreen)
+        && !HostChat.textScreen(client.gui.screen())) {
       // Escape stays on ECHS: sending it here too would close both options and
       // its parent pause screen in one tick. Chat retains its ordered mailbox.
       var screen = client.gui.screen();

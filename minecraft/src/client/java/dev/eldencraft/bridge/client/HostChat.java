@@ -4,18 +4,20 @@ import dev.eldencraft.bridge.ChatProtocol;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.client.gui.screens.ChatScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.AbstractSignEditScreen;
 import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.MouseButtonInfo;
 
 /**
- * Routes into the real chat screen. Submission, suggestions, history and permission checks stay
- * vanilla.
+ * Routes typed text into the real chat screen, or into an open text screen such as a sign editor.
+ * Submission, suggestions, history, permission checks and sign updates stay vanilla.
  */
 final class HostChat {
   private static final ChatMailbox MAILBOX = new ChatMailbox();
   private static final ChatProtocol.Cursor CURSOR = new ChatProtocol.Cursor();
-  private static ChatScreen owned;
+  private static Screen owned;
   private static Object player, level;
   private static int buttons;
   private static long inputSequence = -1;
@@ -56,6 +58,15 @@ final class HostChat {
           buttons = host.buttonsDown();
           inputSequence = host.inputSequence();
           wasOwned = true;
+        } else if (event.kind() == ChatProtocol.TEXT_SCREEN) {
+          if (owned != null || !textScreen(client.gui.screen())) {
+            release(client);
+            return true;
+          }
+          owned = client.gui.screen();
+          buttons = host.buttonsDown();
+          inputSequence = host.inputSequence();
+          wasOwned = true;
         } else {
           if (owned == null) {
             CURSOR.cancel();
@@ -70,6 +81,7 @@ final class HostChat {
           }
         }
       }
+      if (owned != null && !(owned instanceof ChatScreen)) return true;
       if (owned != null) {
         double x = host.cursorX() * owned.width, y = host.cursorY() * owned.height;
         owned.mouseMoved(x, y);
@@ -92,16 +104,27 @@ final class HostChat {
     }
   }
 
-  /** The host chat currently owns the open chat screen and its input. */
+  /** The host text session currently owns the open chat or text screen and its input. */
   static boolean owns() {
     return owned != null;
+  }
+
+  /** A text screen's mouse is routed per frame by HostController, like other screens. */
+  static boolean ownsTextScreen() {
+    return owned != null && !(owned instanceof ChatScreen);
+  }
+
+  /** Screens that take typed text from the host without opening chat. */
+  static boolean textScreen(Screen screen) {
+    return screen instanceof AbstractSignEditScreen;
   }
 
   static void release(Minecraft client) {
     CURSOR.cancel();
     // ChatScreen.removed preserves INTERRUPTED drafts in 26.3. Clear this
     // owned draft explicitly after removal, independent of saveChatDrafts.
-    if (owned != null && client.gui.screen() == owned) {
+    // A sign editor stays open: the next session reattaches to it.
+    if (owned instanceof ChatScreen && client.gui.screen() == owned) {
       client.gui.setScreen(null);
       client.gui.hud.getChat().discardDraft();
     }

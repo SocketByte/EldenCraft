@@ -4562,6 +4562,62 @@
           "id": "bookshelf",
           "item": "minecraft:bookshelf",
           "price": 12000
+        },
+        {
+          "id": "flint_and_steel",
+          "item": "minecraft:flint_and_steel",
+          "count": 1,
+          "price": 400,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "zombie_egg",
+          "item": "minecraft:zombie_spawn_egg",
+          "count": 1,
+          "price": 1200,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "creeper_egg",
+          "item": "minecraft:creeper_spawn_egg",
+          "count": 1,
+          "price": 1500,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "obsidian",
+          "item": "minecraft:obsidian",
+          "count": 10,
+          "price": 8000,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "rykard",
+            "morgott"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "elytra",
+          "item": "minecraft:elytra",
+          "count": 1,
+          "price": 200000,
+          "stock": -1,
+          "unlock_any": [
+            "fire_giant",
+            "maliketh",
+            "hoarah_loux",
+            "elden_beast"
+          ],
+          "unlock_all": []
         }
       ]
     }

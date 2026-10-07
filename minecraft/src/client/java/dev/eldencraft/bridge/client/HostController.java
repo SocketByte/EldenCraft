@@ -340,8 +340,11 @@ public final class HostController {
       releaseKeys();
       rangedInput = null;
       WorldFlight.releaseInput();
-      previousButtons = latest.buttonsDown();
-      lastInputSequence = latest.inputSequence();
+      // A text screen's mouse runs in frame(), which needs these edges itself.
+      if (!HostChat.ownsTextScreen()) {
+        previousButtons = latest.buttonsDown();
+        lastInputSequence = latest.inputSequence();
+      }
       return;
     }
     int raw = latest.buttonsDown();
@@ -373,7 +376,7 @@ public final class HostController {
             : null;
     logEdges(pressed, released, screen);
     if (screen != null) {
-      routeScreen(client, screen, latest, buttons, pressed, released);
+      routeScreen(client, screen, latest, buttons, pressed, released, HostChat.textScreen(screen));
       return;
     }
     if ((pressed & HostState.ESCAPE) != 0) {
@@ -416,7 +419,9 @@ public final class HostController {
         || controlledPlayer != client.player
         || !singleplayer(client)) return;
     var screen = client.gui.screen();
-    if (screen == null || HostChat.owns()) return;
+    // Chat routes its own input; a sign editor takes typing from it but its mouse from here.
+    if (screen == null || HostChat.owns() && !HostChat.textScreen(screen)) return;
+    boolean typing = HostChat.owns() || HostChat.textScreen(screen);
     var input = READER.poll(250);
     if (input == null || input.publisherPid() != pid || input.mapId() != mapId) return;
     int raw = input.buttonsDown();
@@ -424,7 +429,7 @@ public final class HostController {
     int buttons = raw & ~blockedButtons;
     int pressed = buttons & ~previousButtons, released = previousButtons & ~buttons;
     logEdges(pressed, released, screen);
-    routeScreen(client, screen, input, buttons, pressed, released);
+    routeScreen(client, screen, input, buttons, pressed, released, typing);
   }
 
   private static void logEdges(int pressed, int released, Screen screen) {
@@ -446,8 +451,10 @@ public final class HostController {
       HostState.Snapshot input,
       int buttons,
       int pressed,
-      int released) {
-    if ((pressed & (HostState.ESCAPE | HostState.INVENTORY)) != 0) {
+      int released,
+      boolean typing) {
+    // While typing, Escape and E arrive as text-screen keys; only the mouse is routed here.
+    if (!typing && (pressed & (HostState.ESCAPE | HostState.INVENTORY)) != 0) {
       screen.onClose();
       releaseKeys();
       previousButtons = buttons;
@@ -498,7 +505,7 @@ public final class HostController {
       screen.mouseScrolled(x, y, 0, input.wheelDelta());
     // Vanilla container keys act on the hovered slot: hotbar swap, drop (Ctrl: whole stack),
     // offhand swap.
-    if (client.gui.screen() == screen) {
+    if (!typing && client.gui.screen() == screen) {
       for (int slot = 0; slot < 9; slot++)
         if ((pressed & (HostState.HOTBAR_1 << slot)) != 0)
           screenKey(screen, client.options.keyHotbarSlots[slot], modifiers);
