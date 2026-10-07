@@ -87,6 +87,7 @@ public final class CampaignConfig {
   public final List<Reward> starterItems;
   public final List<Boss> bosses;
   public final Experience experience;
+  public final CampaignLoot.Table enemyLoot;
   public final CampaignHudConfig hud;
   public final double bowBaseDamage,
       crossbowBaseDamage,
@@ -109,6 +110,7 @@ public final class CampaignConfig {
       double nativeDamageScale,
       double nativeIncomingDamageScale,
       Experience experience,
+      CampaignLoot.Table enemyLoot,
       CampaignHudConfig hud) {
     this.raw = raw.deepCopy();
     this.enabled = enabled;
@@ -125,6 +127,7 @@ public final class CampaignConfig {
     this.nativeDamageScale = nativeDamageScale;
     this.nativeIncomingDamageScale = nativeIncomingDamageScale;
     this.experience = experience;
+    this.enemyLoot = enemyLoot;
     this.hud = hud;
   }
 
@@ -304,6 +307,7 @@ public final class CampaignConfig {
         nativeScale,
         incomingScale,
         experience,
+        CampaignLoot.parse(json, ids),
         CampaignHudConfig.parse(json));
   }
 
@@ -334,6 +338,7 @@ public final class CampaignConfig {
         25,
         1,
         new Experience(3, .005, 100),
+        new CampaignLoot.Table(0, 0, 0, 1, false, List.of()),
         CampaignHudConfig.defaults());
   }
 

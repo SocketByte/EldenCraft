@@ -105,6 +105,17 @@ observations. Minecraft stores its checkpoint and awarded XP in the same player
 save. New native sessions establish a baseline. These observations exclude
 unconfirmed despawns; boss first-clear experience instead shares the boss receipt.
 
+`loot_seq` counts confirmed lethal hits on ordinary enemies; targets classified
+as bosses before the hit (registered boss health bar or NpcParam boss rune
+award) are excluded. `loot_events` repeats up to 64 of the latest
+`{seq,max_hp}` kills, strictly increasing and never beyond `loot_seq`. While the
+shared world is live, each also carries `map` and `position`: the enemy's death
+point in that anchor map's stable region frame, where floor drops land.
+Minecraft rolls the configured drop table once per kill after its saved cursor,
+seeded by character, session and sequence, and saves the cursor with the items.
+A new native session establishes a baseline; kills evicted from the list before
+observation are forfeited. Both fields are optional for older hosts.
+
 `campaign-healing.json` carries cumulative `heal_seq` and `heal_total` from
 actual server food healing. A fresh zero baseline precedes the first pulse;
 native consumes only subsequent increases for the current character and

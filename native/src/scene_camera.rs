@@ -129,6 +129,24 @@ fn fresh(timestamp: u64, now: u64) -> bool {
     now >= timestamp && now - timestamp <= MAX_AGE_MS
 }
 
+/// Shared-world `(map, region position)` of a Havok point, where enemy loot
+/// lands. The world bridge refreshes its transform every 50 ms; an older or
+/// suspended world places nothing.
+pub fn region_position(havok: [f32; 3]) -> Option<(u32, [f64; 3])> {
+    const LOOT_AGE_MS: u64 = 500;
+    let world = STATE.lock().ok()?.world?;
+    let now = crate::world_transport::now();
+    (havok.iter().all(|v| v.is_finite())
+        && now >= world.issued
+        && now - world.issued <= LOOT_AGE_MS)
+        .then(|| {
+            (
+                world.map,
+                std::array::from_fn(|i| havok[i] as f64 + world.offset[i]),
+            )
+        })
+}
+
 /// Verified prefix: matrix copied by1A55500; effective intrinsics byB13730.
 #[repr(C)]
 #[derive(Clone, Copy)]

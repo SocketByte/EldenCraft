@@ -101,6 +101,62 @@ public final class CampaignBridgeConformance {
     check(
         enriched.dead() && enriched.experienceSeq() == 3 && enriched.experienceTotal() == 12,
         "death and native kill XP are explicit observations");
+    check(
+        s.lootSeq() == 0 && s.lootEvents().isEmpty(), "older publishers report no ordinary kills");
+    String lootFrame =
+        VALID.replace(
+            "\"version\":1",
+            "\"version\":1,\"loot_seq\":9,"
+                + "\"loot_events\":[{\"seq\":8,\"max_hp\":219},{\"seq\":9,\"max_hp\":2889}]");
+    var loot = decode(lootFrame);
+    check(
+        loot.lootSeq() == 9
+            && loot.lootEvents()
+                .equals(
+                    java.util.List.of(
+                        new dev.eldencraft.bridge.CampaignLoot.Kill(8, 219),
+                        new dev.eldencraft.bridge.CampaignLoot.Kill(9, 2889))),
+        "ordinary kills carry their sequence and native maximum HP");
+    try {
+      loot.lootEvents().clear();
+      throw new AssertionError("Mutable loot events");
+    } catch (UnsupportedOperationException expected) {
+      checks++;
+    }
+    String placed =
+        lootFrame.replace(
+            "\"max_hp\":2889}", "\"max_hp\":2889,\"map\":7,\"position\":[1.5,-2,3.25]}");
+    var kill = decode(placed).lootEvents().get(1);
+    check(
+        kill.map() == 7
+            && kill.position().equals(new dev.eldencraft.bridge.WorldOrigin.Vec(1.5, -2, 3.25))
+            && decode(placed).lootEvents().get(0).position() == null,
+        "a kill in the live shared world carries its region death point");
+    reject(placed.replace("\"map\":7,", ""));
+    reject(placed.replace(",\"position\":[1.5,-2,3.25]", ""));
+    reject(placed.replace("[1.5,-2,3.25]", "[1.5,-2]"));
+    reject(placed.replace("[1.5,-2,3.25]", "[1.5,-2,\"3\"]"));
+    reject(placed.replace("[1.5,-2,3.25]", "[1.5,-2,1e300]"));
+    reject(placed.replace("\"map\":7", "\"map\":-1"));
+    reject(lootFrame.replace("\"loot_seq\":9", "\"loot_seq\":8"));
+    reject(lootFrame.replace("\"seq\":8,\"max_hp\"", "\"seq\":9,\"max_hp\""));
+    reject(lootFrame.replace("\"max_hp\":219", "\"max_hp\":0"));
+    reject(lootFrame.replace("\"max_hp\":219", "\"max_hp\":2.5"));
+    reject(lootFrame.replace("\"loot_seq\":9", "\"loot_seq\":-1"));
+    reject(
+        lootFrame
+            .replace("\"loot_events\":[", "\"loot_events\":{\"x\":[")
+            .replace("2889}]", "2889}]}"));
+    reject(
+        VALID.replace(
+            "\"version\":1",
+            "\"version\":1,\"loot_seq\":100,\"loot_events\":["
+                + String.join(
+                    ",",
+                    java.util.stream.IntStream.rangeClosed(1, 65)
+                        .mapToObj(i -> "{\"seq\":" + i + ",\"max_hp\":100}")
+                        .toList())
+                + "]"));
     for (String invalid :
         new String[] {
           VALID.replace("\"version\":1", "\"version\":2"),

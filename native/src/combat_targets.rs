@@ -82,6 +82,27 @@ pub fn target_rejection(chr: &eldenring::cs::ChrIns, player_team: u8) -> Option<
     eligibility(chr, player_team).rejection()
 }
 
+/// Minor and major bosses keep their authored rewards instead of ordinary
+/// enemy loot. Either the frontend's boss-health registration for this exact
+/// character or its NpcParam boss rune award classifies it. Read only on the
+/// existing authorized game task with a current ChrIns.
+#[cfg(windows)]
+pub fn boss_encounter(chr: &eldenring::cs::ChrIns) -> bool {
+    use eldenring::cs::{CSFeManImp, NpcParam, SoloParamRepository};
+    use fromsoftware_shared::FromStatic;
+    let registered = unsafe { CSFeManImp::instance() }.is_ok_and(|frontend| {
+        frontend.boss_health_displays.iter().any(|display| {
+            !display.field_ins_handle.is_empty() && display.field_ins_handle == chr.field_ins_handle
+        })
+    });
+    registered
+        || (chr.npc_param_id >= 0
+            && unsafe { SoloParamRepository::instance() }
+                .ok()
+                .and_then(|repo| repo.get::<NpcParam>(chr.npc_param_id as u32))
+                .is_some_and(|row| row.is_soul_get_by_boss()))
+}
+
 /// Camera ray length, not player reach: rear view can be four metres behind the player.
 pub const MAX_REACH_M: f32 = 10.0;
 const GROUND_RAY_M: f32 = 6.0;

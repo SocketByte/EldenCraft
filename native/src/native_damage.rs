@@ -117,6 +117,8 @@ pub struct TargetObservation {
     pub max_hp: i32,
     pub death_flag: bool,
     pub last_hit_by: FieldInsHandle,
+    /// Havok position of the character.
+    pub position: [f32; 3],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -135,6 +137,10 @@ pub struct Receipt {
     pub actual_delta: i32,
     /// Zero HP or native death flag observed after feedback; later death can lag.
     pub killed: bool,
+    /// Pre-hit boss classification of the target; see `combat_targets::boss_encounter`.
+    pub boss: bool,
+    /// Latest observed Havok position of the target, where a kill's loot lands.
+    pub position: [f32; 3],
     /// Native target field, observed after the call. Often updated only on death.
     pub last_hit_by: FieldInsHandle,
     /// Pre-call target protection observations, to distinguish a native
@@ -157,6 +163,7 @@ struct Resolved {
     hp: i32,
     protection: ProtectionObservation,
     direction: [f32; 3],
+    boss: bool,
 }
 pub struct Sink {
     base: usize,
@@ -259,6 +266,7 @@ impl Sink {
             hp: hp_before,
             protection: protection_before,
             mut direction,
+            boss,
         } = unsafe { self.resolve_characters(source, target)? };
         // The target was resolved and validated on this game-thread call. Tune
         // encounter HP pressure by the pinned SDK's typed NPC param identity.
@@ -329,6 +337,8 @@ impl Sink {
                 hp_after: latest.hp,
                 actual_delta,
                 killed: latest.hp <= 0 || latest.death_flag,
+                boss,
+                position: latest.position,
                 last_hit_by: latest.last_hit_by,
                 protection_before,
                 feedback_dispatched: actual_delta > 0,
@@ -370,6 +380,10 @@ impl Sink {
             max_hp: chr.modules.data.max_hp,
             death_flag: chr.chr_flags1c5.death_flag(),
             last_hit_by: chr.last_hit_by,
+            position: {
+                let p = &chr.modules.physics.position;
+                [p.0, p.1, p.2]
+            },
         }
     }
 
@@ -444,6 +458,8 @@ impl Sink {
         // Read-only observations of the exact native nonlethal predicate. Do
         // not disable immortality: it can protect a scripted enemy transition.
         let protection = unsafe { self.protection(chr) };
+        // Classified while alive: a boss-health registration can clear on death.
+        let boss = crate::combat_targets::boss_encounter(chr);
         let a = player.chr_ins.modules.physics.position;
         let b = chr.modules.physics.position;
         let direction = hit_direction([a.0, a.1, a.2], [b.0, b.1, b.2])
@@ -455,6 +471,7 @@ impl Sink {
             hp: chr.modules.data.hp,
             protection,
             direction,
+            boss,
         })
     }
 }

@@ -1,6 +1,7 @@
 package dev.eldencraft.bridge.client;
 
 import com.google.gson.*;
+import dev.eldencraft.bridge.CampaignLoot;
 import dev.eldencraft.bridge.JsonWire;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -53,10 +54,13 @@ public final class CampaignBridge {
       boolean dead,
       long experienceSeq,
       long experienceTotal,
+      long lootSeq,
+      List<CampaignLoot.Kill> lootEvents,
       List<Boss> activeBosses) {
     public Snapshot {
       defeated = Set.copyOf(defeated);
       damageEvents = List.copyOf(damageEvents);
+      lootEvents = List.copyOf(lootEvents);
       activeBosses = List.copyOf(activeBosses);
     }
   }
@@ -201,6 +205,47 @@ public final class CampaignBridge {
         j.has("experience_seq") ? integer(j, "experience_seq", 0, Long.MAX_VALUE) : 0;
     long experienceTotal =
         j.has("experience_total") ? integer(j, "experience_total", 0, 9_000_000_000_000_000L) : 0;
+    long lootSeq = j.has("loot_seq") ? integer(j, "loot_seq", 0, Long.MAX_VALUE) : 0;
+    var lootEvents = new ArrayList<CampaignLoot.Kill>();
+    if (j.has("loot_events")) {
+      if (!j.get("loot_events").isJsonArray()) throw new IOException("Invalid loot events");
+      var events = j.getAsJsonArray("loot_events");
+      if (events.size() > CampaignLoot.MAX_EVENTS) throw new IOException("Too many loot events");
+      long previous = 0;
+      for (var event : events) {
+        if (!event.isJsonObject()) throw new IOException("Invalid loot event");
+        var e = event.getAsJsonObject();
+        // Native publishes its cumulative sequence with the events it still holds.
+        long eventSeq = integer(e, "seq", 1, lootSeq);
+        if (eventSeq <= previous) throw new IOException("Loot sequence must increase");
+        int killMaxHp = (int) integer(e, "max_hp", 1, Integer.MAX_VALUE);
+        if (e.has("map") != e.has("position"))
+          throw new IOException("Loot position requires its region map");
+        if (e.has("position")) {
+          var p = e.get("position");
+          if (!p.isJsonArray() || p.getAsJsonArray().size() != 3)
+            throw new IOException("Invalid loot position");
+          var a = p.getAsJsonArray();
+          double[] v = new double[3];
+          for (int i = 0; i < 3; i++) {
+            if (!a.get(i).isJsonPrimitive() || !a.get(i).getAsJsonPrimitive().isNumber())
+              throw new IOException("Invalid loot position");
+            v[i] = a.get(i).getAsDouble();
+          }
+          try {
+            lootEvents.add(
+                new CampaignLoot.Kill(
+                    eventSeq,
+                    killMaxHp,
+                    integer(e, "map", 0, 0xffff_ffffL),
+                    new dev.eldencraft.bridge.WorldOrigin.Vec(v[0], v[1], v[2])));
+          } catch (IllegalArgumentException invalid) {
+            throw new IOException("Invalid loot position", invalid);
+          }
+        } else lootEvents.add(new CampaignLoot.Kill(eventSeq, killMaxHp));
+        previous = eventSeq;
+      }
+    }
     var activeBosses = new ArrayList<Boss>();
     if (j.has("bosses_active")) {
       if (!j.get("bosses_active").isJsonArray() || j.getAsJsonArray("bosses_active").size() > 4)
@@ -255,6 +300,8 @@ public final class CampaignBridge {
         dead,
         experienceSeq,
         experienceTotal,
+        lootSeq,
+        lootEvents,
         activeBosses);
   }
 

@@ -35,7 +35,16 @@ Invalid configuration is rejected. Keep the JSON below 128 KiB, use vanilla `min
 | Diamond | 13 | 21 | 1.6 | 1.0 |
 | Netherite | 18 | 29 | 1.6 | 1.0 |
 
-`combat.nativeDamageScale` converts the resolved Minecraft hit into native HP damage. The supplied value is 15: a full netherite sword hit becomes 270 native HP before any existing native damage-path behavior. `combat.bowBaseDamage` defaults to vanilla's 2 and `combat.crossbowBaseDamage` defaults to 4. Both retain ordinary arrow velocity and critical calculations. These are initial tuning values, requiring live boss playtests before claiming equivalence to a specific level-100 Elden Ring build.
+`combat.nativeDamageScale` converts the resolved Minecraft hit into native HP damage. The supplied value is 20: a full wooden sword hit becomes 80 native HP and a netherite sword 360, before any existing native damage-path behavior. `combat.bowBaseDamage` (vanilla 2) and `combat.crossbowBaseDamage` (vanilla 4) are supplied at 1 and 2, so ranged play stays a safe but slow option. Both retain ordinary arrow velocity and critical calculations. These are tuning values, still requiring live boss playtests before claiming equivalence to a specific level-100 Elden Ring build.
+
+The scale was chosen from native receipts recorded in Limgrave. Ordinary enemies there have 143–657 maximum HP and the Tree Sentinel 2,889:
+
+| Enemy max HP | 143 | 219 | 423 | 555 | 657 | 2,889 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Wooden sword hits at scale 15 | 3 | 4 | 8 | 10 | 11 | 49 |
+| Wooden sword hits at scale 20 | 2 | 3 | 6 | 7 | 9 | 37 |
+
+At 15, wooden-sword fights took roughly twice as many hits as a starting Elden Ring weapon, while the character also starts with Vigor-10 health and no flasks. At 20, Margit (about 4,200 HP) takes about 53 wooden-sword hits, Morgott about 40 diamond hits and Maliketh about 30 netherite hits. Minecraft's faster swing cadence brings the total attack time close to an on-level Elden Ring build. The material ladder grows 4.5 times from wood to netherite, similar to Elden Ring's area HP scaling, so hit counts stay roughly constant when the player is on the intended tier.
 
 Optional `combat.nativeEnemyDamageMultipliers` maps verified native NPC parameter IDs, as JSON keys, to incoming Minecraft damage multipliers from 0.01 to 1000. For example, `{ "123456": 2 }` doubles damage received by that NPC parameter row; this example ID is illustrative. Find actual IDs in native melee/target diagnostics for the supported game. The default map is empty. This supports tuning encounters such as Rykard, whose original HP budget assumes a special native weapon, without introducing a custom Minecraft item. The native sink bounds the final hit to its safe damage range.
 
@@ -59,6 +68,8 @@ Guard expenditure uses raw incoming damage in fixed Minecraft HP units, before a
 | `stamina.guardBase` | 4 | Cost per blocked hit |
 | `stamina.guardPerDamage` | 1.5 | Additional cost per raw incoming Minecraft HP |
 | `stamina.guardRecovery` | 5 | Balance needed to raise an exhausted guard again |
+
+Swords and axes trade efficiency for throughput. A sword hit costs half as much stamina per point of damage, leaving more for blocking. The axe's slower cooldown lets stamina recover between swings, so it deals slightly more in a 1.5 s opening (wood: 14 against 12) and over a 10 s exchange (56 against 48 at mid-game capacity).
 
 Holding a shield or drawing/loading a ranged weapon pauses regeneration. Insufficient stamina prevents a new attack or shot. A shield hit costs `guardBase + guardPerDamage` per raw damage. If the remaining balance covers it, the hit is fully blocked. Otherwise stamina absorbs only the share it pays for, drops to zero, and the rest of the hit goes through as ordinary damage after armor. Either way, emptying stamina with a block breaks the guard. The shield is knocked down with vanilla's shield-break sound and a hotbar cooldown lasting until stamina reaches `guardRecovery` again, and the stamina bar shakes, flashes and shows "Guard broken". While a shield is held, a small shield icon beside the crosshair shows its state in the stamina colors: a faint outline when available, filling during vanilla's 0.25 s raise delay, solid with a short flash once it blocks, and the exhausted color refilling while a broken guard recovers. Native guard events include blocked hits with zero HP loss. Sprinting, jumping, normal Minecraft movement, mining and placing blocks do not spend this stamina; the swings of holding attack on a block (Minecraft or Elden Ring terrain) are never charged as missed attacks.
 
@@ -126,6 +137,8 @@ The HP anchors are corroborated by [Bandai Namco's attribute explanation](https:
 
 The main route grants copper after Margit, iron after Godrick, diamond through the middle campaign and netherite from Fire Giant onward. Optional bosses supply region-appropriate equipment and maintenance materials. Wooden equipment is available before Margit. Crafting access and raw logs are gated so ordinary stone gathering does not immediately bypass the opening gear tier.
 
+The ten hardest optional Limgrave and Weeping Peninsula field bosses (Tree Sentinel, Crucible Knight, Bell Bearing Hunter, both Night's Cavalry, Flying Dragon Agheel, both Deathbirds, Bloodhound Knight Darriwil and the Ancient Hero of Zamor) grant chainmail pieces instead of further leather. Chainmail (12 armor for a full set) cannot be crafted or bought. It sits between copper (10) and iron (15), so optional early fights pay off without skipping the iron tier.
+
 Rewards wait when the complete batch cannot fit in the inventory. Claims are saved with the items in the Minecraft player save, preventing a separate claims file from disagreeing with inventory. Removing a boss entry does not remove previously granted equipment. Changing an existing reward ID does not retroactively grant that reward again.
 
 `mining.allowedBlocks` controls ordinary native-terrain gathering. It defaults to stone/cobblestone, bricks and dirt variants. Wood, iron ore and other progression materials are excluded. `mining.regrowTicks` sets the delay before a sampled cell can yield another item; 12000 ticks is ten minutes at 20 TPS. Mining supplies an item without deleting Elden Ring's terrain.
@@ -133,6 +146,46 @@ Rewards wait when the complete batch cannot fit in the inventory. Claims are sav
 `mining.resourceZones` can override a hit material in a particular native map. The defaults map ore surfaces in eight base-game tunnels to lapis ore. Each rule contains a packed `sourceMap`, `hitMaterials` and vanilla `block` ID. Map bytes are `(area << 24) | (block << 16) | (region << 8) | index`; for example `m32_01_00_00` is 536936448. Only matched ore surfaces gain this exception, and ordinary Minecraft tool/drop rules still apply. The future enchantment economy can use this lapis without changing the current baseline damage balance.
 
 Confirmed lethal Minecraft melee or ranged hits award native-enemy XP using top-level `experience`: `mobBase` plus `mobPerNativeHp` times the target's maximum HP, capped by `maxPerKill`. Defaults are 3, 0.005 and 100. Boss first-clear XP is additional. Cumulative native kill receipts and a checkpoint in the Minecraft player save prevent replaying observed kills as repeated XP. A new native session starts a fresh observation baseline; target disappearance alone does not count as a kill.
+
+## Enemy drops
+
+Confirmed lethal Minecraft hits on ordinary native enemies also roll the top-level `enemyLoot` table. Minor and major bosses never roll it; they keep their authored `rewards`, which always go straight to the inventory. Native classifies an enemy as a boss while it is still alive, when the frontend has registered its boss health bar or its NpcParam awards runes as a boss.
+
+By default, drops land on the floor where the enemy died, like Elden Ring's item drops and vanilla mob drops, and are picked up by walking over them. Native reports the death point in the shared world's stable region frame. Minecraft only drops there when that point lies inside the sampled terrain around the player (about 16 m each way), since items need that hidden terrain to rest on. Otherwise, for example after a long-range bow kill, the drops go to the inventory. Unclaimed drops follow vanilla rules: they despawn after five minutes and can fall away once the player walks far enough for the terrain under them to leave the sampled area. Elden Ring's terrain sampling is approximate, so a drop can rest slightly above or below the visible ground.
+
+With `dropOnFloor: false`, every drop goes straight into the inventory with the pickup sound and a short "Looted ..." message. If the inventory is full, the remainder lands at the player's feet, as with vanilla `/give`.
+
+| JSON field | Default | Meaning |
+| --- | ---: | --- |
+| `enemyLoot.dropChance` | 0.4 | Chance that each roll yields an item; 0 disables drops |
+| `enemyLoot.minNativeHp` | 100 | Enemies with less maximum HP drop nothing |
+| `enemyLoot.extraRollNativeHp` | 1500 | One extra roll per this much enemy maximum HP; 0 disables extra rolls |
+| `enemyLoot.maxRolls` | 3 | Roll cap (1–8) |
+| `enemyLoot.dropOnFloor` | `true` | Drop items where the enemy died; `false` delivers them to the inventory |
+| `enemyLoot.entries` | see below | `{ "item", "min", "max", "weight" }` with optional `unlock_any` / `unlock_all` boss gates |
+
+Each successful roll picks one unlocked entry by weight, then a count from `min` to `max`. Weights are relative, so a newly unlocked entry also makes the existing ones a little rarer. Gates must name configured bosses. Omitted fields, or a missing `enemyLoot` section in an older campaign file, use the defaults:
+
+| Item | Count | Weight | Gate |
+| --- | ---: | ---: | --- |
+| Bread | 1–2 | 18 | |
+| Apple | 1–2 | 10 | |
+| Baked potato | 1–2 | 6 | |
+| Rotten flesh | 1–3 | 14 | |
+| Bone | 1–2 | 10 | |
+| String | 1–2 | 8 | |
+| Stick | 1–3 | 8 | |
+| Feather | 1–2 | 7 | |
+| Flint | 1 | 6 | |
+| Arrow | 2–4 | 8 | |
+| Leather | 1 | 4 | |
+| Golden apple | 1 | 0.8 | |
+| Cooked beef | 1–2 | 14 | Any iron-tier victory (as the shop) |
+| Golden carrot | 1–2 | 8 | Any diamond-tier victory (as the shop) |
+
+An ordinary Limgrave enemy drops something on 40% of kills; about one in 300 kills drops a golden apple. Late-game enemies have enough HP for two or three rolls and the better food, matching the larger health pool that food has to refill. String, sticks, feathers and flint become bows and arrows once Margit grants a crafting table. The table deliberately excludes logs, metal nuggets and ingots, gunpowder and paper, so drops never bypass a material tier, the crafting gate or the deferred enchanting economy. Drops supplement merchants; buying food remains the dependable way to prepare for a boss.
+
+Each native session numbers ordinary kills. Minecraft saves its loot cursor in the same world save as the delivered or dropped items, so a reload cannot replay a kill. Each roll is seeded by the character, session and kill, so a Minecraft crash before the save delivers the same items again rather than a reroll. Native keeps the latest 64 kills; kills older than that before Minecraft observes them are forfeited, as are kills from before a new native session's baseline.
 
 Lapis ore also follows vanilla mining XP rules. Merchants sell an enchanting table, books and bookshelves after early major victories. Vanilla enchanting remains available, but the supplied weapon and boss balance does not assume enchantments.
 
@@ -168,6 +221,8 @@ Native save discovery uses the dedicated `EldenCraft.sl2`. If it cannot be found
 An offer can optionally specify `native_item_lot` for an existing native **map item lot** containing Goods/key rewards, and `native_name` for its display name. Its vanilla `item` is only the GUI icon in this case, and `count` must be 1. Native validates the lot and grants it through the native dialogue award command; Minecraft does not create a substitute quest item. Weapon and armor lots are not supported. Use verified lot IDs appropriate to the supported game, including their award flags. The default catalog contains Minecraft goods only and leaves native quest-key acquisition in the world intact.
 
 Selling is not enabled in this baseline. Repeat purchases of food, ammunition, replacements and repair/crafting materials provide ongoing rune sinks without creating profits from renewable mined blocks. Special finite stock and price/gate changes are configurable.
+
+Ingredients set the real price of equipment: copper and iron ingots and diamonds craft the same gear the shop sells once a crafting table is available. Ready-made weapons, tools and armor therefore cost 1.25 times their cheapest legal ingredients, a convenience premium rather than a trap. Netherite gear is priced against its upgrade route: the diamond piece plus one netherite ingot (90,000) and one upgrade template (60,000). The template price sits just above the vanilla duplication recipe (seven diamonds, 49,000, plus netherrack from a Nether event). One upgrade costs about half of a late remembrance payout. Conformance checks that no ready-made piece undercuts its ingredients.
 
 ## Development and verification
 

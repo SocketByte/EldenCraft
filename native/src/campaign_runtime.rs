@@ -39,6 +39,53 @@ static DAMAGE_EVENTS: Mutex<VecDeque<DamageEvent>> = Mutex::new(VecDeque::new())
 static DAMAGE_SEQ: AtomicU64 = AtomicU64::new(0);
 static EXPERIENCE_SEQ: AtomicU64 = AtomicU64::new(0);
 static EXPERIENCE_TOTAL: AtomicU64 = AtomicU64::new(0);
+static LOOT: Mutex<LootLog> = Mutex::new(LootLog::new());
+
+/// One confirmed ordinary (non-boss) kill. Minecraft rolls its configured drop
+/// table once per sequence and saves its cursor with the delivered items.
+/// `map`/`position` place the drop where the enemy died, in the shared world's
+/// stable region frame; both are absent while that world is not live.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct LootEvent {
+    seq: u64,
+    max_hp: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    map: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position: Option<[f64; 3]>,
+}
+/// Cumulative sequence and the latest bounded events, read together so a
+/// publication never carries an event beyond its own `loot_seq`.
+struct LootLog {
+    seq: u64,
+    events: VecDeque<LootEvent>,
+}
+impl LootLog {
+    const fn new() -> Self {
+        Self {
+            seq: 0,
+            events: VecDeque::new(),
+        }
+    }
+    fn record(&mut self, max_hp: i32, at: Option<(u32, [f64; 3])>) {
+        if max_hp <= 0 {
+            return;
+        }
+        self.seq += 1;
+        self.events.push_back(LootEvent {
+            seq: self.seq,
+            max_hp,
+            map: at.map(|(map, _)| map),
+            position: at.map(|(_, position)| position),
+        });
+        while self.events.len() > 64 {
+            self.events.pop_front();
+        }
+    }
+    fn observation(&self) -> (u64, Vec<LootEvent>) {
+        (self.seq, self.events.iter().cloned().collect())
+    }
+}
 
 pub fn record_kill(receipt: &crate::native_damage::Receipt) {
     let Some(c) = CONFIG.get().filter(|c| c.enabled) else {
@@ -59,6 +106,18 @@ pub fn record_kill(receipt: &crate::native_damage::Receipt) {
         Some(total.saturating_add(xp).min(9000000000000000))
     });
     EXPERIENCE_SEQ.fetch_add(1, Ordering::Release);
+    // Bosses keep their authored first-clear rewards; only ordinary kills drop loot.
+    if !receipt.boss
+        && let Ok(mut loot) = LOOT.lock()
+    {
+        loot.record(
+            receipt.max_hp_before,
+            crate::scene_camera::region_position(receipt.position),
+        );
+    }
+}
+fn loot_observation() -> (u64, Vec<LootEvent>) {
+    LOOT.lock().map(|l| l.observation()).unwrap_or_default()
 }
 
 #[derive(Clone, Serialize)]
@@ -317,6 +376,8 @@ pub struct Snapshot {
     damage_events: Vec<DamageEvent>,
     experience_seq: u64,
     experience_total: u64,
+    loot_seq: u64,
+    loot_events: Vec<LootEvent>,
     bosses_active: Vec<crate::boss_hud::Boss>,
     #[serde(skip)]
     boss_diagnostics: Option<crate::boss_hud::Diagnostics>,
@@ -469,6 +530,55 @@ mod combat_contention_tests {
         GUARD_SEQ.store(old_seq, Ordering::Release);
         *DAMAGE_EVENTS.lock().unwrap() = old_events;
         DAMAGE_SEQ.store(old_event_seq, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod loot_log_tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_kills_publish_bounded_increasing_events_within_their_sequence() {
+        let mut log = LootLog::new();
+        assert_eq!(log.observation(), (0, Vec::new()));
+        log.record(0, None);
+        log.record(-5, None);
+        assert_eq!(
+            log.observation().0,
+            0,
+            "invalid HP never consumes a sequence"
+        );
+        for hp in 1..=70 {
+            log.record(hp * 100, (hp == 70).then_some((7, [1.5, -2., 3.25])));
+        }
+        let (seq, events) = log.observation();
+        assert_eq!(seq, 70);
+        assert_eq!(
+            events.len(),
+            64,
+            "publication keeps only the latest 64 kills"
+        );
+        assert_eq!(events.first().unwrap().seq, 7);
+        assert_eq!(
+            events.last().unwrap(),
+            &LootEvent {
+                seq: 70,
+                max_hp: 7000,
+                map: Some(7),
+                position: Some([1.5, -2., 3.25]),
+            }
+        );
+        assert!(events.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
+        let json = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"seq": 7, "max_hp": 700}),
+            "a kill outside the live shared world carries no position"
+        );
+        assert_eq!(
+            serde_json::to_value(events.last().unwrap()).unwrap(),
+            serde_json::json!({"seq": 70, "max_hp": 7000, "map": 7, "position": [1.5, -2.0, 3.25]})
+        );
     }
 }
 
@@ -812,6 +922,8 @@ impl Driver {
                     damage_events: Vec::new(),
                     experience_seq: EXPERIENCE_SEQ.load(Ordering::Acquire),
                     experience_total: EXPERIENCE_TOTAL.load(Ordering::Acquire),
+                    loot_seq: loot_observation().0,
+                    loot_events: Vec::new(),
                     bosses_active: Vec::new(),
                     boss_diagnostics: None,
                 })));
@@ -872,6 +984,9 @@ impl Driver {
             }
             EXPERIENCE_SEQ.store(0, Ordering::Release);
             EXPERIENCE_TOTAL.store(0, Ordering::Release);
+            if let Ok(mut loot) = LOOT.lock() {
+                *loot = LootLog::new();
+            }
             if let Ok(mut shop) = SHOP.lock() {
                 *shop = None;
             }
@@ -1128,6 +1243,7 @@ impl Driver {
         }
         self.seq += 1;
         let boss_observation = unsafe { crate::boss_hud::sample() };
+        let (loot_seq, loot_events) = loot_observation();
         Some(Snapshot {
             version: 1,
             pid: std::process::id(),
@@ -1156,6 +1272,8 @@ impl Driver {
             damage_events: damage_events(),
             experience_seq: EXPERIENCE_SEQ.load(Ordering::Acquire),
             experience_total: EXPERIENCE_TOTAL.load(Ordering::Acquire),
+            loot_seq,
+            loot_events,
             bosses_active: boss_observation.bosses,
             boss_diagnostics: Some(boss_observation.diagnostics),
         })

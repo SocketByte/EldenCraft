@@ -49,6 +49,51 @@ public final class CampaignConformance {
       check(health > last, "every remembrance grants meaningful HP " + count);
       last = health;
     }
+    checks += CampaignLootConformance.verify(rules);
+    var offers = new HashMap<String, CampaignShopCatalog.Offer>();
+    for (var shop : CampaignShopCatalog.parse(rules.raw()).shops())
+      for (var offer : shop.offers()) offers.put(offer.id(), offer);
+    var unit = new HashMap<String, Double>();
+    for (var row :
+        Map.of("copper", "copper_ingots", "iron", "iron_ingots", "diamond", "diamonds").entrySet())
+      unit.put(
+          row.getKey(),
+          offers.get(row.getValue()).price() / (double) offers.get(row.getValue()).count());
+    double upgrade =
+        offers.get("netherite_ingot").price() + offers.get("netherite_template").price();
+    var materials =
+        Map.of(
+            "sword",
+            2,
+            "axe",
+            3,
+            "pickaxe",
+            3,
+            "shovel",
+            1,
+            "helmet",
+            5,
+            "chestplate",
+            8,
+            "leggings",
+            7,
+            "boots",
+            4);
+    for (var material : List.of("copper", "iron", "diamond", "netherite"))
+      for (var piece : materials.entrySet()) {
+        var offer = offers.get(material + "_" + piece.getKey());
+        if (offer == null) continue;
+        double crafted =
+            material.equals("netherite")
+                ? unit.get("diamond") * piece.getValue() + upgrade
+                : unit.get(material) * piece.getValue();
+        check(
+            offer.price() >= crafted,
+            "ready-made " + offer.id() + " never undercuts its ingredients or upgrade");
+      }
+    check(
+        offers.values().stream().noneMatch(o -> o.item().startsWith("minecraft:chainmail_")),
+        "chainmail remains an optional-boss reward");
     near(rules.weapons.get("minecraft:netherite_sword").damage(), 18, "material damage default");
     check(
         rules.weapons.get("minecraft:copper_sword").damage()

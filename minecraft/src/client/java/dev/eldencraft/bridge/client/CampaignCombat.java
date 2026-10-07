@@ -44,6 +44,7 @@ public final class CampaignCombat {
     ids.addAll(config.armors.keySet());
     for (var reward : config.starterItems) ids.add(reward.item());
     for (var boss : config.bosses) for (var reward : boss.rewards()) ids.add(reward.item());
+    for (var entry : config.enemyLoot.entries()) ids.add(entry.item());
     for (var shop : CampaignShopCatalog.parse(config.raw()).shops())
       for (var offer : shop.offers()) ids.add(offer.item());
     for (String id : ids) {

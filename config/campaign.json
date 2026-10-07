@@ -39,7 +39,7 @@
     }
   },
   "combat": {
-    "nativeDamageScale": 15, 
+    "nativeDamageScale": 20,
     "crossbowBaseDamage": 2,
     "bowBaseDamage": 1,
     "nativeIncomingDamageScale": 1,
@@ -1174,7 +1174,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_boots",
+          "item": "minecraft:chainmail_boots",
           "count": 1
         },
         {
@@ -1190,7 +1190,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_helmet",
+          "item": "minecraft:chainmail_helmet",
           "count": 1
         },
         {
@@ -1206,7 +1206,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_chestplate",
+          "item": "minecraft:chainmail_chestplate",
           "count": 1
         },
         {
@@ -1222,7 +1222,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_leggings",
+          "item": "minecraft:chainmail_leggings",
           "count": 1
         },
         {
@@ -1270,7 +1270,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_chestplate",
+          "item": "minecraft:chainmail_chestplate",
           "count": 1
         },
         {
@@ -1286,7 +1286,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_leggings",
+          "item": "minecraft:chainmail_leggings",
           "count": 1
         },
         {
@@ -1302,7 +1302,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_boots",
+          "item": "minecraft:chainmail_boots",
           "count": 1
         },
         {
@@ -1318,7 +1318,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_helmet",
+          "item": "minecraft:chainmail_helmet",
           "count": 1
         },
         {
@@ -1334,7 +1334,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_chestplate",
+          "item": "minecraft:chainmail_chestplate",
           "count": 1
         },
         {
@@ -1382,7 +1382,7 @@
       "remembrance": false,
       "rewards": [
         {
-          "item": "minecraft:leather_helmet",
+          "item": "minecraft:chainmail_helmet",
           "count": 1
         },
         {
@@ -3869,7 +3869,7 @@
           "id": "copper_sword",
           "item": "minecraft:copper_sword",
           "count": 1,
-          "price": 1600,
+          "price": 400,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -3885,7 +3885,7 @@
           "id": "copper_axe",
           "item": "minecraft:copper_axe",
           "count": 1,
-          "price": 2000,
+          "price": 550,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -3901,7 +3901,7 @@
           "id": "copper_pickaxe",
           "item": "minecraft:copper_pickaxe",
           "count": 1,
-          "price": 2000,
+          "price": 550,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -3917,7 +3917,7 @@
           "id": "copper_shovel",
           "item": "minecraft:copper_shovel",
           "count": 1,
-          "price": 2000,
+          "price": 200,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -3933,7 +3933,7 @@
           "id": "copper_helmet",
           "item": "minecraft:copper_helmet",
           "count": 1,
-          "price": 1500,
+          "price": 950,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -3949,7 +3949,7 @@
           "id": "copper_chestplate",
           "item": "minecraft:copper_chestplate",
           "count": 1,
-          "price": 4000,
+          "price": 1500,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -3965,7 +3965,7 @@
           "id": "copper_leggings",
           "item": "minecraft:copper_leggings",
           "count": 1,
-          "price": 3300,
+          "price": 1300,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -3981,7 +3981,7 @@
           "id": "copper_boots",
           "item": "minecraft:copper_boots",
           "count": 1,
-          "price": 1200,
+          "price": 750,
           "stock": -1,
           "unlock_any": [
             "margit",
@@ -4012,7 +4012,7 @@
           "id": "iron_sword",
           "item": "minecraft:iron_sword",
           "count": 1,
-          "price": 6500,
+          "price": 2000,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4027,7 +4027,7 @@
           "id": "iron_axe",
           "item": "minecraft:iron_axe",
           "count": 1,
-          "price": 9000,
+          "price": 2750,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4042,7 +4042,7 @@
           "id": "iron_pickaxe",
           "item": "minecraft:iron_pickaxe",
           "count": 1,
-          "price": 9000,
+          "price": 2750,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4057,7 +4057,7 @@
           "id": "iron_shovel",
           "item": "minecraft:iron_shovel",
           "count": 1,
-          "price": 9000,
+          "price": 1000,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4072,7 +4072,7 @@
           "id": "iron_helmet",
           "item": "minecraft:iron_helmet",
           "count": 1,
-          "price": 14000,
+          "price": 4750,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4087,7 +4087,7 @@
           "id": "iron_chestplate",
           "item": "minecraft:iron_chestplate",
           "count": 1,
-          "price": 23000,
+          "price": 7500,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4102,7 +4102,7 @@
           "id": "iron_leggings",
           "item": "minecraft:iron_leggings",
           "count": 1,
-          "price": 20000,
+          "price": 6500,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4117,7 +4117,7 @@
           "id": "iron_boots",
           "item": "minecraft:iron_boots",
           "count": 1,
-          "price": 11500,
+          "price": 3750,
           "stock": -1,
           "unlock_any": [
             "godrick",
@@ -4208,7 +4208,7 @@
           "id": "diamond_sword",
           "item": "minecraft:diamond_sword",
           "count": 1,
-          "price": 28000,
+          "price": 18000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4224,7 +4224,7 @@
           "id": "diamond_axe",
           "item": "minecraft:diamond_axe",
           "count": 1,
-          "price": 42000,
+          "price": 26000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4240,7 +4240,7 @@
           "id": "diamond_pickaxe",
           "item": "minecraft:diamond_pickaxe",
           "count": 1,
-          "price": 42000,
+          "price": 26000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4256,7 +4256,7 @@
           "id": "diamond_shovel",
           "item": "minecraft:diamond_shovel",
           "count": 1,
-          "price": 42000,
+          "price": 9000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4272,7 +4272,7 @@
           "id": "diamond_helmet",
           "item": "minecraft:diamond_helmet",
           "count": 1,
-          "price": 65000,
+          "price": 44000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4288,7 +4288,7 @@
           "id": "diamond_chestplate",
           "item": "minecraft:diamond_chestplate",
           "count": 1,
-          "price": 105000,
+          "price": 70000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4304,7 +4304,7 @@
           "id": "diamond_leggings",
           "item": "minecraft:diamond_leggings",
           "count": 1,
-          "price": 90000,
+          "price": 61000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4320,7 +4320,7 @@
           "id": "diamond_boots",
           "item": "minecraft:diamond_boots",
           "count": 1,
-          "price": 52000,
+          "price": 35000,
           "stock": -1,
           "unlock_any": [
             "radahn",
@@ -4368,7 +4368,7 @@
           "id": "netherite_ingot",
           "item": "minecraft:netherite_ingot",
           "count": 1,
-          "price": 130000,
+          "price": 90000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4382,7 +4382,7 @@
           "id": "netherite_template",
           "item": "minecraft:netherite_upgrade_smithing_template",
           "count": 1,
-          "price": 160000,
+          "price": 60000,
           "stock": 12,
           "unlock_any": [
             "fire_giant",
@@ -4410,7 +4410,7 @@
           "id": "netherite_sword",
           "item": "minecraft:netherite_sword",
           "count": 1,
-          "price": 105000,
+          "price": 205000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4424,7 +4424,7 @@
           "id": "netherite_axe",
           "item": "minecraft:netherite_axe",
           "count": 1,
-          "price": 155000,
+          "price": 215000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4438,7 +4438,7 @@
           "id": "netherite_pickaxe",
           "item": "minecraft:netherite_pickaxe",
           "count": 1,
-          "price": 155000,
+          "price": 215000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4452,7 +4452,7 @@
           "id": "netherite_shovel",
           "item": "minecraft:netherite_shovel",
           "count": 1,
-          "price": 155000,
+          "price": 195000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4480,7 +4480,7 @@
           "id": "netherite_chestplate",
           "item": "minecraft:netherite_chestplate",
           "count": 1,
-          "price": 380000,
+          "price": 260000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4494,7 +4494,7 @@
           "id": "netherite_leggings",
           "item": "minecraft:netherite_leggings",
           "count": 1,
-          "price": 320000,
+          "price": 250000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4508,7 +4508,7 @@
           "id": "netherite_boots",
           "item": "minecraft:netherite_boots",
           "count": 1,
-          "price": 190000,
+          "price": 225000,
           "stock": -1,
           "unlock_any": [
             "fire_giant",
@@ -4626,5 +4626,113 @@
     "mobBase": 3,
     "mobPerNativeHp": 0.005,
     "maxPerKill": 100
+  },
+  "enemyLoot": {
+    "dropChance": 0.4,
+    "minNativeHp": 100,
+    "extraRollNativeHp": 1500,
+    "maxRolls": 3,
+    "dropOnFloor": true,
+    "entries": [
+      {
+        "item": "minecraft:bread",
+        "min": 1,
+        "max": 2,
+        "weight": 18
+      },
+      {
+        "item": "minecraft:apple",
+        "min": 1,
+        "max": 2,
+        "weight": 10
+      },
+      {
+        "item": "minecraft:baked_potato",
+        "min": 1,
+        "max": 2,
+        "weight": 6
+      },
+      {
+        "item": "minecraft:rotten_flesh",
+        "min": 1,
+        "max": 3,
+        "weight": 14
+      },
+      {
+        "item": "minecraft:bone",
+        "min": 1,
+        "max": 2,
+        "weight": 10
+      },
+      {
+        "item": "minecraft:string",
+        "min": 1,
+        "max": 2,
+        "weight": 8
+      },
+      {
+        "item": "minecraft:stick",
+        "min": 1,
+        "max": 3,
+        "weight": 8
+      },
+      {
+        "item": "minecraft:feather",
+        "min": 1,
+        "max": 2,
+        "weight": 7
+      },
+      {
+        "item": "minecraft:flint",
+        "min": 1,
+        "max": 1,
+        "weight": 6
+      },
+      {
+        "item": "minecraft:arrow",
+        "min": 2,
+        "max": 4,
+        "weight": 8
+      },
+      {
+        "item": "minecraft:leather",
+        "min": 1,
+        "max": 1,
+        "weight": 4
+      },
+      {
+        "item": "minecraft:golden_apple",
+        "min": 1,
+        "max": 1,
+        "weight": 0.8
+      },
+      {
+        "item": "minecraft:cooked_beef",
+        "min": 1,
+        "max": 2,
+        "weight": 14,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "rykard",
+          "morgott"
+        ]
+      },
+      {
+        "item": "minecraft:golden_carrot",
+        "min": 1,
+        "max": 2,
+        "weight": 8,
+        "unlock_any": [
+          "radahn",
+          "rykard",
+          "astel",
+          "fortissax",
+          "morgott",
+          "fire_giant"
+        ]
+      }
+    ]
   }
 }
