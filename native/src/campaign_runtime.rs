@@ -168,7 +168,9 @@ pub struct CombatState {
     pub session: u64,
     pub character: String,
     pub timestamp_ms: u64,
+    /// Sum of equipped Minecraft armor's damage-reduction percentage points.
     pub armor: f64,
+    /// Retained for compatibility; does not modify percentage mitigation.
     pub toughness: f64,
     pub guest_max_hp: f64,
     pub shield_ready: bool,
@@ -310,9 +312,9 @@ pub fn filter_damage(damage: i32, frontal_block: bool) -> Option<i32> {
     Some(open_damage(raw, &state, cfg))
 }
 fn open_damage(raw: f64, state: &CombatState, cfg: &Config) -> i32 {
-    (damage_after_armor(raw, state.armor, state.toughness) * cfg.native_hp_per_minecraft_hp())
+    (damage_after_armor(raw, state.armor) * cfg.native_hp_per_minecraft_hp())
         .round()
-        .max(1.) as i32
+        .max(0.) as i32
 }
 /// Fraction of a raised-shield hit that the remaining stamina pays for. The
 /// rest of the hit goes through as ordinary damage after armor.
@@ -360,6 +362,7 @@ pub struct Snapshot {
     seq: u64,
     timestamp_ms: u64,
     active: bool,
+    identity_ready: bool,
     dead: bool,
     character: String,
     runes: u32,
@@ -461,6 +464,31 @@ fn save_stamp(path: &Path) -> u64 {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|t| t.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod armor_damage_tests {
+    use super::*;
+
+    #[test]
+    fn percentages_survive_native_hp_conversion_without_toughness_or_a_one_hp_floor() {
+        let cfg: Config = serde_json::from_str(include_str!("../../config/campaign.json")).unwrap();
+        let mut state: CombatState = serde_json::from_value(serde_json::json!({
+            "version": 1, "session": 7, "character": "armor-test", "timestamp_ms": 1000,
+            "armor": 15., "toughness": 0., "guest_max_hp": 20.,
+            "shield_ready": false, "stamina": 20., "using_item": false,
+        }))
+        .unwrap();
+        // Twenty fixed MC HP units are 414 native HP on the opening baseline.
+        assert_eq!(open_damage(20., &state, &cfg), 352);
+        state.toughness = 30.;
+        state.guest_max_hp = 100.;
+        assert_eq!(open_damage(20., &state, &cfg), 352);
+        // The same reduction applies to the portion left by an exhausted guard.
+        assert_eq!(open_damage(10., &state, &cfg), 176);
+        state.armor = 100.;
+        assert_eq!(open_damage(20., &state, &cfg), 0);
+    }
 }
 
 #[cfg(test)]
@@ -880,7 +908,8 @@ impl Driver {
         }))
     }
     /// Runs on the verified offline game task, including while Minecraft GUI is open.
-    pub unsafe fn tick(&mut self, enabled: bool) {
+    /// Grace resets revoke gameplay while retaining read-only identity admission.
+    pub unsafe fn tick(&mut self, enabled: bool, identity_allowed: bool) {
         let result = unsafe { self.sample(enabled) };
         if let Some(state) = result {
             if self.last_publish.elapsed() >= Duration::from_millis(40) {
@@ -902,6 +931,8 @@ impl Driver {
                     seq: self.seq,
                     timestamp_ms: epoch(),
                     active: false,
+                    identity_ready: identity_allowed
+                        && unsafe { identity_observed(&self.character) },
                     dead: unsafe { death_observed(&self.character) },
                     character: if self.character.is_empty() {
                         "unloaded".into()
@@ -1251,6 +1282,7 @@ impl Driver {
             seq: self.seq,
             timestamp_ms: epoch(),
             active: true,
+            identity_ready: true,
             dead: false,
             character,
             runes: pg.rune_count,
@@ -1352,6 +1384,28 @@ unsafe fn death_observed(character: &str) -> bool {
         return false;
     }
     player.chr_ins.chr_flags1c5.death_flag() || player.chr_ins.modules.data.hp <= 0
+}
+
+/// Identity alone remains observable during a grace menu's suspended update
+/// tasks. Re-read the healthy offline player and its actual save data; the
+/// retained character string alone never grants container ownership.
+unsafe fn identity_observed(character: &str) -> bool {
+    if character.is_empty() || unsafe { crate::grace_reset::sample() }.is_none() {
+        return false;
+    }
+    let Ok(game) = (unsafe { GameMan::instance() }) else {
+        return false;
+    };
+    let Ok(player) = (unsafe { PlayerIns::local_player() }) else {
+        return false;
+    };
+    let Ok(data) = (unsafe { GameDataMan::instance() }) else {
+        return false;
+    };
+    std::ptr::eq(
+        player.player_game_data.as_ptr(),
+        data.main_player_game_data.as_ref(),
+    ) && character_identity(game.save_slot, &data.main_player_game_data) == character
 }
 fn native_quantity(pg: &eldenring::cs::PlayerGameData, ids: &[ItemId]) -> u64 {
     let inventory = pg

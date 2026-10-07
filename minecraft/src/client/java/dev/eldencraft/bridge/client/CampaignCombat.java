@@ -6,11 +6,13 @@ import java.io.IOException;
 import java.util.*;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.ai.attributes.*;
 import net.minecraft.world.entity.player.Player;
@@ -332,6 +334,33 @@ public final class CampaignCombat {
     return guardBreakNanos;
   }
 
+  public static double armorReduction(Player player) {
+    return armorReduction(player::getItemBySlot);
+  }
+
+  /** Sum the configured percentages of intact pieces worn in their actual armor slots. */
+  public static double armorReduction(
+      java.util.function.Function<EquipmentSlot, ItemStack> equipment) {
+    double total = 0;
+    var rules = CampaignConfig.current().armors;
+    for (var slot :
+        List.of(EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET)) {
+      var stack = equipment.apply(slot);
+      if (stack.isEmpty() || stack.isBroken()) continue;
+      var equippable = stack.get(DataComponents.EQUIPPABLE);
+      if (equippable == null || equippable.slot() != slot) continue;
+      var armor = rules.get(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+      if (armor != null) total += armor.armor();
+    }
+    // Read config directly: Minecraft's armor attribute caps at 30 and cannot
+    // carry percentage totals up to 100 without losing mitigation.
+    return Math.clamp(total, 0, 100);
+  }
+
+  public static double damageAfterArmor(double raw, double reductionPercent) {
+    return raw * (1 - Math.clamp(reductionPercent, 0, 100) / 100);
+  }
+
   public static void tune(ItemStack stack) {
     if (stack.isEmpty()) return;
     var config = CampaignConfig.current();
@@ -378,12 +407,8 @@ public final class CampaignCombat {
       builder.add(
           Attributes.ARMOR,
           new AttributeModifier(modifierId, armor.armor(), AttributeModifier.Operation.ADD_VALUE),
-          slot);
-      builder.add(
-          Attributes.ARMOR_TOUGHNESS,
-          new AttributeModifier(
-              modifierId, armor.toughness(), AttributeModifier.Operation.ADD_VALUE),
-          slot);
+          slot,
+          ItemAttributeModifiers.Display.override(Component.literal(armor.reductionLabel())));
       builder.add(
           Attributes.KNOCKBACK_RESISTANCE,
           new AttributeModifier(

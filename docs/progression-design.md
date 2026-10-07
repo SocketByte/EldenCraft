@@ -84,7 +84,7 @@ These are proposals, not vanilla values or measured encounter results. The attac
 
 Axes deliver larger individual hits and retain slower cooldowns. At the upper tiers their theoretical sustained damage is close to swords: a diamond sword gives 20.8 HP per second and an axe 21, while netherite gives 28.8 and 29 respectively before stamina and encounter openings. Axes cost more stamina, and swords retain their sweeping role. An axe is valuable in a short opening without universally replacing a sword.
 
-Stone is intentionally weaker than copper in this retuned table. Cheap gathered cobblestone therefore supplies a backup without matching the rewarded material. Mining speed and durability can remain vanilla initially. Keep the ordinary armor ladder initially as well; increased maximum health already adds another substantial defensive curve.
+Stone is intentionally weaker than copper in this retuned table. Cheap gathered cobblestone therefore supplies a backup without matching the rewarded material. Mining speed and durability can remain vanilla initially. Armor uses configured additive damage-reduction percentages; increased maximum health adds another defensive curve.
 
 Apply these values as base Minecraft attack attributes, so normal cooldown scaling, criticals, durability and feedback remain coherent. Do not multiply the entire final hit by a material factor: that would also amplify later effects in unintended ways. Tools used as improvised weapons must not accidentally outdamage the intended weapon families.
 
@@ -181,7 +181,7 @@ Resolve native incoming attacks through Minecraft armor, shield direction and ac
 
 Synchronize Minecraft and native maximum health before using their ratio for damage transport. The normal native-to-Minecraft health-unit conversion should remain constant as boss capacities increase. Otherwise one Minecraft hazard can scale its damage upward with Vigor, or one native hit can receive an unintended extra reduction.
 
-Keep vanilla armor values for this first experiment: full leather has 7 armor points, copper 10, iron 15, diamond 20 with 8 toughness, and netherite 20 with 12 toughness in the pinned Minecraft version. Test the combined capacity and armor curve. A health upgrade plus armor may provide more survival improvement than either seems to provide in isolation.
+Each configured armor value is percentage points of flat damage reduction. Correctly equipped pieces add together up to 100%, independent of hit size and toughness. Current full-set defaults are leather 7%, copper 10%, chainmail 12%, iron 15%, diamond 20% and netherite 20%. Test the combined capacity and armor curve. A health upgrade plus armor may provide more survival improvement than either seems to provide in isolation.
 
 ## Bows and crossbows without enchantments
 

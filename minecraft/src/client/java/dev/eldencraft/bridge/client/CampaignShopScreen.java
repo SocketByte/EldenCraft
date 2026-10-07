@@ -394,10 +394,10 @@ public final class CampaignShopScreen extends Screen {
               box.width() - 16,
               MUTED);
         } else if (armor != null) {
-          text(gui, "Armor: " + armor.armor(), box.x() + 8, y, box.width() - 16, TEXT);
+          text(gui, armor.reductionLabel(), box.x() + 8, y, box.width() - 16, TEXT);
           text(
               gui,
-              "Toughness: " + armor.toughness(),
+              "Stacks with other equipped armor",
               box.x() + 8,
               y + font.lineHeight + 3,
               box.width() - 16,
@@ -456,9 +456,7 @@ public final class CampaignShopScreen extends Screen {
       lines.add(
           Component.literal(
               "Damage " + weapon.damage() + "  /  Attack speed " + weapon.attackSpeed()));
-    if (armor != null)
-      lines.add(
-          Component.literal("Armor " + armor.armor() + "  /  Toughness " + armor.toughness()));
+    if (armor != null) lines.add(Component.literal(armor.reductionLabel()));
     if (offer.nativeGoods()) lines.add(Component.literal("Delivered to Elden Ring inventory"));
     String reason = disabledReason(offer, view);
     if (!reason.isBlank()) lines.add(Component.literal(reason));

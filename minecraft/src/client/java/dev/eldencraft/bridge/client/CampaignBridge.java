@@ -2,6 +2,7 @@ package dev.eldencraft.bridge.client;
 
 import com.google.gson.*;
 import dev.eldencraft.bridge.CampaignLoot;
+import dev.eldencraft.bridge.InteractionProtocol;
 import dev.eldencraft.bridge.JsonWire;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +32,8 @@ public final class CampaignBridge {
 
   public record Boss(String id, String name, double hp, double maxHp) {}
 
+  public record Identity(long pid, long session, String character) {}
+
   public record Snapshot(
       int version,
       long pid,
@@ -56,7 +59,8 @@ public final class CampaignBridge {
       long experienceTotal,
       long lootSeq,
       List<CampaignLoot.Kill> lootEvents,
-      List<Boss> activeBosses) {
+      List<Boss> activeBosses,
+      boolean identityReady) {
     public Snapshot {
       defeated = Set.copyOf(defeated);
       damageEvents = List.copyOf(damageEvents);
@@ -99,6 +103,34 @@ public final class CampaignBridge {
 
   public static boolean fresh() {
     return snapshot() != null;
+  }
+
+  /** A resting character can retain identity while native gameplay tasks are suspended. */
+  static Identity graceIdentity(InteractionProtocol.Snapshot interaction) {
+    var value = observed;
+    var identity = graceIdentity(value, interaction, System.currentTimeMillis());
+    return identity != null
+            && ProcessHandle.of(identity.pid()).map(ProcessHandle::isAlive).orElse(false)
+        ? identity
+        : null;
+  }
+
+  static Identity graceIdentity(
+      Snapshot value, InteractionProtocol.Snapshot interaction, long now) {
+    if (value == null
+        || !value.identityReady()
+        || value.dead()
+        || value.character().isBlank()
+        || value.character().equals("unloaded")
+        || value.active() && value.hp() <= 0
+        || now < value.timestampMillis()
+        || now - value.timestampMillis() >= MAX_AGE_MS
+        || !InteractionProtocol.fresh(interaction, now, value.pid())
+        || interaction.menu() == null
+        || !interaction.menu().kind().equals("grace")
+        || interaction.menu().choices().stream()
+            .noneMatch(row -> row.enabled() && row.action().equals("ender_chest"))) return null;
+    return new Identity(value.pid(), value.session(), value.character());
   }
 
   /** Death is explicit; an unloaded character or foreground loss cannot refill stamina. */
@@ -302,7 +334,8 @@ public final class CampaignBridge {
         experienceTotal,
         lootSeq,
         lootEvents,
-        activeBosses);
+        activeBosses,
+        j.has("identity_ready") ? bool(j, "identity_ready") : bool(j, "active") && hp > 0 && !dead);
   }
 
   public static synchronized boolean requestPurchase(
@@ -350,7 +383,7 @@ public final class CampaignBridge {
   }
 
   public static synchronized void publishCombat(
-      double armor,
+      double armorReductionPercent,
       double toughness,
       double guestMaxHp,
       boolean shieldReady,
@@ -359,7 +392,7 @@ public final class CampaignBridge {
     var s = snapshot();
     if (s == null) return;
     var j = envelope(s);
-    j.addProperty("armor", armor);
+    j.addProperty("armor", armorReductionPercent);
     j.addProperty("toughness", toughness);
     j.addProperty("guest_max_hp", guestMaxHp);
     j.addProperty("shield_ready", shieldReady);

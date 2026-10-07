@@ -1,5 +1,6 @@
 package dev.eldencraft.bridge.client;
 
+import dev.eldencraft.bridge.InteractionProtocol;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
@@ -87,6 +88,7 @@ public final class CampaignBridgeConformance {
     check(
         !CampaignBridge.fresh(decode(VALID.replace("\"hp\":414", "\"hp\":0")), 1000),
         "native death revokes");
+    graceIdentity();
     check(
         decode(VALID.replace("\"runes\":12000", "\"runes\":0")).runes() == 0,
         "zero wallet is valid");
@@ -198,6 +200,73 @@ public final class CampaignBridgeConformance {
 
   private static CampaignBridge.Snapshot decode(String text) throws IOException {
     return CampaignBridge.decode(text.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static void graceIdentity() throws Exception {
+    String grace =
+        """
+        {"version":1,"pid":123,"session":987,"seq":8,"timestamp_ms":1000,"active":true,
+         "menu":{"token":2,"kind":"grace","title":"Site of Grace","choices":[
+          {"id":10,"text":"Ender Chest","enabled":true,"action":"ender_chest"}]}}
+        """;
+    var interaction = InteractionProtocol.decode(grace.getBytes(StandardCharsets.UTF_8));
+    String resting =
+        VALID
+            .replace("\"active\":true", "\"active\":false,\"identity_ready\":true")
+            .replace("\"hp\":414", "\"hp\":0");
+    var host = decode(resting);
+    var identity = CampaignBridge.graceIdentity(host, interaction, 1000);
+    check(
+        identity != null
+            && identity.pid() == 123
+            && identity.session() == 456
+            && identity.character().equals("slot-0-character-1")
+            && !CampaignBridge.fresh(host, 1000),
+        "verified resting identity opens grace inventory without granting campaign gameplay");
+    check(
+        CampaignBridge.graceIdentity(decode(VALID), interaction, 1000) != null,
+        "active older host retains backward-compatible grace identity");
+    for (String denied :
+        new String[] {
+          resting.replace(",\"identity_ready\":true", ""),
+          resting.replace("\"identity_ready\":true", "\"identity_ready\":false"),
+          resting.replace("\"identity_ready\":true", "\"identity_ready\":true,\"dead\":true"),
+          resting.replace("slot-0-character-1", "unloaded"),
+          resting.replace("slot-0-character-1", " "),
+          resting.replace("\"pid\":123", "\"pid\":124")
+        })
+      check(
+          CampaignBridge.graceIdentity(decode(denied), interaction, 1000) == null,
+          "unverified, dead, unloaded or foreign retained identity cannot own a chest");
+    for (String denied :
+        new String[] {
+          grace.replace("\"active\":true", "\"active\":false"),
+          grace.replace("\"timestamp_ms\":1000", "\"timestamp_ms\":500"),
+          grace.replace("\"enabled\":true", "\"enabled\":false"),
+          grace.replace(",\"action\":\"ender_chest\"", ""),
+          grace
+              .replace(",\"action\":\"ender_chest\"", "")
+              .replace("\"kind\":\"grace\"", "\"kind\":\"npc\"")
+        })
+      check(
+          CampaignBridge.graceIdentity(
+                  host, InteractionProtocol.decode(denied.getBytes(StandardCharsets.UTF_8)), 1000)
+              == null,
+          "identity alone cannot grant an inactive, stale or ordinary menu inventory access");
+    check(
+        CampaignBridge.graceIdentity(host, interaction, 999) == null
+            && CampaignBridge.graceIdentity(host, interaction, 1500) == null
+            && CampaignBridge.graceIdentity(host, null, 1000) == null,
+        "future, expired or missing interaction revokes resting identity");
+    var laterInteraction =
+        InteractionProtocol.decode(
+            grace
+                .replace("\"timestamp_ms\":1000", "\"timestamp_ms\":2500")
+                .getBytes(StandardCharsets.UTF_8));
+    check(
+        CampaignBridge.graceIdentity(host, laterInteraction, 2500) == null,
+        "fresh grace cannot revive an expired campaign identity");
+    reject(resting.replace("\"identity_ready\":true", "\"identity_ready\":1"));
   }
 
   private static void reject(String text) throws Exception {

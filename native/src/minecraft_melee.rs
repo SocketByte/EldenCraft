@@ -15,6 +15,11 @@ pub struct Status {
     pub ready: bool,
     pub epoch: u64,
     pub nearby: usize,
+    pub sources_scanned: usize,
+    pub sources_available: usize,
+    /// At most eight copied diagnostics, including raw type and encounter role;
+    /// no pointers or SDK refs retained.
+    pub target_rejections: Vec<targets::RejectedTarget>,
     pub nearest: Option<u64>,
     pub obstruction: Option<f32>,
     pub ack: u64,
@@ -127,6 +132,9 @@ impl Driver {
         self.instances.clear();
         self.status.ready = false;
         self.status.epoch = self.epoch;
+        self.status.sources_scanned = 0;
+        self.status.sources_available = 0;
+        self.status.target_rejections.clear();
         if let Some(p) = self.publisher.as_mut() {
             let _ = p.publish(&wire::Targets {
                 epoch: self.epoch,
@@ -360,6 +368,9 @@ impl Driver {
         self.status.ready = ready;
         self.status.epoch = self.epoch;
         self.status.nearby = out.targets.len();
+        self.status.sources_scanned = s.scanned;
+        self.status.sources_available = s.source_count;
+        self.status.target_rejections = s.rejected_roles.iter().take(8).cloned().collect();
         self.status.nearest = out
             .targets
             .iter()

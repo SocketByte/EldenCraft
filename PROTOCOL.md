@@ -56,6 +56,11 @@ contains `{id,name,token}`; a purchase acknowledgement contains
 `{id,status,amount}`. A context token changes for each native Purchase command.
 Optional `dead` explicitly identifies verified native death; ordinary inactive
 snapshots cannot trigger death recovery. Character transitions renew the session.
+Optional `identity_ready` verifies that the current healthy offline player's save
+identity still matches `character`, including while resting suspends gameplay
+tasks. It grants only Ender Chest ownership alongside a fresh matching enabled
+grace action; inactive snapshots still grant no campaign gameplay or purchases.
+Absent metadata is accepted for identity only on active, living snapshots.
 
 Optional `bosses_active` contains `{id,name,hp,max_hp}` records for the native
 frontend manager's registered boss encounters (up to three slots). `id` is an
@@ -80,10 +85,13 @@ Native validates the configured price, gates, stock, character and current
 merchant before touching the actual rune wallet. Replays first resolve the UUID
 in the saved journal. `close_shop` requires the current merchant token.
 
-`campaign-combat.json` publishes server-resolved armor, toughness, maximum HP,
+`campaign-combat.json` publishes server-resolved armor reduction, maximum HP,
 stamina, shield readiness and item use. Native accepts a matching observation
 for at most 250 ms. Incoming native HP damage uses the fixed configured
-HP-to-Minecraft-unit conversion and vanilla armor formula. Guard events publish
+HP-to-Minecraft-unit conversion and `damage * (1 - armor / 100)`. `armor` is
+the additive percentage-point total of intact, correctly equipped configured
+pieces, capped at 100; inventory and hand-held armor do not count. The legacy
+`toughness` field remains accepted but does not affect mitigation. Guard events publish
 cumulative `guard_seq` and raw `guard_damage`; Minecraft acknowledges only
 consumed values. Native subtracts unacknowledged expenditure when authorizing
 the next block. Missing or stale campaign state cannot enable legacy blocking.

@@ -81,6 +81,8 @@ mod engine;
 #[cfg(windows)]
 mod first_person;
 #[cfg(windows)]
+mod footsteps;
+#[cfg(windows)]
 mod guest_status;
 #[cfg(windows)]
 mod host_hud;

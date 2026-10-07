@@ -108,8 +108,8 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
             if (CampaignProgression.characterPermitted(player)
                 && player.level().dimension().equals(SharedWorldBlocks.DIMENSION))
               CampaignBridge.publishCombat(
-                  player.getAttributeValue(Attributes.ARMOR),
-                  player.getAttributeValue(Attributes.ARMOR_TOUGHNESS),
+                  CampaignCombat.armorReduction(player),
+                  0,
                   player.getMaxHealth(),
                   CampaignCombat.nativeGuardPermitted(player),
                   CampaignCombat.stamina(player),

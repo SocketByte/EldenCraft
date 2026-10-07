@@ -16,6 +16,9 @@ pub struct Eligibility {
     pub team: u8,
     pub player_team: u8,
     pub npc_param_present: bool,
+    /// Registration of this exact handle in the boss-health roster establishes
+    /// its combat role independently of PvP/PvE appearance type or lock-on.
+    pub boss_registered: bool,
     pub lock_distance: u8,
     pub lock_disabled: bool,
 }
@@ -23,15 +26,16 @@ impl Eligibility {
     fn rejection(self) -> Option<&'static str> {
         if !self.enemy_class {
             Some("not_enemy_class")
-        } else if self.character_type != eldenring::cs::ChrType::Npc as i32 {
+        } else if !self.boss_registered && self.character_type != eldenring::cs::ChrType::Npc as i32
+        {
             Some("not_native_npc")
         } else if self.team == self.player_team {
             Some("same_team")
         } else if !self.npc_param_present {
             Some("npc_param_missing")
-        } else if self.lock_distance == 0 {
+        } else if !self.boss_registered && self.lock_distance == 0 {
             Some("npc_not_lockable")
-        } else if self.lock_disabled {
+        } else if !self.boss_registered && self.lock_disabled {
             Some("native_lock_disabled")
         } else {
             None
@@ -43,9 +47,10 @@ pub struct RejectedTarget {
     pub handle: Handle,
     pub npc_id: i32,
     pub npc_param_id: i32,
-    pub position_havok: [f32; 3],
+    /// Absent when activity/task readiness prevented safe module sampling.
+    pub position_havok: Option<[f32; 3]>,
     pub reason: &'static str,
-    pub eligibility: Eligibility,
+    pub eligibility: Option<Eligibility>,
 }
 
 /// Read only on the existing authorized game task with a current ChrIns. No
@@ -70,9 +75,23 @@ pub fn eligibility(chr: &eldenring::cs::ChrIns, player_team: u8) -> Eligibility 
         team: chr.team_type,
         player_team,
         npc_param_present: lock_distance.is_some(),
+        boss_registered: registered_boss(chr),
         lock_distance: lock_distance.unwrap_or(0),
         lock_disabled: chr.chr_ctrl.modifier.data.action_flags.disable_lock_on(),
     }
+}
+
+#[cfg(windows)]
+fn registered_boss(chr: &eldenring::cs::ChrIns) -> bool {
+    use eldenring::cs::CSFeManImp;
+    use fromsoftware_shared::FromStatic;
+    unsafe { CSFeManImp::instance() }.is_ok_and(|frontend| {
+        frontend.boss_health_displays.iter().any(|display| {
+            display.fmg_id > 0
+                && !display.field_ins_handle.is_empty()
+                && display.field_ins_handle == chr.field_ins_handle
+        })
+    })
 }
 
 /// Shared by snapshot publication, native damage dispatch and actor templates.
@@ -109,8 +128,29 @@ const GROUND_RAY_M: f32 = 6.0;
 pub const MAX_NEARBY_M: f32 = 16.0;
 pub const MAX_TARGETS: usize = 32;
 const MAX_SCANNED: usize = 256;
+const MAX_BOSS_SOURCES: usize = 3;
 const MAX_VECTOR_ENTRIES: usize = 4096;
 pub const EXPERIMENTAL_RAY_FILTER: u32 = 0x0200_0058;
+
+/// Distance/update-priority bookkeeping is not the encounter registry. Always
+/// reserve space for the current registered bosses, including a boss absent
+/// from (or beyond the bounded prefix of) that ordinary-character list.
+fn scan_sources<T: Copy + PartialEq>(
+    ordinary: impl IntoIterator<Item = T>,
+    bosses: impl IntoIterator<Item = T>,
+) -> Vec<T> {
+    let mut sources = Vec::with_capacity(MAX_SCANNED + MAX_BOSS_SOURCES);
+    for source in ordinary
+        .into_iter()
+        .take(MAX_SCANNED)
+        .chain(bosses.into_iter().take(MAX_BOSS_SOURCES))
+    {
+        if !sources.contains(&source) {
+            sources.push(source);
+        }
+    }
+    sources
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Handle {
@@ -122,6 +162,8 @@ pub struct Handle {
 pub enum ShapeSource {
     Character,
     MapFallback,
+    NpcCharacterFallback,
+    NpcMapFallback,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -134,6 +176,7 @@ pub struct Candidate {
     pub npc_param_id: i32,
     /// Raw u8; different teams do not prove hostility.
     pub team: u8,
+    pub boss_registered: bool,
     pub position_havok: [f32; 3],
     /// Total upright shape height from the physics origin at its bottom.
     /// Character collision dimensions take priority over the map fallback;
@@ -259,6 +302,16 @@ fn select_shape(
     character
         .map(|s| (ShapeSource::Character, s))
         .or_else(|| map.map(|s| (ShapeSource::MapFallback, s)))
+}
+fn select_authored_shape(
+    character: Option<[f32; 2]>,
+    map: Option<[f32; 2]>,
+    npc_character: Option<[f32; 2]>,
+    npc_map: Option<[f32; 2]>,
+) -> Option<(ShapeSource, [f32; 2])> {
+    select_shape(character, map)
+        .or_else(|| npc_character.map(|s| (ShapeSource::NpcCharacterFallback, s)))
+        .or_else(|| npc_map.map(|s| (ShapeSource::NpcMapFallback, s)))
 }
 fn proxy_bounds(position: [f32; 3], height: f32, radius: f32) -> ([f32; 3], [f32; 3]) {
     // Exact 2.7.1.0 proxy factory: total height h, radius r; upright capsule
@@ -487,10 +540,14 @@ fn ray_diagnostic(
 
 fn finalize(snapshot: &mut TargetSnapshot) {
     snapshot.candidates.sort_by(|a, b| {
-        a.player_distance_m
-            .total_cmp(&b.player_distance_m)
-            .then(a.handle.selector.cmp(&b.handle.selector))
-            .then(a.handle.block_id.cmp(&b.handle.block_id))
+        // Reserve the bounded publication for current encounters before nearby
+        // ordinary enemies; a crowded arena must not evict its boss hitbox.
+        b.boss_registered.cmp(&a.boss_registered).then(
+            a.player_distance_m
+                .total_cmp(&b.player_distance_m)
+                .then(a.handle.selector.cmp(&b.handle.selector))
+                .then(a.handle.block_id.cmp(&b.handle.block_id)),
+        )
     });
     snapshot.truncated |= snapshot.candidates.len() > MAX_TARGETS;
     snapshot.candidates.truncate(MAX_TARGETS);
@@ -527,8 +584,9 @@ mod live {
     use eldenring::{
         DLVector,
         cs::{
-            CSCamExt, CSCamera, CSHavokMan, CSSessionManager, ChrIns, ChrInsDistanceEntry,
-            FieldInsType, GameMan, LobbyState, PlayerIns, ProtocolState, WorldChrMan,
+            CSCamExt, CSCamera, CSFeManImp, CSHavokMan, CSSessionManager, ChrIns,
+            ChrInsDistanceEntry, FieldInsType, GameMan, LobbyState, NpcParam, PlayerIns,
+            ProtocolState, SoloParamRepository, WorldChrMan,
         },
         position::{HavokPosition, PositionDelta},
     };
@@ -617,19 +675,50 @@ mod live {
             block_id: chr.field_ins_handle.block_id.0,
         }
     }
-    fn ready(chr: &ChrIns) -> bool {
+    fn readiness_rejection(chr: &ChrIns) -> Option<&'static str> {
         // No ChrType, ChrLoadStatus, ChrUpdateType or OmissionMode enum is read.
-        chr.chr_flags1c8.is_active()
-            && chr.chr_flags1c8.update_tasks_registered()
-            && !chr.chr_flags1c5.death_flag()
-            && !chr.chr_flags1c5.is_invincible()
-            && !chr.debug_flags.character_disabled()
-            && !chr.debug_flags.disabled_hit()
-            && chr.chr_update_delta_time.is_finite()
-            && (0.0..=0.25).contains(&chr.chr_update_delta_time)
-            && chr.modules.data.hp > 0
-            && chr.modules.data.max_hp > 0
-            && chr.modules.data.hp <= chr.modules.data.max_hp
+        if !chr.chr_flags1c8.is_active() {
+            Some("target_inactive")
+        } else if !chr.chr_flags1c8.update_tasks_registered() {
+            Some("target_tasks_unregistered")
+        } else if chr.chr_flags1c5.death_flag() {
+            Some("target_dead")
+        } else if chr.chr_flags1c5.is_invincible() {
+            Some("target_invincible")
+        } else if chr.debug_flags.character_disabled() {
+            Some("target_character_disabled")
+        } else if chr.debug_flags.disabled_hit() {
+            Some("target_hit_disabled")
+        } else if !chr.chr_update_delta_time.is_finite()
+            || !(0.0..=0.25).contains(&chr.chr_update_delta_time)
+        {
+            Some("target_delta_time_invalid")
+        } else if chr.modules.data.hp <= 0
+            || chr.modules.data.max_hp <= 0
+            || chr.modules.data.hp > chr.modules.data.max_hp
+        {
+            Some("target_health_invalid")
+        } else {
+            None
+        }
+    }
+    fn reject_boss(snapshot: &mut TargetSnapshot, chr: &ChrIns, reason: &'static str) {
+        if !registered_boss(chr) {
+            return;
+        }
+        // A nearby helper rejection must not consume the diagnostic budget for
+        // the encounter the player is actually fighting. No unready modules read.
+        if snapshot.rejected_roles.len() >= 8 {
+            snapshot.rejected_roles.pop();
+        }
+        snapshot.rejected_roles.push(RejectedTarget {
+            handle: handle(chr),
+            npc_id: chr.npc_id,
+            npc_param_id: chr.npc_param_id,
+            position_havok: None,
+            reason,
+            eligibility: None,
+        });
     }
 
     /// # Safety
@@ -695,6 +784,24 @@ mod live {
         let feet = [p.0, p.1, p.2];
         let origin = view_origin([eye.0, eye.1, eye.2], feet, eye_fallback)?;
         let source = unsafe { entries(&world.chr_inses_by_distance) }?;
+        // Resolve the dedicated registrations on this same game task. Do not
+        // depend on HUD visibility or native lock-on to discover major bosses.
+        let bosses = unsafe { CSFeManImp::instance() }
+            .ok()
+            .map(|frontend| {
+                frontend
+                    .boss_health_displays
+                    .iter()
+                    .filter(|display| display.fmg_id > 0 && !display.field_ins_handle.is_empty())
+                    .filter_map(|display| {
+                        world
+                            .chr_ins_by_handle(&display.field_ins_handle)
+                            .filter(|chr| chr.field_ins_handle == display.field_ins_handle)
+                    })
+                    .map(std::ptr::NonNull::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let mut snapshot = TargetSnapshot {
             sampled_tick_ms: unsafe { GetTickCount64() },
             current_block_id: player.current_block_id.0,
@@ -705,7 +812,7 @@ mod live {
             forward,
             reach_m,
             scanned: 0,
-            source_count: source.len(),
+            source_count: source.len() + bosses.len(),
             truncated: source.len() > MAX_SCANNED,
             candidates: Vec::with_capacity(MAX_TARGETS),
             rejected_roles: Vec::new(),
@@ -714,9 +821,9 @@ mod live {
             ground_ray: unavailable_ray(),
             damage_authorized: false,
         };
-        for entry in source.iter().take(MAX_SCANNED) {
+        for source in scan_sources(source.iter().map(|entry| entry.chr_ins), bosses) {
             snapshot.scanned += 1;
-            let ptr = entry.chr_ins.as_ptr();
+            let ptr = source.as_ptr();
             if std::ptr::eq(ptr, &player.chr_ins) {
                 continue;
             }
@@ -728,11 +835,17 @@ mod live {
             let Some(resolved) = world.chr_ins_by_handle(&id) else {
                 continue;
             };
-            if !std::ptr::eq(chr, resolved) || !ready(chr) {
+            if !std::ptr::eq(chr, resolved) {
+                reject_boss(&mut snapshot, chr, "target_handle_identity_mismatch");
+                continue;
+            }
+            if let Some(reason) = readiness_rejection(chr) {
+                reject_boss(&mut snapshot, chr, reason);
                 continue;
             }
             let entry = unsafe { chr.chr_set_entry.as_ref() };
             if !entry.chr_ins.is_some_and(|p| std::ptr::eq(p.as_ptr(), chr)) {
+                reject_boss(&mut snapshot, chr, "target_set_entry_mismatch");
                 continue;
             }
             let physics = &chr.modules.physics;
@@ -744,22 +857,52 @@ mod live {
             }
             let eligibility = eligibility(chr, snapshot.player_team);
             if let Some(reason) = eligibility.rejection() {
+                if eligibility.boss_registered && snapshot.rejected_roles.len() >= 8 {
+                    snapshot.rejected_roles.pop();
+                }
                 if snapshot.rejected_roles.len() < 8 {
                     snapshot.rejected_roles.push(RejectedTarget {
                         handle: handle(chr),
                         npc_id: chr.npc_id,
                         npc_param_id: chr.npc_param_id,
-                        position_havok: position,
+                        position_havok: Some(position),
                         reason,
-                        eligibility,
+                        eligibility: Some(eligibility),
                     });
                 }
                 continue;
             }
             let character_shape = shape(physics.chr_hit_height, physics.chr_hit_radius);
             let map_shape = shape(physics.hit_height, physics.hit_radius);
-            let Some((shape_source, [height, radius])) = select_shape(character_shape, map_shape)
-            else {
+            // Some scripted characters use specialized native collision and
+            // leave the upright instance proxy empty. Their authored NpcParam
+            // dimensions still provide a bounded Minecraft attack box.
+            let authored = (character_shape.is_none() && map_shape.is_none())
+                .then(|| unsafe { SoloParamRepository::instance() }.ok())
+                .flatten()
+                .and_then(|repo| repo.get::<NpcParam>(chr.npc_param_id as u32));
+            let npc_character_shape =
+                authored.and_then(|row| shape(row.chr_hit_height(), row.chr_hit_radius()));
+            let npc_map_shape = authored.and_then(|row| shape(row.hit_height(), row.hit_radius()));
+            let Some((shape_source, [height, radius])) = select_authored_shape(
+                character_shape,
+                map_shape,
+                npc_character_shape,
+                npc_map_shape,
+            ) else {
+                if eligibility.boss_registered && snapshot.rejected_roles.len() >= 8 {
+                    snapshot.rejected_roles.pop();
+                }
+                if snapshot.rejected_roles.len() < 8 {
+                    snapshot.rejected_roles.push(RejectedTarget {
+                        handle: handle(chr),
+                        npc_id: chr.npc_id,
+                        npc_param_id: chr.npc_param_id,
+                        position_havok: Some(position),
+                        reason: "target_shape_invalid",
+                        eligibility: Some(eligibility),
+                    });
+                }
                 continue;
             };
             if snapshot.candidates.iter().any(|c| c.handle == handle(chr)) {
@@ -775,6 +918,7 @@ mod live {
                 npc_id: chr.npc_id,
                 npc_param_id: chr.npc_param_id,
                 team: chr.team_type,
+                boss_registered: eligibility.boss_registered,
                 position_havok: position,
                 height,
                 radius,
@@ -872,9 +1016,133 @@ mod tests {
             team: 6,
             player_team: 0,
             npc_param_present: true,
+            boss_registered: false,
             lock_distance: 20,
             lock_disabled: false,
         }
+    }
+    #[test]
+    fn registered_bosses_survive_missing_distance_entries_and_scan_limits() {
+        let sources = scan_sources(0..MAX_SCANNED + 20, [MAX_SCANNED + 19, MAX_SCANNED + 30]);
+        assert!(sources.contains(&(MAX_SCANNED + 19)));
+        assert!(sources.contains(&(MAX_SCANNED + 30)));
+        assert!(!sources.contains(&MAX_SCANNED));
+        assert_eq!(sources.len(), MAX_SCANNED + 2);
+        assert_eq!(scan_sources([1, 2, 2], [2, 3]), vec![1, 2, 3]);
+        assert_eq!(scan_sources([], [24]), vec![24]);
+    }
+    #[test]
+    fn crowded_encounters_keep_registered_boss_hitboxes_in_the_publication() {
+        let mut s = snapshot();
+        s.candidates = (1..=MAX_TARGETS as u32 + 10)
+            .map(|id| candidate(id, id as f32 / 10.0))
+            .collect();
+        let mut boss = candidate(999, 15.0);
+        boss.boss_registered = true;
+        s.candidates.push(boss);
+        finalize(&mut s);
+        assert!(s.truncated);
+        assert_eq!(s.candidates.len(), MAX_TARGETS);
+        assert_eq!(s.candidates[0].handle.selector, 999);
+        assert_eq!(s.candidates[1].handle.selector, 1);
+        // Boss priority reserves publication capacity; ray selection still
+        // chooses the closest intersecting ordinary target.
+        assert_ne!(s.nearest, Some(0));
+    }
+    #[test]
+    fn registered_bosses_do_not_require_npc_character_type_or_lock_on() {
+        let boss = Eligibility {
+            boss_registered: true,
+            lock_distance: 0,
+            lock_disabled: true,
+            ..ordinary_enemy()
+        };
+        assert_eq!(boss.rejection(), None);
+        // Margit's live, exact boss-health handle was rejected as
+        // not_native_npc. Encounter registration establishes its combat role;
+        // the PvP/PvE appearance type must not hide its Minecraft hitbox.
+        for character_type in [-1, eldenring::cs::ChrType::Unk6 as i32, 999] {
+            assert_eq!(
+                Eligibility {
+                    character_type,
+                    ..boss
+                }
+                .rejection(),
+                None
+            );
+            assert_eq!(
+                Eligibility {
+                    character_type,
+                    boss_registered: false,
+                    ..boss
+                }
+                .rejection(),
+                Some("not_native_npc")
+            );
+        }
+        for (target, reason) in [
+            (
+                Eligibility {
+                    enemy_class: false,
+                    ..boss
+                },
+                "not_enemy_class",
+            ),
+            (
+                Eligibility {
+                    team: boss.player_team,
+                    ..boss
+                },
+                "same_team",
+            ),
+            (
+                Eligibility {
+                    npc_param_present: false,
+                    ..boss
+                },
+                "npc_param_missing",
+            ),
+        ] {
+            assert_eq!(target.rejection(), Some(reason));
+        }
+        assert_eq!(
+            Eligibility {
+                boss_registered: false,
+                ..boss
+            }
+            .rejection(),
+            Some("npc_not_lockable")
+        );
+    }
+    #[test]
+    fn authored_dimensions_keep_specialized_boss_collision_pickable() {
+        // Empty instance shapes must not make a live registered boss vanish.
+        let selected = select_authored_shape(
+            shape(0.0, 0.0),
+            shape(0.0, 0.0),
+            shape(4.0, 0.9),
+            shape(4.5, 1.0),
+        );
+        assert_eq!(
+            selected,
+            Some((ShapeSource::NpcCharacterFallback, [4.0, 0.9]))
+        );
+        let (_, [height, radius]) = selected.unwrap();
+        let (min, max) = combat_bounds([0.0, 0.0, 3.0], height, radius, HitboxPadding::default());
+        assert!(ray_aabb([0.0, 1.6, 0.0], [0.0, 0.0, 1.0], min, max, 10.0).is_some());
+        assert_eq!(
+            select_authored_shape(shape(2.0, 0.5), None, shape(4.0, 0.9), None),
+            Some((ShapeSource::Character, [2.0, 0.5]))
+        );
+        assert_eq!(
+            select_authored_shape(None, shape(2.5, 0.6), shape(4.0, 0.9), None),
+            Some((ShapeSource::MapFallback, [2.5, 0.6]))
+        );
+        assert_eq!(
+            select_authored_shape(None, None, shape(f32::NAN, 0.9), shape(5.0, 1.0)),
+            Some((ShapeSource::NpcMapFallback, [5.0, 1.0]))
+        );
+        assert!(select_authored_shape(None, None, shape(0.0, 0.0), shape(20.0, 9.0)).is_none());
     }
     #[test]
     fn lagging_camera_falls_back_to_eye_only_for_world_publication() {
@@ -986,6 +1254,7 @@ mod tests {
             npc_id: 1000,
             npc_param_id: 100000,
             team: 6,
+            boss_registered: false,
             position_havok: position,
             height: 1.8,
             radius: 0.5,

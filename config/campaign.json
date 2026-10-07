@@ -39,7 +39,7 @@
     }
   },
   "combat": {
-    "nativeDamageScale": 20,
+    "nativeDamageScale": 30,
     "crossbowBaseDamage": 2,
     "bowBaseDamage": 1,
     "nativeIncomingDamageScale": 1,
@@ -51,7 +51,7 @@
       "attackSpeed": 1.6
     },
     "minecraft:wooden_axe": {
-      "damage": 7,
+      "damage": 6,
       "attackSpeed": 0.8
     },
     "minecraft:stone_sword": {
@@ -98,147 +98,118 @@
   "armors": {
     "minecraft:leather_helmet": {
       "armor": 1,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:leather_chestplate": {
       "armor": 3,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:leather_leggings": {
       "armor": 2,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:leather_boots": {
       "armor": 1,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:copper_helmet": {
       "armor": 2,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:copper_chestplate": {
       "armor": 4,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:copper_leggings": {
       "armor": 3,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:copper_boots": {
       "armor": 1,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:iron_helmet": {
       "armor": 2,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:iron_chestplate": {
       "armor": 6,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:iron_leggings": {
       "armor": 5,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:iron_boots": {
       "armor": 2,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:golden_helmet": {
       "armor": 2,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:golden_chestplate": {
       "armor": 5,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:golden_leggings": {
       "armor": 3,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:golden_boots": {
       "armor": 1,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:chainmail_helmet": {
       "armor": 2,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:chainmail_chestplate": {
       "armor": 5,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:chainmail_leggings": {
       "armor": 4,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:chainmail_boots": {
       "armor": 1,
-      "toughness": 0,
       "knockbackResistance": 0
     },
     "minecraft:diamond_helmet": {
       "armor": 3,
-      "toughness": 2,
       "knockbackResistance": 0
     },
     "minecraft:diamond_chestplate": {
       "armor": 8,
-      "toughness": 2,
       "knockbackResistance": 0
     },
     "minecraft:diamond_leggings": {
       "armor": 6,
-      "toughness": 2,
       "knockbackResistance": 0
     },
     "minecraft:diamond_boots": {
       "armor": 3,
-      "toughness": 2,
       "knockbackResistance": 0
     },
     "minecraft:netherite_helmet": {
       "armor": 3,
-      "toughness": 3,
       "knockbackResistance": 0.1
     },
     "minecraft:netherite_chestplate": {
       "armor": 8,
-      "toughness": 3,
       "knockbackResistance": 0.1
     },
     "minecraft:netherite_leggings": {
       "armor": 6,
-      "toughness": 3,
       "knockbackResistance": 0.1
     },
     "minecraft:netherite_boots": {
       "armor": 3,
-      "toughness": 3,
       "knockbackResistance": 0.1
     },
     "minecraft:turtle_helmet": {
       "armor": 2,
-      "toughness": 0,
       "knockbackResistance": 0
     }
   },

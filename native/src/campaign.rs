@@ -316,11 +316,10 @@ pub fn interpolate(curve: &[Point], level: f64) -> f64 {
     }
     curve.last().unwrap().value
 }
-/// Vanilla Minecraft's armor/toughness formula; the caller supplies fixed MC
-/// HP units, so capacity upgrades do not make a given hit easier to block.
-pub fn damage_after_armor(raw: f64, armor: f64, toughness: f64) -> f64 {
-    let effective = (armor - raw / (2. + toughness / 4.)).clamp(armor * 0.2, 20.);
-    raw * (1. - effective / 25.)
+/// Equipped armor contributes additive percentage points of damage reduction.
+/// The reduction is independent of hit size, toughness and maximum health.
+pub fn damage_after_armor(raw: f64, reduction_percent: f64) -> f64 {
+    raw * (1. - reduction_percent.clamp(0., 100.) / 100.)
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Merchant {
@@ -539,11 +538,15 @@ mod tests {
         assert_eq!(c.capacities(&ordinary), (414, 50));
     }
     #[test]
-    fn minecraft_armor_scales_with_hit_size_and_toughness() {
-        assert_eq!(damage_after_armor(10., 0., 0.), 10.);
-        assert!((damage_after_armor(10., 20., 12.) - 2.8).abs() < 0.0001);
-        assert!(damage_after_armor(40., 20., 12.) > 4. * damage_after_armor(10., 20., 12.));
-        assert!(damage_after_armor(10., 20., 12.) < damage_after_armor(10., 20., 0.));
+    fn armor_percentages_reduce_small_and_large_hits_equally() {
+        assert_eq!(damage_after_armor(100., 10. + 5.), 85.);
+        assert_eq!(damage_after_armor(10., 15.), 8.5);
+        assert_eq!(damage_after_armor(1000., 15.), 850.);
+        assert_eq!(damage_after_armor(100., 15.5), 84.5);
+        assert_eq!(damage_after_armor(100., 0.), 100.);
+        assert_eq!(damage_after_armor(100., 100.), 0.);
+        assert_eq!(damage_after_armor(100., 140.), 0.);
+        assert_eq!(damage_after_armor(100., -5.), 100.);
     }
     #[test]
     fn per_enemy_damage_tuning_requires_exact_valid_npc_ids_and_bounded_factors() {

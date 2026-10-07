@@ -36,7 +36,7 @@ final class CampaignEnderChest {
     Request(
         Minecraft client,
         InteractionProtocol.Snapshot snapshot,
-        CampaignBridge.Snapshot campaign,
+        CampaignBridge.Identity campaign,
         HostState.Snapshot host,
         int choice) {
       owner =
@@ -60,7 +60,7 @@ final class CampaignEnderChest {
   private CampaignEnderChest() {}
 
   static boolean open(Minecraft client, InteractionProtocol.Snapshot snapshot, int choice) {
-    var campaign = CampaignBridge.snapshot();
+    var campaign = CampaignBridge.graceIdentity(snapshot);
     var host = HostController.healthSnapshot(client);
     var server = client.getSingleplayerServer();
     if (request != null
@@ -103,8 +103,8 @@ final class CampaignEnderChest {
     return true;
   }
 
-  private static boolean campaignMatches(Request pending) {
-    var campaign = CampaignBridge.snapshot();
+  private static boolean campaignMatches(Request pending, InteractionProtocol.Snapshot snapshot) {
+    var campaign = CampaignBridge.graceIdentity(snapshot);
     return campaign != null
         && campaign.pid() == pending.owner.pid()
         && campaign.session() == pending.campaignSession
@@ -121,7 +121,7 @@ final class CampaignEnderChest {
         || host == null
         || host.publisherPid() != pending.owner.pid()
         || host.mapId() != pending.map
-        || !campaignMatches(pending)
+        || !campaignMatches(pending, snapshot)
         || !pending.owner.canOpen(
             snapshot,
             player.getUUID(),
@@ -197,7 +197,7 @@ final class CampaignEnderChest {
             && client.player.isAlive()
             && !client.player.isSpectator()
             && SharedWorldClient.inSharedDimension()
-            && campaignMatches(pending)
+            && campaignMatches(pending, snapshot)
             && pending.owner.current(
                 snapshot, client.player.getUUID(), pending.choice, System.currentTimeMillis());
     if (!valid || !pending.failure.isBlank()) {

@@ -272,6 +272,7 @@ public final class CampaignConformance {
         .forEach(net.minecraft.core.component.DataComponentInitializers.PendingComponents::apply);
     checks += CampaignGuardConformance.verify();
     CampaignConfig.install(rules);
+    checks += CampaignArmorConformance.verify(rules);
     check(rules.armors.size() >= 24, "shipped armor ladder is configurable");
     for (var row : rules.armors.entrySet()) {
       var item =
@@ -292,8 +293,8 @@ public final class CampaignConformance {
       near(
           component.compute(
               net.minecraft.world.entity.ai.attributes.Attributes.ARMOR_TOUGHNESS, 0, slot),
-          row.getValue().toughness(),
-          "real toughness " + row.getKey());
+          0,
+          "legacy toughness cannot add mitigation " + row.getKey());
       near(
           component.compute(
               net.minecraft.world.entity.ai.attributes.Attributes.KNOCKBACK_RESISTANCE, 0, slot),
@@ -339,7 +340,7 @@ public final class CampaignConformance {
               });
     }
     near(armorTotal.getValue(), 20, "four netherite pieces stack armor");
-    near(toughnessTotal.getValue(), 12, "four netherite pieces stack toughness");
+    near(toughnessTotal.getValue(), 0, "percentage armor has no toughness modifier");
     near(knockbackTotal.getValue(), .4, "four netherite pieces stack knockback resistance");
     for (var row : rules.weapons.entrySet()) {
       var item =

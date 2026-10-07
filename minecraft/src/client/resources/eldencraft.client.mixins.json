@@ -27,6 +27,7 @@
     "CampaignBowMixin",
     "CampaignCrossbowMixin",
     "CampaignGuardMixin",
+    "CampaignArmorMixin",
     "CampaignFoodMixin",
     "CampaignArrowAccessor",
     "CampaignArmorInvoker",

@@ -9,7 +9,13 @@ import java.util.*;
 public final class CampaignConfig {
   public record Weapon(double damage, double attackSpeed) {}
 
-  public record Armor(double armor, double toughness, double knockbackResistance) {}
+  /** Armor is additive damage reduction in percentage points; toughness is legacy metadata. */
+  public record Armor(double armor, double toughness, double knockbackResistance) {
+    public String reductionLabel() {
+      return java.math.BigDecimal.valueOf(armor).stripTrailingZeros().toPlainString()
+          + "% damage reduction";
+    }
+  }
 
   public record Point(double level, double value) {}
 
@@ -181,9 +187,9 @@ public final class CampaignConfig {
         armors.put(
             itemId(row.getKey()),
             new Armor(
-                number(a, "armor", 0, 30),
-                number(a, "toughness", 0, 30),
-                number(a, "knockbackResistance", 0, 1)));
+                number(a, "armor", 0, 100),
+                a.has("toughness") ? number(a, "toughness", 0, 30) : 0,
+                a.has("knockbackResistance") ? number(a, "knockbackResistance", 0, 1) : 0));
       }
     var p = object(json, "progression");
     var hp = curve(p, "healthCurve");

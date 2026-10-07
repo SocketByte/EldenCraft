@@ -382,6 +382,16 @@ pub fn start(module: usize) {
             format!("Minecraft shield reduction unavailable: {error}"),
         ),
     }
+    match unsafe { crate::footsteps::install() } {
+        Ok(()) => log(
+            &tx,
+            "Minecraft footsteps: paired local-player native walk/run sounds suppressed.",
+        ),
+        Err(error) => log(
+            &tx,
+            format!("Minecraft footstep ownership unavailable: {error}"),
+        ),
+    }
     // Capture the camera handed to the renderer. Sampling the simulation
     // camera here can pair a newer view with an older host color/depth frame.
     match unsafe { crate::scene_camera::install() } {
@@ -685,6 +695,7 @@ pub fn start(module: usize) {
                 return;
             }
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host.tick())).is_err() {
+                crate::footsteps::revoke();
                 PASSTHROUGH_DEADLINE.store(0, Ordering::Release);
                 GUI_DEADLINE.store(0, Ordering::Release);
                 MENU_OPEN_DEADLINE.store(0, Ordering::Release);
@@ -1082,6 +1093,7 @@ impl Host {
         let now_ms = unsafe { GetTickCount64() };
         let raw = crate::overlay_input::take(now_ms);
         let compositor_ready = raw.is_some() && guest_gui.is_some();
+        crate::footsteps::authorize(compositor_ready.then_some(state.identity), now_ms);
         crate::chat_input::update(now_ms, compositor_ready, state.map, guest_gui == Some(true));
         crate::chat_input::text_screen(
             now_ms,
@@ -1545,6 +1557,7 @@ impl Host {
         self.suspend_inner(true);
     }
     fn suspend_inner(&mut self, preserve_grace_sources: bool) {
+        crate::footsteps::revoke();
         crate::chat_input::suspend(unsafe { GetTickCount64() });
         self.shared_world.suspend();
         self.healing.suspend();
@@ -1623,14 +1636,8 @@ impl Host {
             }
         }
         if let Some(campaign) = &mut self.campaign {
-            unsafe {
-                campaign.tick(
-                    self.enabled
-                        && foreground()
-                        && !crate::hosting::shutting_down()
-                        && !passive_grace_reset,
-                )
-            };
+            let campaign_allowed = self.enabled && foreground() && !crate::hosting::shutting_down();
+            unsafe { campaign.tick(campaign_allowed && !passive_grace_reset, campaign_allowed) };
         }
         let command = self.commands.try_recv().ok();
         let now = KEYS.map(|key| key != 0 && unsafe { GetAsyncKeyState(key) < 0 });

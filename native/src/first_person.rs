@@ -190,10 +190,51 @@ pub struct Controller {
     eye_lift: f32,
     eye_lift_target: f32,
     eye_lift_at: Option<Instant>,
+    mounted_ground_camera: MountedGroundCamera,
 }
 
 /// Mount and dismount settle the rider's eye within about a quarter second.
 const EYE_LIFT_RATE: f32 = 12.0;
+
+/// Small grounded height corrections should not shake the saddle camera. Only
+/// presentation Y is eased: native feet, horizontal motion and airborne jumps
+/// remain exact. A new character, region, long gap or teleport starts afresh.
+#[derive(Default)]
+struct MountedGroundCamera {
+    previous: Option<(Identity, [f32; 3], f32, Instant)>,
+}
+impl MountedGroundCamera {
+    fn feet(
+        &mut self,
+        identity: Identity,
+        feet: [f32; 3],
+        mounted: bool,
+        grounded: bool,
+        now: Instant,
+    ) -> [f32; 3] {
+        if !mounted || !grounded || !feet.iter().all(|v| v.is_finite()) {
+            self.previous = None;
+            return feet;
+        }
+        let y = self.previous.map_or(feet[1], |(owner, raw, y, at)| {
+            let dt = now.saturating_duration_since(at).as_secs_f32();
+            if owner != identity
+                || dt > 0.25
+                || (feet[0] - raw[0]).hypot(feet[2] - raw[2]) > 2.0
+                || (feet[1] - raw[1]).abs() > 0.6
+                || (feet[1] - y).abs() > 0.6
+            {
+                return feet[1];
+            }
+            // Settle a terrain step in about 0.2 s, independent of frame rate,
+            // with at most 35 cm of visual separation on a steep grounded rise.
+            let eased = feet[1] + (y - feet[1]) * (-14.0 * dt).exp();
+            eased.clamp(feet[1] - 0.35, feet[1] + 0.35)
+        });
+        self.previous = Some((identity, feet, y, now));
+        [feet[0], y, feet[2]]
+    }
+}
 
 /// Vanilla view bobbing (GameRenderer.bobView), driven by the host feet:
 /// walkDist grows by 0.6 x horizontal travel, bob eases toward min(0.1, metres
@@ -328,6 +369,7 @@ impl Controller {
             eye_lift: 0.0,
             eye_lift_target: 0.0,
             eye_lift_at: None,
+            mounted_ground_camera: MountedGroundCamera::default(),
         }
     }
     /// Raise the direct camera above the configured eye height (riding Torrent).
@@ -511,6 +553,7 @@ impl Controller {
         let _ = unsafe { self.release_writes() };
         if !enabled {
             self.boom = None;
+            self.mounted_ground_camera = MountedGroundCamera::default();
             return Ok(Status { active: false });
         }
 
@@ -526,7 +569,9 @@ impl Controller {
         }
         // The queries finish before any mutable camera reference is acquired.
         let direct_eye = match self.direct_basis {
-            Some(basis) => Some(unsafe { self.direct_camera_position(identity, feet, basis) }?),
+            Some(basis) => {
+                Some(unsafe { self.direct_camera_position(identity, feet, grounded, basis) }?)
+            }
             None => None,
         };
         // Vanilla first-person bob: moves the eye and tilts the look, not the body.
@@ -538,6 +583,7 @@ impl Controller {
             .map_or(0.0, |last| now.duration_since(last).as_secs_f32());
         let bobbing = self.view_bob
             && self.view_mode == 0
+            && self.eye_lift_target == 0.0
             && self.direct_basis.is_some()
             && self.locked.is_none();
         let (direct_eye, direct_basis) = if bobbing {
@@ -551,7 +597,7 @@ impl Controller {
                 Some(bob_basis(basis, -roll, pitch)),
             )
         } else {
-            if !self.view_bob || self.view_mode != 0 {
+            if !self.view_bob || self.view_mode != 0 || self.eye_lift_target > 0.0 {
                 self.bob.reset();
             }
             (direct_eye, self.direct_basis)
@@ -735,6 +781,7 @@ impl Controller {
     /// Same game-thread/version/no-retained-references contract as `update`.
     pub unsafe fn suspend(&mut self) -> RestoreStatus {
         self.boom = None;
+        self.mounted_ground_camera = MountedGroundCamera::default();
         unsafe { self.release_writes() }
     }
 
@@ -804,9 +851,18 @@ impl Controller {
         &mut self,
         identity: Identity,
         feet: [f32; 3],
+        grounded: bool,
         basis: [[f32; 3]; 3],
     ) -> Result<[f32; 3], &'static str> {
-        let lift = self.advance_eye_lift(Instant::now());
+        let now = Instant::now();
+        let feet = self.mounted_ground_camera.feet(
+            identity,
+            feet,
+            self.eye_lift_target > 0.0,
+            grounded,
+            now,
+        );
+        let lift = self.advance_eye_lift(now);
         let eye = direct_view_position(feet, basis[2], self.settings.eye_height_m + lift, 0)?;
         if self.view_mode == 0 {
             self.boom = None;
@@ -1468,6 +1524,105 @@ mod tests {
         assert_eq!(controller.eye_lift_target, 0.84375);
         controller.set_eye_lift(5.0);
         assert_eq!(controller.eye_lift_target, 1.0);
+    }
+    #[test]
+    fn mounted_ground_camera_damps_terrain_height_without_delaying_horizontal_travel() {
+        let identity = Identity { player: 1, map: 2 };
+        let now = Instant::now();
+        let mut camera = MountedGroundCamera::default();
+        camera.feet(identity, [0.0, 0.0, 3.0], true, true, now);
+        for frame in 1..=120 {
+            let x = frame as f32 * 0.2;
+            let y = if frame % 2 == 0 { 0.1 } else { -0.1 };
+            let raw = [x, y, 3.0];
+            let shown = camera.feet(
+                identity,
+                raw,
+                true,
+                true,
+                now + Duration::from_secs_f64(frame as f64 / 60.0),
+            );
+            assert_eq!([shown[0], shown[2]], [raw[0], raw[2]]);
+            assert!(
+                shown[1].abs() < 0.025,
+                "terrain jitter reached camera: {shown:?}"
+            );
+        }
+    }
+    #[test]
+    fn mounted_ground_camera_settles_steps_at_the_same_rate_across_frame_rates() {
+        let identity = Identity { player: 1, map: 2 };
+        let now = Instant::now();
+        let mut results = Vec::new();
+        for hz in [30, 60, 120] {
+            let mut camera = MountedGroundCamera::default();
+            camera.feet(identity, [0.0; 3], true, true, now);
+            let mut shown = [0.0; 3];
+            for frame in 1..=hz / 5 {
+                shown = camera.feet(
+                    identity,
+                    [frame as f32 * 0.1, 0.3, 0.0],
+                    true,
+                    true,
+                    now + Duration::from_secs_f64(frame as f64 / hz as f64),
+                );
+            }
+            assert!((shown[1] - 0.3).abs() < 0.02);
+            results.push(shown[1]);
+        }
+        assert!(
+            results
+                .windows(2)
+                .all(|pair| (pair[0] - pair[1]).abs() < 0.00001)
+        );
+    }
+    #[test]
+    fn mounted_ground_camera_snaps_jumps_dismounts_gaps_teleports_and_new_contexts() {
+        let identity = Identity { player: 1, map: 2 };
+        let now = Instant::now();
+        for (owner, feet, mounted, grounded, delay) in [
+            (identity, [0.1, 0.2, 0.0], true, false, 16),
+            (identity, [0.1, 0.2, 0.0], false, true, 16),
+            (identity, [0.1, 0.2, 0.0], true, true, 251),
+            (identity, [20.0, 0.2, 0.0], true, true, 16),
+            (identity, [0.1, 4.0, 0.0], true, true, 16),
+            (
+                Identity {
+                    player: 3,
+                    ..identity
+                },
+                [0.1, 0.2, 0.0],
+                true,
+                true,
+                16,
+            ),
+            (
+                Identity { map: 4, ..identity },
+                [0.1, 0.2, 0.0],
+                true,
+                true,
+                16,
+            ),
+        ] {
+            let mut camera = MountedGroundCamera::default();
+            camera.feet(identity, [0.0; 3], true, true, now);
+            assert_eq!(
+                camera.feet(
+                    owner,
+                    feet,
+                    mounted,
+                    grounded,
+                    now + Duration::from_millis(delay)
+                ),
+                feet
+            );
+        }
+        let mut controller = Controller::new();
+        controller
+            .mounted_ground_camera
+            .feet(identity, [0.0; 3], true, true, now);
+        unsafe { controller.suspend() };
+        assert!(controller.mounted_ground_camera.previous.is_none());
     }
     #[test]
     fn direct_basis_validation_prevents_shear_and_restoration_requires_all_axes() {
