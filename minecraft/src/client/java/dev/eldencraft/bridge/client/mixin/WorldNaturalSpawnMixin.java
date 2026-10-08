@@ -21,7 +21,7 @@ abstract class WorldNaturalSpawnMixin {
       NaturalSpawner.SpawnState state,
       List<MobCategory> categories,
       CallbackInfo ci) {
-    if (WorldMobSpawning.shared(level)) ci.cancel();
+    if (WorldMobSpawning.suppressNaturalSpawns(level)) ci.cancel();
   }
 
   @Inject(method = "spawnMobsForChunkGeneration", at = @At("HEAD"), cancellable = true)
@@ -31,6 +31,6 @@ abstract class WorldNaturalSpawnMixin {
       ChunkPos chunk,
       RandomSource random,
       CallbackInfo ci) {
-    if (WorldMobSpawning.shared(level.getLevel())) ci.cancel();
+    if (WorldMobSpawning.suppressNaturalSpawns(level.getLevel())) ci.cancel();
   }
 }

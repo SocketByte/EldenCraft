@@ -36,7 +36,7 @@ function Get-SafeChildPath([string]$Root, [string]$Relative) {
     while ($cursor.Length -ge $anchor.Length) {
         if (Test-Path -LiteralPath $cursor) {
             if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-                throw "Symbolic links and junctions are not supported here: $cursor"
+                throw "A symbolic link, junction or cloud placeholder is not supported here: $cursor. Extract the full release to an ordinary local folder such as C:\Games\EldenCraft. For linked runtime data, pass -DataDirectory C:\Games\EldenCraftData."
             }
         }
         $cursor = Split-Path -Parent $cursor
@@ -69,7 +69,14 @@ function Read-Release([string]$Root) {
         if ($seen.ContainsKey($file.path)) { throw "Duplicate release path: $($file.path)" }
         $seen[$file.path] = $true
         $path = Get-SafeChildPath $Root $file.path
-        Assert-FileHash $path $file.sha256
+        try { Assert-FileHash $path $file.sha256 }
+        catch {
+            if ($file.path -eq 'config/campaign.json') {
+                $dataRoot = if ($DataDirectory) { $DataDirectory } else { Join-Path $env:LOCALAPPDATA 'EldenCraft' }
+                throw "The bundled campaign template was changed: $path. Restore it from the release ZIP, then edit the runtime copy at $(Join-Path $dataRoot 'campaign.json'). Setup preserves that copy. Restart both games after editing."
+            }
+            throw
+        }
         if ((Get-Item -LiteralPath $path).Length -ne $file.size) { throw "Wrong file size: $path" }
     }
     foreach ($required in @('scripts/windows.ps1', 'config/windows-release.json', 'config/campaign.json',
@@ -439,7 +446,61 @@ function Set-CampaignProfile($Release, [string]$DataDirectory, [string]$Instance
     return [pscustomobject]@{ Config = $campaignPath; Directory = $campaignDirectory }
 }
 
-function Invoke-EldenCraft {
+function Assert-NoReShadeConflict([string]$Executable, [string]$Runtime) {
+    $gameDirectory = Split-Path -Parent $Executable
+    foreach ($name in @('dxgi.dll', 'd3d12.dll', 'd3d11.dll', 'd3d9.dll', 'opengl32.dll')) {
+        $path = Join-Path $gameDirectory $name
+        if ((Test-Path -LiteralPath $path -PathType Leaf) -and
+            (Get-Item -LiteralPath $path).VersionInfo.ProductName -eq 'ReShade') {
+            throw "A separate ReShade installation conflicts with EldenCraft: $path. Uninstall that ReShade installation or move its proxy DLL out of the Game folder, then rerun. EldenCraft supplies ReShade itself; no Game\dxgi.dll is required."
+        }
+    }
+    $ini = Join-Path $gameDirectory 'ReShade.ini'
+    if (Test-Path -LiteralPath $ini -PathType Leaf) {
+        $installSection = $false
+        foreach ($line in (Get-Content -LiteralPath $ini -Encoding UTF8)) {
+            if ($line -match '^\s*\[([^\]]+)\]') { $installSection = $Matches[1] -ieq 'INSTALL' }
+            elseif ($installSection -and $line -match '^\s*BasePath\s*=\s*(\S.*?)\s*$') {
+                $base = $Matches[1]
+                if ($Runtime) {
+                    if (-not [IO.Path]::IsPathRooted($base)) { $base = Join-Path $gameDirectory $base }
+                    if ([IO.Path]::GetFullPath($base).TrimEnd('\', '/') -ieq [IO.Path]::GetFullPath($Runtime).TrimEnd('\', '/')) { continue }
+                }
+                throw "An old ReShade installation overrides EldenCraft's runtime path: $ini [INSTALL] BasePath. Move that old ReShade.ini out of the Game folder, then rerun. Your EldenCraft shader settings are stored in the runtime folder."
+            }
+        }
+    }
+}
+
+# Windows PowerShell 5.1 can lose a redirected child's exit code if its process
+# handle was never opened before it exited. Keep that handle alive immediately.
+function Start-LoggedProcess([string]$Executable, [string[]]$Arguments, [string]$Directory, [string]$Stdout, [string]$Stderr) {
+    $process = Start-Process -FilePath $Executable -ArgumentList $Arguments `
+        -WorkingDirectory $Directory -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $Stdout -RedirectStandardError $Stderr
+    $processHandle = $process.Handle
+    return $process
+}
+
+function Start-EldenRingLoader([string]$Executable, [string]$Runtime, [string]$Profile, [string]$Game, [string]$Logs, [string]$Stamp) {
+    return Start-LoggedProcess -Executable $Executable `
+        -Arguments @('--crash-reporting=false', 'launch', '--skip-steam-init', '--profile', ('"' + $Profile + '"'), '--exe', ('"' + $Game + '"')) `
+        -Directory $Runtime -Stdout (Join-Path $Logs "me3-$Stamp.stdout.log") -Stderr (Join-Path $Logs "me3-$Stamp.stderr.log")
+}
+
+function Assert-LoaderStarted($Process, [string]$Logs, [string]$Stamp) {
+    $Process.Refresh()
+    if (-not $Process.HasExited) { return }
+    $code = $Process.ExitCode
+    if ($null -eq $code) { throw "Elden Ring loader exited without an available exit code. See $(Join-Path $Logs "me3-$Stamp.stderr.log")." }
+    if ($code -ne 0) {
+        $stderr = Join-Path $Logs "me3-$Stamp.stderr.log"
+        $detail = if (Test-Path -LiteralPath $stderr) { (Get-Content -LiteralPath $stderr -Tail 8) -join "`n" } else { 'No loader error log was written.' }
+        throw "Elden Ring loader failed (exit $code). See $stderr.`n$detail"
+    }
+}
+
+function Invoke-EldenCraftCore {
     param([string]$SourceRoot = (Split-Path -Parent $PSScriptRoot))
     $releaseRoot = $sourceRoot
     if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot 'release-manifest.json'))) {
@@ -474,7 +535,12 @@ function Invoke-EldenCraft {
     }
     if (-not $exe) { throw 'Install Elden Ring through Steam, or specify -GamePath "D:\Games\ELDEN RING\Game\eldenring.exe".' }
     try { Assert-FileHash $exe $deps.elden_ring.sha256 }
-    catch { throw "Unsupported Elden Ring executable. This release supports product version $($deps.elden_ring.product_version) with SHA256 $($deps.elden_ring.sha256). Game updates need a matching EldenCraft release." }
+    catch {
+        $actualVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
+        $advice = if ($actualVersion -eq '2.7.0.0') { 'Update Elden Ring from App Ver. 1.17 to 1.17.1 through Steam, then verify its installed files.' } else { 'Verify installed files in Steam and use an EldenCraft release matching your game build.' }
+        throw "Unsupported Elden Ring executable at $exe (product version '$actualVersion'). This release requires $($deps.elden_ring.product_version), SHA256 $($deps.elden_ring.sha256). $advice If you have multiple installations, select the Steam copy with -GamePath."
+    }
+    Assert-NoReShadeConflict $exe (Join-Path $DataDirectory 'runtime')
     if ($Mode -eq 'check') {
         Write-Host "Release $($release.Version): all packaged files verified."
         Write-Host "Elden Ring $($deps.elden_ring.product_version): executable verified."
@@ -483,14 +549,11 @@ function Invoke-EldenCraft {
     }
     New-Item -ItemType Directory -Force -Path $DataDirectory | Out-Null
     $lock = $null
-    $transcript = $false
     try {
         try { $lock = [IO.File]::Open((Join-Path $DataDirectory 'setup.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
         catch { throw 'Another EldenCraft setup or launch is already running.' }
         $logs = Join-Path $DataDirectory 'logs'
         New-Item -ItemType Directory -Force -Path $logs | Out-Null
-        Start-Transcript -Path (Join-Path $logs ('launcher-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')) | Out-Null
-        $transcript = $true
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $cache = Get-SafeChildPath $DataDirectory 'downloads'
         $tools = Get-SafeChildPath $DataDirectory 'tools'
@@ -518,6 +581,7 @@ function Invoke-EldenCraft {
         Set-MinecraftProfile $release $instance $installed.java $api $backups
         Set-NativeRuntime $release $runtime $reshade
         $campaignProfile = Set-CampaignProfile $release $DataDirectory $instance $runtime
+        Write-Host "Editable campaign settings: $($campaignProfile.Config) (restart both games after changes)."
         New-VerifiedBackup $campaignProfile.Directory $backups 'campaign' | Out-Null
         $prismSettings = Join-Path $prismData 'prismlauncher.cfg'
         if (-not (Test-Path -LiteralPath $prismSettings)) {
@@ -578,19 +642,39 @@ IconTheme=pe_colored
         if (-not $ready) { throw 'Minecraft startup timed out after ten minutes. Finish its downloads in Prism Launcher, close it and rerun.' }
         $profile = Join-Path $runtime 'eldencraft.me3'
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        $hostProcess = Start-Process -FilePath $installed.me3 -ArgumentList @('--crash-reporting=false', 'launch', '--profile', ('"' + $profile + '"'), '--exe', ('"' + $exe + '"')) `
-            -WorkingDirectory $runtime -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput (Join-Path $logs "me3-$stamp.stdout.log") -RedirectStandardError (Join-Path $logs "me3-$stamp.stderr.log")
+        $hostProcess = Start-EldenRingLoader $installed.me3 $runtime $profile $exe $logs $stamp
         Start-Sleep -Seconds 2
-        $hostProcess.Refresh()
-        if ($hostProcess.HasExited -and $hostProcess.ExitCode -ne 0) { throw "Elden Ring loader failed (exit $($hostProcess.ExitCode)). See $logs." }
+        Assert-LoaderStarted $hostProcess $logs $stamp
         Write-Host 'Elden Ring is starting offline with the separate EldenCraft.sl2 save.'
         Write-Host 'Load or create an Elden Ring character to connect to the Minecraft world.'
         Write-Host "Logs and verified backups: $DataDirectory"
     } finally {
-        if ($transcript) { Stop-Transcript | Out-Null }
         if ($lock) { $lock.Dispose() }
     }
+}
+
+function Invoke-EldenCraft {
+    param([string]$SourceRoot = (Split-Path -Parent $PSScriptRoot))
+    if (-not $DataDirectory) { $DataDirectory = Join-Path $env:LOCALAPPDATA 'EldenCraft' }
+    $DataDirectory = [IO.Path]::GetFullPath($DataDirectory)
+    Get-SafeChildPath $DataDirectory 'logs' | Out-Null
+    if ($DataDirectory -match '[\r\n]') { throw 'Data directory cannot contain newlines.' }
+    $logs = Join-Path $DataDirectory 'logs'
+    New-Item -ItemType Directory -Force -Path $logs | Out-Null
+    $log = Join-Path $logs ('launcher-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + $PID + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.log')
+    Start-Transcript -Path $log | Out-Null
+    try {
+        Write-Host "Launcher log: $log"
+        Write-Host "Release folder: $SourceRoot"
+        Write-Host "Runtime data: $DataDirectory"
+        Write-Host "Minecraft log: $(Join-Path $DataDirectory 'minecraft/instances/EldenCraft/.minecraft/logs/latest.log')"
+        Write-Host "Native logs: $(Join-Path $DataDirectory 'runtime/data')"
+        Write-Host "ReShade log: $(Join-Path $DataDirectory 'runtime/ReShade.log')"
+        Invoke-EldenCraftCore -SourceRoot $SourceRoot
+    } catch {
+        Write-Host "EldenCraft: $($_.Exception.Message)" -ForegroundColor Red
+        throw
+    } finally { Stop-Transcript | Out-Null }
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

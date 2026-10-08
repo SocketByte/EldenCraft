@@ -664,6 +664,8 @@ pub fn start(module: usize) {
         glide_safety: crate::glide_safety::Driver::new(),
         shared_world: crate::world_bridge::Driver::new(),
         last_gate: "",
+        last_diagnostic: Instant::now(),
+        diagnostic_ticks: 0,
         snapshot_stage: 0,
         last_player_flags: None,
         native_map: Default::default(),
@@ -961,6 +963,8 @@ struct Host {
     keys: [bool; KEY_COUNT],
     failed: bool,
     last_gate: &'static str,
+    last_diagnostic: Instant,
+    diagnostic_ticks: u64,
     snapshot_stage: u8,
     last_player_flags: Option<(u8, u8)>,
     native_map: crate::native_map::Driver,
@@ -1610,6 +1614,30 @@ impl Host {
     }
     fn tick(&mut self) {
         let now_ms = unsafe { GetTickCount64() };
+        self.diagnostic_ticks = self.diagnostic_ticks.saturating_add(1);
+        if self.last_diagnostic.elapsed() >= Duration::from_secs(15) {
+            self.last_diagnostic = Instant::now();
+            // Sample only in this game-thread callback. Periodic state makes a
+            // transient title-screen gate distinguishable from a persistent one.
+            let online = unsafe { GameMan::instance() }
+                .ok()
+                .map(|g| g.is_in_online_mode);
+            let session = unsafe { CSSessionManager::instance() }
+                .ok()
+                .map(|s| (s.lobby_state, s.protocol_state));
+            log(
+                &self.io,
+                format!(
+                    "Bridge status: ticks={}, gate={}, foreground={}, enabled={}, passthrough_active={}, gui_open={}, online_mode={online:?}, session={session:?}.",
+                    self.diagnostic_ticks,
+                    self.last_gate,
+                    foreground(),
+                    self.enabled,
+                    eldencraft_passthrough_active(),
+                    eldencraft_gui_open(),
+                ),
+            );
+        }
         // Recognize only a bounded loss of the activity bits on the exact same
         // healthy, offline player. This does not admit any gameplay publication.
         let passive_grace_reset = self.enabled

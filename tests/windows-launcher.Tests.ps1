@@ -1,4 +1,4 @@
-# Filesystem regressions and a complete offline first-install fixture, without game launches.
+# Filesystem/process regressions and an offline first-install fixture, without game launches.
 param()
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -51,6 +51,61 @@ $download = Join-Path $scratch 'cached.zip'
 Write-Utf8File $download 'corrupt cached download'
 Assert-Throws { Get-VerifiedDownload $scratch 'cached.zip' 'https://example.invalid/tool.zip' $hash } 'Checksum'
 
+# Real short-lived redirected processes reproduce the Windows PowerShell 5.1
+# missing-exit-code bug. They do not start either game or a launcher.
+foreach ($exitCode in @(0, 7)) {
+    $stamp = "exit-$exitCode"
+    $process = Start-LoggedProcess -Executable (Join-Path $env:SystemRoot 'System32/cmd.exe') `
+        -Arguments @('/d', '/c', "exit $exitCode") -Directory $scratch `
+        -Stdout (Join-Path $scratch "me3-$stamp.stdout.log") -Stderr (Join-Path $scratch "me3-$stamp.stderr.log")
+    try {
+        Assert-True ($process.WaitForExit(10000)) 'Short-lived process must finish.'
+        Assert-True ($process.ExitCode -eq $exitCode) 'Redirected process retains its actual exit code.'
+        if ($exitCode -eq 0) { Assert-LoaderStarted $process $scratch $stamp }
+        else { Assert-Throws { Assert-LoaderStarted $process $scratch $stamp } 'exit 7' }
+    } finally { $process.Dispose() }
+}
+Assert-Throws { Assert-LoaderStarted ([pscustomobject]@{ HasExited = $true; ExitCode = $null } | Add-Member ScriptMethod Refresh {} -PassThru) $scratch 'missing' } 'without an available exit code'
+
+# A detached CMD must give extraction instructions instead of PowerShell's
+# opaque -File error. Passing check avoids an interactive pause in this fixture.
+$bootstrap = Join-Path $scratch 'EldenCraft.cmd'
+Copy-Item -LiteralPath (Join-Path $repo 'EldenCraft.cmd') -Destination $bootstrap
+$process = Start-LoggedProcess -Executable (Join-Path $env:SystemRoot 'System32/cmd.exe') `
+    -Arguments @('/d', '/c', ('""' + $bootstrap + '" check"')) -Directory $scratch `
+    -Stdout (Join-Path $scratch 'bootstrap.stdout.log') -Stderr (Join-Path $scratch 'bootstrap.stderr.log')
+try {
+    Assert-True ($process.WaitForExit(10000)) 'Detached CMD must finish without starting PowerShell.'
+    Assert-True ($process.ExitCode -eq 1) 'Missing bootstrap script fails clearly.'
+    Assert-True ((Get-Content -LiteralPath (Join-Path $scratch 'bootstrap.stdout.log') -Raw) -match 'Extract the entire release ZIP') 'Missing script reports the recovery step.'
+} finally { $process.Dispose() }
+
+# Loader argv includes the authorized Steam initialization workaround and
+# preserves spaces in both profile and executable paths.
+function Start-LoggedProcess {
+    param($Executable, $Arguments, $Directory, $Stdout, $Stderr)
+    return [pscustomobject]@{ Executable = $Executable; Arguments = $Arguments; Directory = $Directory; Stdout = $Stdout; Stderr = $Stderr }
+}
+$launch = Start-EldenRingLoader 'me3.exe' 'runtime folder' 'runtime folder/profile.me3' 'game folder/eldenring.exe' $scratch 'argv'
+Assert-True ($launch.Arguments -contains '--skip-steam-init') 'Steam API preflight cannot block the loader.'
+Assert-True ($launch.Arguments -contains '"game folder/eldenring.exe"') 'Game path spaces remain quoted.'
+Assert-True ($launch.Arguments -contains '"runtime folder/profile.me3"') 'Profile path spaces remain quoted.'
+Remove-Item -LiteralPath function:Start-LoggedProcess
+
+$conflictDirectory = Join-Path $scratch 'reshade-conflict'
+New-Item -ItemType Directory -Path $conflictDirectory | Out-Null
+$conflictExe = Join-Path $conflictDirectory 'eldenring.exe'
+$conflictIni = Join-Path $conflictDirectory 'ReShade.ini'
+Write-Utf8File (Join-Path $conflictDirectory 'dxgi.dll') 'unrelated proxy fixture'
+Assert-NoReShadeConflict $conflictExe
+Write-Utf8File $conflictIni "[GENERAL]`nBasePath=C:\Unrelated"
+Assert-NoReShadeConflict $conflictExe
+Write-Utf8File $conflictIni "[INSTALL]`nBasePath=C:\OldReShade"
+Assert-Throws { Assert-NoReShadeConflict $conflictExe } 'old ReShade installation.*BasePath'
+Assert-NoReShadeConflict $conflictExe 'C:\OldReShade'
+Write-Utf8File $conflictIni "[INSTALL]`nBasePath=runtime"
+Assert-NoReShadeConflict $conflictExe (Join-Path $conflictDirectory 'runtime')
+
 # Mock only operating-system process discovery; attempts to launch anything are test failures.
 function Get-Process { param($Name, $ErrorAction) return @() }
 function Get-CimInstance { param($ClassName, $Filter) return @() }
@@ -96,11 +151,15 @@ Assert-True ($release.Version -eq '0.20.1') 'Complete fixture manifest should va
 Write-Utf8File (Join-Path $package 'payload/eldencraft_core.dll') 'modified'
 Assert-Throws { Read-Release $package } 'Checksum'
 Write-Utf8File (Join-Path $package 'payload/eldencraft_core.dll') 'fixture: eldencraft_core.dll'
+Write-Utf8File (Join-Path $package 'config/campaign.json') '{}'
+Assert-Throws { Read-Release $package } 'bundled campaign template.*runtime copy'
+Copy-Item -LiteralPath (Join-Path $repo 'config/campaign.json') -Destination (Join-Path $package 'config/campaign.json') -Force
 Assert-Throws { Find-EldenRing (Join-Path $scratch 'missing.exe') $game $package } 'not found'
 
 # A Steam library on a drive that no longer exists (an unplugged disk) must be
 # skipped, not abort discovery: Windows PowerShell's Join-Path throws for it.
-$missingDrive = [char[]](68..90) | Where-Object { -not (Test-Path -LiteralPath "${_}:\") } | Select-Object -First 1
+$driveLetters = @(Get-PSDrive -PSProvider FileSystem | Select-Object -ExpandProperty Name)
+$missingDrive = [char[]](68..90) | Where-Object { [string]$_ -notin $driveLetters } | Select-Object -First 1
 $steamRoot = Join-Path $scratch 'steam'
 $library = Join-Path $scratch 'library'
 New-Item -ItemType Directory -Force -Path (Join-Path $steamRoot 'steamapps'), (Join-Path $library 'steamapps/common/ELDEN RING/Game') | Out-Null
@@ -132,6 +191,15 @@ try {
     $NonInteractive = $true
     $DataDirectory = $data
     $GamePath = $game
+    # Compatibility errors occur before setup. They still need a transcript,
+    # even when native runtime/data has never been created.
+    Write-Utf8File $game 'unsupported game fixture'
+    Assert-Throws { Invoke-EldenCraft -SourceRoot $package } 'Unsupported Elden Ring executable.*GamePath'
+    $earlyLog = Get-ChildItem -LiteralPath (Join-Path $data 'logs') -File -Filter 'launcher-*.log' | Select-Object -First 1
+    Assert-True ([bool]$earlyLog) 'Early compatibility failures write launcher logs.'
+    Assert-True ((Get-Content -LiteralPath $earlyLog.FullName -Raw) -match 'Unsupported Elden Ring executable') 'Transcript contains the actual early error.'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $data 'runtime/data'))) 'Early failure does not start the native runtime.'
+    Write-Utf8File $game 'game executable fixture'
     Invoke-EldenCraft -SourceRoot $package
     Assert-True ((Get-Hash $save) -eq $saveHash) 'Setup must not modify original saves.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $data 'minecraft/.first-run-complete'))) 'Headless setup must not claim account sign-in.'
@@ -183,4 +251,4 @@ try {
     Assert-True (@(Get-ChildItem -LiteralPath (Join-Path $data 'backups') -Filter '*.zip').Count -eq $committed) 'Failed backups must not be committed.'
 } finally { $env:APPDATA = $oldAppData }
 
-Write-Host "PASS: $script:checks Windows launcher checks; no applications launched."
+Write-Host "PASS: $script:checks Windows launcher checks; no games launched."

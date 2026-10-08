@@ -486,6 +486,7 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
   }
 
   private void serverTick(MinecraftServer game) {
+    WorldStartupSafety.tick(game);
     Lease l = lease;
     if (!fresh(l) || l.server != game || game.isPublished()) {
       serverReady = false;

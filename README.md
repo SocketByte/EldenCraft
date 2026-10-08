@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="../../releases/latest"><img alt="Download the latest release" src="https://img.shields.io/badge/Download-latest_release-c9a24a?style=for-the-badge&labelColor=1b1a17"></a>
+  <a href="https://discord.gg/7qDyAzAq9"><img alt="Join the EldenCraft Discord" src="https://img.shields.io/badge/Discord-community-5865F2?style=for-the-badge&logo=discord&logoColor=white&labelColor=1b1a17"></a>
 </p>
 
 <p align="center">
@@ -142,11 +143,16 @@ He can't open an elytra glide and is never saved with the world.
 > and Minecraft **Java Edition**. EldenCraft is **offline singleplayer only** (Seamless Coop might be added in the near future though!).
 > Online Elden Ring and Minecraft LAN/server sessions turn the bridge off.
 
-1. Download **`EldenCraft-<version>-windows-x64.zip`** from the [latest release](../../releases/latest) and extract it to a writable folder.
+1. Download **`EldenCraft-<version>-windows-x64.zip`** from the [latest release](../../releases/latest) and extract the entire ZIP to an ordinary writable local folder, such as `C:\Games\EldenCraft`. Keep `scripts`, `config` and `payload` beside `EldenCraft.cmd`.
 2. Sign in to Steam and close both games.
 3. Double-click **`EldenCraft.cmd`**.
 4. On first launch, sign in with your Microsoft account in Prism Launcher, then close the launcher to continue.
 5. Minecraft creates and joins its dedicated **EldenCraft** world automatically. Load or create an Elden Ring character, and the two games connect.
+
+The dedicated offline Minecraft player is protected while the bridge is waiting
+for Elden Ring, loading a map or disconnected. Natural mobs do not spawn in the
+staging world, and existing staging hostiles are removed. Spawn eggs and the
+shared Nether's waves keep their normal behavior.
 
 The same script handles setup and every later launch. It downloads checksum-verified,
 portable Java, Prism Launcher, me3 and ReShade, installs the bridge and starts both
@@ -251,8 +257,11 @@ the process boundary. The full contract is in [PROTOCOL.md](PROTOCOL.md).
 <details>
 <summary><b>"Unsupported executable"</b></summary>
 
-Your Elden Ring build doesn't match **2.7.1.0**. The executable check can't be
-bypassed; wait for a compatible EldenCraft release after a game update.
+This release needs executable product version **2.7.1.0** (title-screen App Ver.
+**1.17.1**). Product version **2.7.0.0** is the older **1.17** patch: update in
+Steam, then verify installed files. If you have multiple copies, use `-GamePath`
+to select the updated Steam installation. Newer game updates need a matching
+EldenCraft release.
 
 </details>
 
@@ -279,6 +288,53 @@ Fix the reported connection, permission or disk-space problem and re-run. Logs
 are in `%LOCALAPPDATA%\EldenCraft\logs`.
 
 </details>
+
+<details>
+<summary><b>Missing PowerShell script, cloud folder or checksum error</b></summary>
+
+Run the launcher after extracting the entire release ZIP, rather than opening
+it inside the ZIP or copying only the CMD file. If `scripts/windows.ps1` is
+missing after extraction, check antivirus quarantine and extract a fresh copy.
+
+Use an ordinary local folder outside OneDrive or other cloud placeholders.
+Links and junctions are rejected at the path shown in the error. If the runtime
+data is linked, launch with `-DataDirectory "C:\Games\EldenCraftData"` each time.
+
+Edit `%LOCALAPPDATA%\EldenCraft\campaign.json` (or `campaign.json` in your custom
+data directory), then restart both games. The `config/campaign.json` inside the
+release is a verified template. If you edited it, preserve your changes, restore
+the original template from the ZIP, and apply the changes to the runtime copy.
+Restore other modified or missing packaged files from the same release ZIP.
+
+</details>
+
+<details>
+<summary><b>ReShade opens but Minecraft is missing</b></summary>
+
+EldenCraft injects its own ReShade runtime and compositor. A separately installed
+ReShade proxy DLL or an old `[INSTALL] BasePath` in the game's `ReShade.ini` can
+interfere; the launcher reports the conflicting path. Uninstall that ReShade
+installation or move the reported files out of the Game folder, then rerun.
+EldenCraft does not require `dxgi.dll` in the game folder.
+
+Load an Elden Ring character, keep Minecraft unminimized, and bring Elden Ring
+to the foreground. A temporary online-mode message at the title screen alone
+does not establish the cause; check the later bridge status entries.
+
+</details>
+
+For help and bug reports, [join the EldenCraft Discord](https://discord.gg/7qDyAzAq9).
+Include the error text and logs from the same failed run:
+
+- `%LOCALAPPDATA%\EldenCraft\logs\launcher-*.log` and the matching `me3-*.stdout.log` / `me3-*.stderr.log`.
+- `%LOCALAPPDATA%\EldenCraft\runtime\ReShade.log`.
+- `%LOCALAPPDATA%\EldenCraft\runtime\data\eldencraft-loader.log` and `eldencraft-native.log`.
+- `%LOCALAPPDATA%\EldenCraft\minecraft\instances\EldenCraft\.minecraft\logs\latest.log`.
+
+Use your custom data directory if configured. Early launcher errors are logged
+before game verification. Missing native logs mean the native runtime has not
+started; include the launcher and me3 logs. Avoid sending Minecraft account
+files or entire save folders.
 
 <details>
 <summary><b>Known limitations</b></summary>

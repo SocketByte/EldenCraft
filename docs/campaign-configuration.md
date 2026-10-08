@@ -6,6 +6,12 @@ EldenCraft's offline campaign uses vanilla Minecraft items and attacks, with a s
 
 The source default is [`config/campaign.json`](../config/campaign.json). The Windows release installs an editable copy at `%LOCALAPPDATA%/EldenCraft/campaign.json` on first setup. Subsequent setup and upgrades preserve that copy. Restart both games after editing it.
 
+The release's bundled `config/campaign.json` is a checksum-verified template;
+edit the runtime copy instead. With `-DataDirectory`, that copy is `campaign.json`
+inside the selected directory. The launcher prints the exact editable path.
+If you changed the bundled template, preserve your edits, restore the original
+from the release ZIP and apply the edits to the runtime copy.
+
 Both processes must load the same file and use the same bridge directory:
 
 | Setting | Purpose |

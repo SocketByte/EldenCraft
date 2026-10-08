@@ -21,6 +21,12 @@ public final class WorldMobSpawning {
         && level.dimension().equals(SharedWorldBlocks.DIMENSION);
   }
 
+  public static boolean suppressNaturalSpawns(Level level) {
+    return shared(level)
+        || level instanceof ServerLevel serverLevel
+            && WorldStartupSafety.owns(serverLevel.getServer());
+  }
+
   public static final class Scope implements AutoCloseable {
     final Scope prior;
     final Level level;

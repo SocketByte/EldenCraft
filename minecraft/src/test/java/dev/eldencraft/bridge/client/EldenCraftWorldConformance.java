@@ -44,6 +44,22 @@ public final class EldenCraftWorldConformance {
 
   public static void main(String[] args) throws Exception {
     checks += AchievementToastsConformance.verify();
+    for (var name : List.of("EldenCraft", "EldenCraft Passthrough Lab")) {
+      check(WorldStartupSafety.owns(true, false, 0, name), "Protect startup before a player joins");
+      check(
+          WorldStartupSafety.owns(true, false, 1, name), "Protect first launch and reopened saves");
+      check(!WorldStartupSafety.owns(true, true, 1, name), "LAN sessions retain vanilla rules");
+      check(
+          !WorldStartupSafety.owns(false, false, 1, name),
+          "Dedicated servers retain vanilla rules");
+      check(
+          !WorldStartupSafety.owns(true, false, 2, name), "Multiple players retain vanilla rules");
+    }
+    check(
+        !WorldStartupSafety.owns(true, false, 1, "Survival"),
+        "Unrelated saves retain vanilla rules");
+    check(
+        !WorldStartupSafety.owns(true, false, 1, null), "Unknown save identity is not protection");
     var firstRun = new EldenCraftWorld.Startup(null, null);
     var empty = new Saves();
     firstRun.tick(false, false, empty);

@@ -25,6 +25,6 @@ abstract class WorldSpawnLevelMixin {
 
   @Inject(method = "tickCustomSpawners", at = @At("HEAD"), cancellable = true)
   private void eldencraft$noPatrolOrPhantomSpawners(boolean spawnEnemies, CallbackInfo ci) {
-    if (WorldMobSpawning.shared((ServerLevel) (Object) this)) ci.cancel();
+    if (WorldMobSpawning.suppressNaturalSpawns((ServerLevel) (Object) this)) ci.cancel();
   }
 }
