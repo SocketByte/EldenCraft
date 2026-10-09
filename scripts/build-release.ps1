@@ -5,6 +5,12 @@ Push-Location $repo
 try {
     $python = Join-Path $repo '.venv/Scripts/python.exe'
     if (-not (Test-Path -LiteralPath $python)) { throw 'Run scripts/eldencraft.ps1 setup first.' }
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { throw 'Install uv and run scripts/eldencraft.ps1 setup first.' }
+    # An existing venv can hide a stale release version or dependency declaration.
+    # Check the same lock freshness CI requires, including when only packaging.
+    $env:UV_CACHE_DIR = Join-Path $repo '.cache/uv'
+    & uv lock --check --offline --python $python
+    if ($LASTEXITCODE -ne 0) { throw 'Python lockfile is stale. Run uv lock and commit uv.lock before building a release.' }
     if (-not $SkipBuild) {
         & (Join-Path $PSScriptRoot 'eldencraft.ps1') test
         if ($LASTEXITCODE -ne 0) { throw 'Python checks failed.' }

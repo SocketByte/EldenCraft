@@ -118,11 +118,15 @@ game closes or enters a menu. Builds and fixture tests do not replace this check
 ### Publishing
 
 Releases are published by GitHub Actions. Set the same version in
-`minecraft/gradle.properties` and `pyproject.toml`, then push a matching tag:
+`minecraft/gradle.properties` and `pyproject.toml`, then run `uv lock` and commit
+the updated `uv.lock` with those version changes before pushing a matching tag.
+The release build checks lockfile freshness even with `-SkipBuild`, so an existing
+virtual environment cannot hide metadata that CI's locked setup would reject.
 
 ```powershell
-git tag v0.25.0
-git push origin v0.25.0
+uv lock
+git tag v0.25.1
+git push origin v0.25.1
 ```
 
 `.github/workflows/release.yml` rejects a tag that differs from those versions,
