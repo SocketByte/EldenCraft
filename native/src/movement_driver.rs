@@ -226,6 +226,11 @@ pub struct Status {
     pub capsule_profile: Option<[[f32; 2]; 2]>,
     /// Riding Torrent: the mounted gait drove this step.
     pub mounted: bool,
+    /// The mount lease actually used at this physics boundary. These reveal a
+    /// gait dropout independently of the summoned horse's visual presence.
+    pub mount_sequence: u64,
+    pub mount_age_ms: u64,
+    pub mount_transitions: u64,
     pub flight_sequence: u64,
     pub glide_observation: Option<crate::player_flight::Observation>,
     pub vertical_speed_mps: f32,
@@ -614,6 +619,37 @@ impl WallFeedback {
         self.settle = WALL_SETTLE_S;
         self.streak = 0;
     }
+    /// A grounded slope can trade horizontal travel for height without hitting
+    /// a wall. Judge progress along the full requested stride before stripping
+    /// horizontal momentum. A stationary body or a sideways slide still blocks.
+    fn observe_surface(
+        &mut self,
+        dt: f32,
+        expected: [f32; 3],
+        actual: [f32; 3],
+        grounded: bool,
+    ) -> Option<([f32; 2], f32)> {
+        let length2 = expected.iter().map(|v| v * v).sum::<f32>();
+        let progress = expected.iter().zip(actual).map(|(e, a)| e * a).sum::<f32>();
+        if grounded
+            && expected[1].abs() > 0.0001
+            && actual[1] * expected[1] > 0.0
+            && expected.iter().chain(actual.iter()).all(|v| v.is_finite())
+            && length2 <= crate::torrent::MAX_STEP_M.powi(2)
+            && actual.iter().map(|v| v * v).sum::<f32>() <= 4.0
+            && progress >= length2 * 0.5
+        {
+            self.streak = 0;
+            self.settle = (self.settle - dt).max(0.0);
+            return None;
+        }
+        self.observe(
+            dt,
+            [expected[0], expected[2]],
+            [actual[0], actual[2]],
+            grounded,
+        )
+    }
     /// The confirmed blocked direction and alignment for the last native step.
     /// Only grounded steps are judged: in the air Elden Ring's own contact and
     /// integration timing does not describe walls (and the request is applied as
@@ -695,6 +731,7 @@ impl VerticalModel {
     ) -> Result<f32, &'static str> {
         self.step(dt, down, grounded, y, Gait::Foot)
     }
+    #[cfg(test)]
     fn step(
         &mut self,
         dt: f32,
@@ -702,6 +739,18 @@ impl VerticalModel {
         grounded: bool,
         y: f32,
         gait: Gait,
+    ) -> Result<f32, &'static str> {
+        self.step_effects(dt, down, grounded, y, gait, 0., false)
+    }
+    fn step_effects(
+        &mut self,
+        dt: f32,
+        down: bool,
+        grounded: bool,
+        y: f32,
+        gait: Gait,
+        jump_bonus: f32,
+        slow_falling: bool,
     ) -> Result<f32, &'static str> {
         if !dt.is_finite() || !(0.00001..=0.1).contains(&dt) || !y.is_finite() {
             return Err("vertical input invalid");
@@ -792,7 +841,7 @@ impl VerticalModel {
             self.flying = true;
             self.left_ground = false;
             self.flight_time = 0.0;
-            self.velocity = gait.jump_mps();
+            self.velocity = gait.jump_mps() + if gait == Gait::Foot { jump_bonus } else { 0. };
             self.remaining = TICK;
             self.jumps = self.jumps.saturating_add(1);
             self.observation = Some(JumpObservation {
@@ -838,7 +887,12 @@ impl VerticalModel {
                 break;
             }
             if self.remaining <= 0.0000001 {
-                self.velocity = ((self.velocity - 1.6) * 0.98).max(-78.4);
+                let gravity = if slow_falling && self.velocity <= 0. {
+                    0.2
+                } else {
+                    1.6
+                };
+                self.velocity = ((self.velocity - gravity) * 0.98).max(-78.4);
                 self.remaining = TICK;
             }
             let slice = elapsed.min(self.remaining);
@@ -853,6 +907,22 @@ impl VerticalModel {
 }
 
 impl VerticalModel {
+    fn horizontal_grounded(&self, grounded: bool, jumped: bool, gait: Gait) -> bool {
+        // The vertical model already waits one tick before declaring a ledge
+        // fall. Torrent must keep its ground gait during that same contact grace,
+        // rather than switching to a tenth of its acceleration on every bump.
+        let contact = grounded || (gait == Gait::Torrent && self.ground_seen && !self.flying);
+        horizontal_grounded(contact, self.flying, jumped)
+    }
+    fn impulse(&mut self, velocity: f32, y: f32) {
+        self.flying = true;
+        self.left_ground = true;
+        self.flight_time = 0.;
+        self.previous_y = Some(y);
+        self.previous_velocity = 0.;
+        self.velocity = velocity;
+        self.remaining = TICK;
+    }
     fn knock(&mut self) {
         self.knocked = true;
     }
@@ -1102,7 +1172,7 @@ fn vertical_replacement(
     }
     let mut output = input;
     if let Some(scale) = context.horizontal_scale {
-        if !scale.is_finite() || !(0.25..=0.5).contains(&scale) {
+        if !scale.is_finite() || !(0. ..=3.).contains(&scale) {
             return None;
         }
         output.0[0] *= scale;
@@ -1178,6 +1248,38 @@ fn tune_horizontal(displacement: [f32; 3], multiplier: f32) -> [f32; 3] {
         displacement[2] * multiplier,
     ]
 }
+/// Grounded riding follows the native floor plane at a constant path speed.
+/// Feeding a flat vector into the capsule on an uphill slope loses a component
+/// into the floor; repeated wall feedback then removes the remaining momentum.
+/// Preserve the requested heading and stride length while adding the floor's
+/// rise/descent. Native collision and standing adhesion still resolve the step.
+/// No support is inferred from this normal: callers require actual ground contact.
+fn surface_stride(desired: [f32; 3], normal: [f32; 3]) -> Option<[f32; 3]> {
+    if !desired.iter().chain(normal.iter()).all(|v| v.is_finite()) {
+        return None;
+    }
+    let normal_length = normal.iter().map(|v| v * v).sum::<f32>().sqrt();
+    if !(0.9..=1.1).contains(&normal_length) {
+        return None;
+    }
+    let n = normal.map(|v| v / normal_length);
+    // At most a 60-degree floor; a wall, ceiling or stale zero normal cannot lift
+    // the rider. Steeper/sliding terrain retains native movement unchanged.
+    if n[1] < 0.5 {
+        return None;
+    }
+    let length = desired[0].hypot(desired[2]);
+    if length > crate::torrent::MAX_STEP_M {
+        return None;
+    }
+    let rise = -(n[0] * desired[0] + n[2] * desired[2]) / n[1];
+    let scale = if length > 0.0 {
+        length / length.hypot(rise)
+    } else {
+        1.0
+    };
+    Some([desired[0] * scale, rise * scale, desired[2] * scale])
+}
 /// An owned upward request may suppress standing adhesion only for the same
 /// current physics object. This permission deliberately outlives Stage's TLS:
 /// the native floor/contact pass executes later in PostPhysics.
@@ -1240,11 +1342,13 @@ struct Shared {
     /// Latest server-owned mount; its own timestamp is checked at each stage.
     torrent: Option<crate::torrent::Sample>,
     fluids: Vec<crate::world_fluids::Owned>,
+    combat: Option<crate::combat_effects::Sample>,
+    last_impulse: u64,
     was_gliding: bool,
     glide: GlideTransition,
     glide_meter: crate::player_flight::Meter,
-    /// Position before the previous owned step and its expected horizontal travel.
-    last_step: Option<([f32; 3], [f32; 2])>,
+    /// Position before the previous owned step and its expected world travel.
+    last_step: Option<([f32; 3], [f32; 3])>,
     sprint: SprintLatch,
     wall: WallFeedback,
     /// Native contact of the previous owned step.
@@ -1279,6 +1383,8 @@ impl Shared {
             flight: None,
             torrent: None,
             fluids: Vec::new(),
+            combat: None,
+            last_impulse: 0,
             was_gliding: false,
             glide: GlideTransition::default(),
             glide_meter: crate::player_flight::Meter::default(),
@@ -1331,6 +1437,7 @@ impl Shared {
         self.flight = None;
         self.torrent = None;
         self.fluids.clear();
+        self.combat = None;
         self.was_gliding = false;
         self.last_step = None;
         self.knockback = None;
@@ -1385,6 +1492,7 @@ impl Driver {
         if std::mem::offset_of!(CSChrPhysicsModule, orientation) != 0x50
             || std::mem::offset_of!(CSChrPhysicsModule, position) != 0x70
             || std::mem::offset_of!(CSChrPhysicsModule, owner) != 8
+            || std::mem::offset_of!(CSChrPhysicsModule, material_info) != 0x1f0
         {
             return Err("movement SDK layout mismatch".into());
         }
@@ -1769,8 +1877,14 @@ impl Driver {
         }
     }
     pub fn set_fluids(&mut self, contacts: Vec<crate::world_fluids::Owned>) {
+        crate::world_fluids::publish(&contacts);
         if let Ok(mut state) = self.shared.try_lock() {
             state.fluids = contacts;
+        }
+    }
+    pub fn set_combat(&mut self, sample: Option<crate::combat_effects::Sample>) {
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.combat = sample;
         }
     }
     /// Sprint for the camera FOV: the latched sprint, held through authorization
@@ -2003,16 +2117,17 @@ unsafe fn prepare(
             // native ladders are excluded by identity() and never enter this path.
             let fresh = state.flight.filter(|s| s.active() && s.fresh(timestamp));
             let glide = state.glide.admit(fresh, grounded, dt, timestamp);
-            let gait = if glide.is_none()
-                && state
-                    .torrent
-                    .is_some_and(|s| s.mounted && s.fresh(timestamp))
-            {
+            let mount = state.torrent.filter(|s| s.mounted && s.fresh(timestamp));
+            let gait = if glide.is_none() && mount.is_some() {
                 Gait::Torrent
             } else {
                 Gait::Foot
             };
-            let raw_input = gait.input(Input::from_buttons(buttons, permit.input.using_item));
+            let effects = state.combat.filter(|s| s.fresh(timestamp));
+            let raw_input = gait.input(Input::from_buttons(
+                buttons,
+                permit.input.using_item && !effects.is_some_and(|s| s.use_sprint),
+            ));
             let glide_observation = state
                 .glide_meter
                 .observe(position, glide, timestamp, dt, grounded);
@@ -2025,9 +2140,10 @@ unsafe fn prepare(
             }
             state.last_grounded = Some(grounded);
             if let Some((before, expected)) = state.last_step.take() {
-                let actual = [position[0] - before[0], position[2] - before[2]];
+                let actual = std::array::from_fn(|i| position[i] - before[i]);
                 let judged = grounded && !state.vertical.flying;
-                if let Some((normal, alignment)) = state.wall.observe(dt, expected, actual, judged)
+                if let Some((normal, alignment)) =
+                    state.wall.observe_surface(dt, expected, actual, judged)
                 {
                     if state.model.remove(normal) {
                         state.status.collision_feedback =
@@ -2102,10 +2218,23 @@ unsafe fn prepare(
                     state.vertical.flying,
                     state.vertical.air_jumps,
                 );
-                let vertical =
-                    state
-                        .vertical
-                        .step(dt, current_input.jump, grounded, position[1], gait)?;
+                if let Some(s) = effects
+                    && s.impulse_sequence > state.last_impulse
+                {
+                    state.last_impulse = s.impulse_sequence;
+                    if gait == Gait::Foot {
+                        state.vertical.impulse(s.vertical_impulse, position[1]);
+                    }
+                }
+                let vertical = state.vertical.step_effects(
+                    dt,
+                    current_input.jump,
+                    grounded,
+                    position[1],
+                    gait,
+                    effects.map_or(0., |s| s.jump_bonus),
+                    effects.is_some_and(|s| s.slow_falling) && gait == Gait::Foot,
+                )?;
                 let air_jumped = state.vertical.air_jumps > air_jumps;
                 let jumped = state.vertical.jumps != jumps && !air_jumped;
                 if jumped || air_jumped || was_flying != state.vertical.flying {
@@ -2126,7 +2255,7 @@ unsafe fn prepare(
                     }
                     _ => {}
                 }
-                let model_grounded = horizontal_grounded(grounded, state.vertical.flying, jumped);
+                let model_grounded = state.vertical.horizontal_grounded(grounded, jumped, gait);
                 let desired = state.model.travel(
                     dt,
                     current_input,
@@ -2135,7 +2264,18 @@ unsafe fn prepare(
                     model_grounded,
                     gait,
                 )?;
-                let mut desired = tune_horizontal(desired, state.speed);
+                let mut desired = tune_horizontal(
+                    desired,
+                    state.speed
+                        * if gait == Gait::Foot {
+                            effects.map_or(1., |s| {
+                                s.speed * s.use_speed
+                                    / if current_input.using_item { 0.2 } else { 1. }
+                            })
+                        } else {
+                            1.
+                        },
+                );
                 if desired[0].hypot(desired[2]) > gait.max_step() {
                     return Err("tuned movement exceeded bounded step");
                 }
@@ -2187,13 +2327,19 @@ unsafe fn prepare(
                         state.status.step_hops = state.status.step_hops.saturating_add(1);
                     }
                 }
+                if gait == Gait::Torrent && grounded && !state.vertical.flying {
+                    let normal = &physics.material_info.normal_vector;
+                    if let Some(stride) = surface_stride(desired, [normal.0, normal.1, normal.2]) {
+                        desired = stride;
+                    }
+                }
                 // Native scales the resolved delta by motion_multiplier; expect that much.
                 let scale = if physics.motion_multiplier.is_finite() {
                     physics.motion_multiplier.clamp(0.0, 4.0)
                 } else {
                     1.0
                 };
-                state.last_step = Some((position, [desired[0] * scale, desired[2] * scale]));
+                state.last_step = Some((position, desired.map(|v| v * scale)));
                 (desired, vertical)
             };
             state.was_gliding = glide.is_some();
@@ -2241,7 +2387,13 @@ unsafe fn prepare(
                 q,
                 input.translation,
                 desired,
-                (glide.is_some() || state.vertical.flying).then_some(vertical * dt),
+                if glide.is_some() || state.vertical.flying {
+                    Some(vertical * dt)
+                } else if gait == Gait::Torrent && grounded && desired[1] != 0.0 {
+                    Some(desired[1])
+                } else {
+                    None
+                },
             )?;
             state.status = Status {
                 authorized: true,
@@ -2257,6 +2409,12 @@ unsafe fn prepare(
                 travel_mode: glide.map_or(crate::player_flight::Travel::None, |s| s.travel),
                 capsule_profile: state.capsule.profile(),
                 mounted: gait == Gait::Torrent,
+                mount_sequence: mount.map_or(0, |s| s.sequence),
+                mount_age_ms: mount.map_or(0, |s| timestamp.saturating_sub(s.time_ms)),
+                mount_transitions: state
+                    .status
+                    .mount_transitions
+                    .saturating_add(u64::from(state.status.mounted != (gait == Gait::Torrent))),
                 flight_sequence: glide.map_or(0, |s| s.sequence),
                 glide_observation,
                 vertical_speed_mps: vertical,
@@ -3174,6 +3332,214 @@ mod tests {
         }));
     }
     #[test]
+    fn torrent_surface_strides_keep_heading_and_speed_up_down_and_across_slopes() {
+        for angle in [0.0f32, 15.0, 30.0, 45.0, 59.9] {
+            let angle = angle.to_radians();
+            let normal = [0.0, angle.cos(), -angle.sin()];
+            for heading in [
+                [0.0, 0.0, 0.27],
+                [0.0, 0.0, -0.27],
+                [0.27, 0.0, 0.0],
+                [0.19, 0.0, 0.19],
+            ] {
+                let stride = surface_stride(heading, normal).unwrap();
+                let length = stride.iter().map(|v| v * v).sum::<f32>().sqrt();
+                assert!((length - heading[0].hypot(heading[2])).abs() < 1e-6);
+                assert!(
+                    stride
+                        .iter()
+                        .zip(normal)
+                        .map(|(v, n)| v * n)
+                        .sum::<f32>()
+                        .abs()
+                        < 1e-6
+                );
+                assert!((stride[0] * heading[2] - stride[2] * heading[0]).abs() < 1e-6);
+                assert!(
+                    stride[1] * heading[2] >= 0.0,
+                    "uphill rises, downhill descends"
+                );
+            }
+        }
+        assert_eq!(surface_stride([0.0; 3], [0.0, 1.0, 0.0]), Some([0.0; 3]));
+        for normal in [
+            [0.0; 3],
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.4, 0.9165],
+            [0.0, 2.0, 0.0],
+            [f32::NAN, 1.0, 0.0],
+        ] {
+            assert!(
+                surface_stride([0.0, 0.0, 0.1], normal).is_none(),
+                "invalid or non-floor normal {normal:?}"
+            );
+        }
+        assert!(surface_stride([f32::NAN, 0.0, 0.1], [0.0, 1.0, 0.0]).is_none());
+        assert!(surface_stride([0.0, 0.0, 2.1], [0.0, 1.0, 0.0]).is_none());
+    }
+    #[test]
+    fn torrent_dash_no_longer_loses_momentum_repeatedly_on_a_native_floor_plane() {
+        let run = |fps: u32, degrees: f32, align: bool| {
+            let angle = degrees.to_radians();
+            let normal = [0.0, angle.cos(), -angle.sin()];
+            let dt = 1.0 / fps as f32;
+            let mut model = HorizontalModel::default();
+            let mut wall = WallFeedback::default();
+            let mut previous = None;
+            let mut distance = 0.0;
+            let mut corrections = 0;
+            for frame in 0..fps * 4 {
+                if let Some((expected, actual)) = previous {
+                    let hit = if align {
+                        wall.observe_surface(dt, expected, actual, true)
+                    } else {
+                        wall.observe(dt, [expected[0], expected[2]], [actual[0], actual[2]], true)
+                    };
+                    if let Some((n, _)) = hit {
+                        corrections += u32::from(model.remove(n));
+                    }
+                }
+                let flat = model
+                    .travel(
+                        dt,
+                        Input {
+                            forward: 1.0,
+                            sprint: true,
+                            ..Input::default()
+                        },
+                        FORWARD,
+                        RIGHT,
+                        true,
+                        Gait::Torrent,
+                    )
+                    .unwrap();
+                let expected = if align {
+                    surface_stride(flat, normal).unwrap()
+                } else {
+                    flat
+                };
+                // Native capsule contact projects a stride against the floor.
+                let into = expected.iter().zip(normal).map(|(v, n)| v * n).sum::<f32>();
+                let actual = std::array::from_fn(|i| expected[i] - into * normal[i]);
+                previous = Some((expected, actual));
+                if frame >= fps * 3 {
+                    distance += actual.iter().map(|v| v * v).sum::<f32>().sqrt();
+                }
+            }
+            (distance, corrections)
+        };
+        for fps in [30, 60, 144] {
+            for angle in [-59.9, -45.0, -30.0, 0.0, 30.0, 45.0, 59.9] {
+                let (speed, corrections) = run(fps, angle, true);
+                assert!(
+                    (speed - 16.18943).abs() < 0.01,
+                    "fps={fps}, slope={angle}, speed={speed}"
+                );
+                assert_eq!(corrections, 0, "floor contact must not strip momentum");
+            }
+            let (old_speed, corrections) = run(fps, 59.9, false);
+            assert!(
+                old_speed < 8.0 && corrections > 0,
+                "reproduces the old repeated stall: {old_speed}, {corrections}"
+            );
+        }
+    }
+    #[test]
+    fn surface_feedback_distinguishes_height_progress_from_walls_and_sideways_sliding() {
+        let expected = [0.0, 0.1, 0.1];
+        let mut wall = WallFeedback::default();
+        for _ in 0..30 {
+            assert!(
+                wall.observe_surface(TICK, expected, [0.0, 0.12, 0.04], true)
+                    .is_none(),
+                "progress uphill despite 60% horizontal loss"
+            );
+        }
+        for actual in [
+            [0.0; 3],
+            [0.1, 0.0, 0.0],
+            [0.0, -0.12, 0.04],
+            [0.0, 0.001, 0.0],
+        ] {
+            let mut wall = WallFeedback::default();
+            for _ in 0..2 {
+                assert!(wall.observe_surface(TICK, expected, actual, true).is_none());
+            }
+            let (normal, alignment) = wall
+                .observe_surface(TICK, expected, actual, true)
+                .expect("real obstacle still stops momentum on sloped ground");
+            assert!(normal[1] > 0.7 && alignment > 0.7);
+        }
+        let mut wall = WallFeedback::default();
+        for _ in 0..2 {
+            wall.observe_surface(TICK, expected, [0.0; 3], true);
+        }
+        wall.observe_surface(TICK, expected, [0.0, 0.12, 0.04], true);
+        assert!(
+            wall.observe_surface(TICK, expected, [0.0; 3], true)
+                .is_none(),
+            "slope progress clears the wall streak"
+        );
+    }
+    #[test]
+    fn torrent_contact_flicker_keeps_ground_acceleration_but_ledges_and_jumps_use_air_travel() {
+        for fps in [30, 60, 144] {
+            let dt = 1.0 / fps as f32;
+            let mut vertical = VerticalModel::default();
+            let mut model = HorizontalModel::default();
+            let mut desired = [0.0; 3];
+            for frame in 0..fps * 3 {
+                let grounded = frame % 7 != 3;
+                vertical
+                    .step(dt, false, grounded, 0.0, Gait::Torrent)
+                    .unwrap();
+                assert!(vertical.horizontal_grounded(grounded, false, Gait::Torrent));
+                desired = model
+                    .travel(
+                        dt,
+                        Input {
+                            forward: 1.0,
+                            sprint: true,
+                            ..Input::default()
+                        },
+                        FORWARD,
+                        RIGHT,
+                        vertical.horizontal_grounded(grounded, false, Gait::Torrent),
+                        Gait::Torrent,
+                    )
+                    .unwrap();
+            }
+            assert!((desired[2] / dt - 16.18943).abs() < 0.01);
+            assert!(
+                !vertical.horizontal_grounded(false, false, Gait::Foot),
+                "foot travel is unchanged"
+            );
+            for _ in 0..fps / 5 {
+                vertical
+                    .step(dt, false, false, -0.1, Gait::Torrent)
+                    .unwrap();
+            }
+            assert!(
+                vertical.flying && !vertical.horizontal_grounded(false, false, Gait::Torrent),
+                "a genuine ledge becomes an airborne fall"
+            );
+        }
+        let mut vertical = VerticalModel::default();
+        vertical
+            .step(TICK, false, true, 0.0, Gait::Torrent)
+            .unwrap();
+        assert_eq!(
+            vertical.step(TICK, true, true, 0.0, Gait::Torrent).unwrap(),
+            crate::torrent::JUMP_MPS
+        );
+        assert!(vertical.horizontal_grounded(true, true, Gait::Torrent));
+        assert!(
+            !vertical.horizontal_grounded(true, false, Gait::Torrent),
+            "lingering takeoff contact does not turn a jump into ground travel"
+        );
+    }
+    #[test]
     fn a_full_dash_fits_a_slow_native_step_only_while_mounted() {
         let input = Input {
             forward: 1.0,
@@ -3366,6 +3732,51 @@ mod tests {
         assert!((highest - 1.2522).abs() < 0.01, "apex={highest}");
         assert!(y < 0.0);
         assert_eq!(model.jumps, 1);
+    }
+    #[test]
+    fn leaping_changes_takeoff_slow_falling_changes_descent_and_mace_restarts_air_motion() {
+        let mut ordinary = VerticalModel::default();
+        let mut leaping = VerticalModel::default();
+        ordinary
+            .step_effects(TICK, false, true, 0., Gait::Foot, 0., false)
+            .unwrap();
+        leaping
+            .step_effects(TICK, false, true, 0., Gait::Foot, 4., false)
+            .unwrap();
+        let a = ordinary
+            .step_effects(TICK, true, true, 0., Gait::Foot, 0., false)
+            .unwrap();
+        let b = leaping
+            .step_effects(TICK, true, true, 0., Gait::Foot, 4., false)
+            .unwrap();
+        assert!((a - 8.4).abs() < 1e-5 && (b - 12.4).abs() < 1e-5);
+        let mut fall = VerticalModel {
+            flying: true,
+            left_ground: true,
+            velocity: -2.,
+            ..VerticalModel::default()
+        };
+        let mut slow = fall.clone();
+        let fast = fall
+            .step_effects(TICK, false, false, 10., Gait::Foot, 0., false)
+            .unwrap();
+        let gentle = slow
+            .step_effects(TICK, false, false, 10., Gait::Foot, 0., true)
+            .unwrap();
+        assert!(gentle > fast && gentle < 0.);
+        slow.impulse(24., 9.);
+        assert_eq!(
+            slow.jumps, 0,
+            "a mace rebound does not manufacture a jump press"
+        );
+        assert!(
+            (slow
+                .step_effects(TICK, false, false, 9., Gait::Foot, 0., false)
+                .unwrap()
+                - 24.)
+                .abs()
+                < 1e-5
+        );
     }
     #[test]
     fn step_hop_clears_a_slab_lands_and_never_counts_as_a_jump() {

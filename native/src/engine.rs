@@ -1249,6 +1249,7 @@ impl Host {
         let mut mounted = false;
         if let Some(driver) = self.movement.as_mut() {
             driver.set_fluids(self.shared_world.fluids(now_ms));
+            driver.set_combat(self.shared_world.player_combat(now_ms));
             driver.set_flight(self.shared_world.player_flight(now_ms));
             driver.set_torrent(self.shared_world.player_torrent(now_ms));
             let enabled = movement_wanted && movement_input_ready;
@@ -1496,8 +1497,15 @@ impl Host {
         let gliding = compositor_ready
             && !state.native_ladder
             && (gliding || motion.is_some_and(|s| s.gliding));
-        let protected_travel =
-            motion.is_some_and(|s| s.travel != crate::player_flight::Travel::None);
+        let protected_travel = motion
+            .is_some_and(|s| s.travel != crate::player_flight::Travel::None)
+            || compositor_ready
+                && !state.native_ladder
+                && guest_gui == Some(false)
+                && self
+                    .shared_world
+                    .player_combat(now_ms)
+                    .is_some_and(|s| s.protect_fall);
         unsafe {
             self.glide_safety
                 .tick(gliding, protected_travel, state.grounded, now_ms);

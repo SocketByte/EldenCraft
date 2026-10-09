@@ -7,7 +7,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.EntityRenderers;
 import net.minecraft.client.renderer.entity.NoopRenderer;
 import net.minecraft.core.*;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
@@ -243,8 +242,6 @@ public final class ProxyCombatClient implements ProxyCombatAuthority.Adapter {
   private static boolean melee(ItemStack item) {
     // Vanilla Player.attack also supports fists and ordinary non-weapon held items.
     return !item.isBroken()
-        && !item.has(DataComponents.PIERCING_WEAPON)
-        && !item.has(DataComponents.KINETIC_WEAPON)
         && BuiltInRegistries.ITEM.getKey(item.getItem()).toString().length() <= 40;
   }
 
@@ -287,6 +284,12 @@ public final class ProxyCombatClient implements ProxyCombatAuthority.Adapter {
     // The actual client-selected frame wins; moving the mouse while the packet travels must not
     // re-aim it.
     return intent.selected;
+  }
+
+  @Override
+  public Object beginStab(ServerPlayer player, CombatProxyEntity proxy) {
+    Lease selected = lease;
+    return CampaignWeapons.inComponent(player) && permit(selected, player, proxy) ? selected : null;
   }
 
   public static void rememberAttack(Entity entity) {

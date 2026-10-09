@@ -51,6 +51,7 @@ def conformanceSuites = [
     campaignBridgeConformance: ['dev.eldencraft.bridge.client.CampaignBridgeConformance', 'Check native campaign identity, wallet, vitality and bounded damage observations.'],
     campaignShopConformance: ['dev.eldencraft.bridge.CampaignShopConformance', 'Check configured shops, bounded prices, inventory receipts and transaction recovery.'],
     campaignConformance: ['dev.eldencraft.bridge.CampaignConformance', 'Check shipped campaign JSON, material tiers, unique remembrance progression and authoritative stamina boundaries.'],
+    combatItemsConformance: ['dev.eldencraft.bridge.CombatItemsConformance', 'Check real spear and potion components, effect modifiers, purchase recovery, native fall observations and pinned vanilla combat hooks.'],
     jsonConformance: ['dev.eldencraft.bridge.JsonWireConformance', 'Validate bounded strict JSON for host configuration and shared world messages.'],
     hostStateConformance: ['dev.eldencraft.bridge.client.HostStateConformance', 'Check bounded ECHS host state decoding and stale input rejection.'],
     healthDisplayConformance: ['dev.eldencraft.bridge.HealthDisplayConformance', 'Check scoped health restoration, host loss, genuine packets and player/world replacement.'],
@@ -83,6 +84,7 @@ def conformanceSuites = [
     paintingImageConformance: ['dev.eldencraft.bridge.PaintingImageConformance', 'Check whole painting image orientation, atlas sampling and pinned front-only render hooks.'],
     worldTextCaptureConformance: ['dev.eldencraft.bridge.WorldTextCaptureConformance', 'Check captured-world glyph orientation, vertex winding, formatting and overlay isolation.'],
     sharedLightingConformance: ['dev.eldencraft.bridge.SharedLightingConformance', 'Check actual hidden-terrain skylight and ambient shading against vanilla barrier behavior.'],
+    explosionConformance: ['dev.eldencraft.bridge.ExplosionConformance', 'Check vanilla blast propagation from partial shadow terrain cells and cache preservation.'],
     netherConformance: ['dev.eldencraft.bridge.NetherConformance', 'Check the shared Nether layout rules, ECNH page encoding and the scoped wave admission.'],
     colliderConformance: ['dev.eldencraft.bridge.ColliderConformance', 'Check exact seamless collider merging, nearest-first caps and the motion-aware publication window.']
 ]

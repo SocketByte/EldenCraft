@@ -23,7 +23,10 @@ public final class SharedWorldBlocks {
           new ShadowTerrainBlock(
               BlockBehaviour.Properties.of()
                   .setId(KEY)
-                  .strength(-1, 3_600_000)
+                  // Blast rays sample whole cells, not our partial collision shapes. A primed
+                  // TNT can share a floor cell; blast-proof cache cells stop every ray at its
+                  // origin and prevent chain reactions. onExplosionHit preserves the cache.
+                  .strength(-1, 0)
                   .noLootTable()
                   .noOcclusion()
                   .dynamicShape()

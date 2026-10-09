@@ -13,6 +13,8 @@ public final class CombatProxyEntity extends LivingEntity {
   public long worldHandle, worldGeneration, worldEpoch;
   private ProxyShape hostShape;
   private EntityDimensions hostDimensions;
+  private Vec3 observedSpeed = Vec3.ZERO, previousHostFeet;
+  private long previousHostTick;
 
   public CombatProxyEntity(EntityType<? extends LivingEntity> type, Level level) {
     super(type, level);
@@ -34,6 +36,18 @@ public final class CombatProxyEntity extends LivingEntity {
   }
 
   public void setHostBounds(AABB box) {
+    Vec3 feet = new Vec3((box.minX + box.maxX) * .5, box.minY, (box.minZ + box.maxZ) * .5);
+    long tick = level().getGameTime();
+    if (previousHostFeet == null || tick != previousHostTick) {
+      long elapsed = tick - previousHostTick;
+      var delta = previousHostFeet == null ? Vec3.ZERO : feet.subtract(previousHostFeet);
+      observedSpeed =
+          elapsed > 0 && elapsed <= 5 && delta.lengthSqr() <= 36
+              ? delta.scale(1.0 / elapsed)
+              : Vec3.ZERO;
+      previousHostFeet = feet;
+      previousHostTick = tick;
+    }
     var next = new ProxyShape(box.getXsize(), box.getYsize(), box.getZsize());
     if (!next.equals(hostShape)) {
       hostShape = next;
@@ -44,6 +58,11 @@ public final class CombatProxyEntity extends LivingEntity {
     setPos((box.minX + box.maxX) * .5, box.minY, (box.minZ + box.maxZ) * .5);
     setBoundingBox(
         box); // Preserve a non-square host box rather than expanding its attackable area.
+  }
+
+  @Override
+  public Vec3 getKnownSpeed() {
+    return observedSpeed;
   }
 
   @Override

@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-@Mixin({BowItem.class, CrossbowItem.class, EnderpearlItem.class})
+@Mixin({BowItem.class, CrossbowItem.class, EnderpearlItem.class, ThrowablePotionItem.class})
 abstract class WorldRangedUseMixin {
   @Inject(method = "use", at = @At("HEAD"), cancellable = true)
   private void eldencraft$freshUse(

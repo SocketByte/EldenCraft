@@ -133,7 +133,7 @@ public final class CampaignShopScreen extends Screen {
 
   private int bulkQuantity(CampaignShopCatalog.Offer offer, CampaignShops.View view) {
     return CampaignShopLayout.bulkQuantity(
-        CampaignShops.item(offer.item()).getDefaultInstance().getMaxStackSize(),
+        CampaignItems.stack(offer.item(), 1, offer.potion()).getMaxStackSize(),
         offer.count(),
         view.remaining(offer),
         view.runes(),
@@ -148,7 +148,7 @@ public final class CampaignShopScreen extends Screen {
   private static String name(CampaignShopCatalog.Offer offer) {
     return offer.nativeGoods() && !offer.nativeName().isBlank()
         ? offer.nativeName()
-        : CampaignShops.item(offer.item()).getDefaultInstance().getHoverName().getString();
+        : CampaignItems.stack(offer.item(), 1, offer.potion()).getHoverName().getString();
   }
 
   private String disabledReason(CampaignShopCatalog.Offer offer, CampaignShops.View view) {
@@ -351,7 +351,7 @@ public final class CampaignShopScreen extends Screen {
     var box = layout.details();
     var offer = selectedOffer();
     if (offer == null) return;
-    ItemStack stack = new ItemStack(CampaignShops.item(offer.item()), offer.count());
+    ItemStack stack = CampaignItems.stack(offer.item(), offer.count(), offer.potion());
     text(
         gui,
         name(offer),
@@ -448,6 +448,14 @@ public final class CampaignShopScreen extends Screen {
     lines.add(Component.literal(name(offer)));
     lines.add(
         Component.literal(number(offer.price()) + " runes for " + offer.count() + " item(s)"));
+    if (!offer.potion().isEmpty()) {
+      var stack = CampaignItems.stack(offer.item(), 1, offer.potion());
+      var contents = stack.get(net.minecraft.core.component.DataComponents.POTION_CONTENTS);
+      float scale =
+          stack.getOrDefault(net.minecraft.core.component.DataComponents.POTION_DURATION_SCALE, 1f);
+      net.minecraft.world.item.alchemy.PotionContents.addPotionTooltip(
+          contents.getAllEffects(), lines::add, scale, 20);
+    }
     int stock = view == null ? offer.stock() : view.remaining(offer);
     lines.add(Component.literal("Stock: " + (stock < 0 ? "unlimited" : stock)));
     var weapon = CampaignConfig.current().weapons.get(offer.item());
@@ -514,7 +522,7 @@ public final class CampaignShopScreen extends Screen {
           chosen ? SELECTED : hover ? 0xff2c3530 : CARD,
           chosen || hover ? BORDER : 0xff303933);
       if (chosen) gui.fill(getX() + 1, getY() + 1, getX() + 3, getBottom() - 1, GOLD);
-      ItemStack stack = new ItemStack(CampaignShops.item(offer.item()), offer.count());
+      ItemStack stack = CampaignItems.stack(offer.item(), offer.count(), offer.potion());
       var icon = layout.offerIcon(row);
       gui.item(stack, icon.x(), icon.y());
       gui.itemDecorations(font, stack, icon.x(), icon.y());

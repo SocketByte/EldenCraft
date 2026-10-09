@@ -12,7 +12,6 @@ import net.minecraft.client.renderer.ProjectionMatrixBuffer;
 import net.minecraft.client.renderer.SubmitNodeStorage;
 import net.minecraft.client.renderer.feature.FeatureRenderDispatcher;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.*;
 import net.minecraft.world.phys.shapes.Shapes;
@@ -79,9 +78,7 @@ public final class ProxyDebugRenderer {
             && client.player.isAlive()
             && !client.player.isSpectator()
             && client.gui.screen() == null
-            && !item.isBroken()
-            && !item.has(DataComponents.PIERCING_WEAPON)
-            && !item.has(DataComponents.KINETIC_WEAPON);
+            && !item.isBroken();
     for (var target : frame.targets()) {
       var min = target.min();
       var max = target.max();

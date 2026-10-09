@@ -121,12 +121,16 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
                   CampaignCombat.stamina(player),
                   player.isUsingItem(),
                   player.getAbsorptionAmount(),
-                  CampaignTotem.held(player));
+                  CampaignTotem.held(player),
+                  CampaignPotions.resistance(player));
           }
         });
     ServerLifecycleEvents.SERVER_STOPPED.register(
         server -> {
           WorldProjectiles.clear();
+          CampaignMotion.clear();
+          CampaignWeapons.clear();
+          WorldPotions.clear();
           WorldFlight.serverStopped(server);
           WorldTorrent.serverStopping(server);
           INSTANCE.terrainLighting.clear();
@@ -430,11 +434,13 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
       if (!matches) json.addProperty("ack_incoming", 0);
       boolean kinematics = valid && kinematicsActive();
       json.addProperty("kinematics_active", kinematics);
+      if (!kinematics) json.remove("combat");
       if (kinematics) json.addProperty("player_uuid", client.player.getUUID().toString());
       var flight = kinematics ? WorldFlight.snapshot(reference, EVENTS.session()) : null;
       if (flight != null) json.add("flight", flight);
       var torrent = kinematics ? WorldTorrent.snapshot(reference, EVENTS.session()) : null;
       if (torrent != null) json.add("torrent", torrent);
+      else json.remove("torrent");
       // The native camera turns and bobs with the player's own Minecraft options.
       var options = client.options;
       var view = new JsonObject();
@@ -580,6 +586,7 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
       player.noPhysics = true;
       player.setPos(at.x(), at.y(), at.z());
       player.setOnGround(l.host.grounded());
+      CampaignMotion.observe(player, l.host);
       player.fallDistance = 0;
       player.setHealth(
           Math.max(
@@ -1051,11 +1058,14 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
     for (var proxy : proxies.values()) {
       if (!owns(proxy) || !proxy.isAlive() || proxy.level() != level) continue;
       String medium = proxy.fluidContact();
-      if (medium.equals("none")) continue;
+      double speed = CampaignPotions.speed(proxy), attack = CampaignPotions.attackBonus(proxy);
+      if (medium.equals("none") && speed == 1 && attack == 0) continue;
       var contact = new JsonObject();
       contact.addProperty("id", proxy.worldHandle);
       contact.addProperty("generation", proxy.worldGeneration);
       contact.addProperty("medium", medium);
+      contact.addProperty("speed_scale", speed);
+      contact.addProperty("attack_bonus", attack);
       contact.addProperty("time_ms", l.clock + (System.nanoTime() - l.readNanos) / 1_000_000);
       contact.addProperty("observed_frame", l.host.frame());
       contact.add(
@@ -1064,6 +1074,9 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
     }
     json.add("fluids", fluids);
     json.add("projectiles", WorldProjectiles.snapshot(player));
+    long timestamp = l.clock + (System.nanoTime() - l.readNanos) / 1_000_000;
+    var combat = CampaignMotion.snapshot(player, l.host, timestamp);
+    if (combat != null) json.add("combat", combat);
     return json;
   }
 
@@ -1185,6 +1198,13 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
         0,
         target.getMaxHealth(),
         null);
+  }
+
+  @Override
+  public Object potionCloud(ServerLevel level, LivingEntity target, DamageSource source) {
+    return WorldPotions.permits(target, source)
+        ? environment(level, target, level.damageSources().magic())
+        : null;
   }
 
   @Override

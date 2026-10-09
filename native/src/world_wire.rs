@@ -88,6 +88,8 @@ pub struct Guest {
     pub torrent: Option<crate::torrent::Sample>,
     #[serde(default)]
     pub kinematics_active: bool,
+    #[serde(default)]
+    pub combat: Option<crate::combat_effects::Sample>,
     /// The player's actual Minecraft options, so the native camera matches them.
     #[serde(default)]
     pub view: Option<ViewSettings>,
@@ -178,6 +180,11 @@ impl Guest {
             || self.torrent.is_some() && self.player_uuid.is_none()
         {
             return Err("world Torrent sample invalid");
+        }
+        if self.combat.is_some_and(|s| !s.valid())
+            || self.combat.is_some() && (!self.kinematics_active || self.player_uuid.is_none())
+        {
+            return Err("world combat effects invalid");
         }
         if self.view.is_some_and(|v| {
             !v.mouse_sensitivity.is_finite()
@@ -375,6 +382,8 @@ mod tests {
             id: 10,
             generation: 2,
             medium: crate::world_fluids::Medium::Water,
+            speed_scale: 1.,
+            attack_bonus: 0.,
             position: [0.; 3],
             time_ms: 1000,
             observed_frame: 1,

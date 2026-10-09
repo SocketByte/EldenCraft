@@ -13,6 +13,15 @@ public final class TorrentConformance {
   }
 
   public static void main(String[] args) {
+    check(TorrentPolicy.fresh(1000, 1000), "new mount observation is fresh");
+    check(
+        TorrentPolicy.fresh(1000, 1000 + TorrentPolicy.FRESH_NANOS),
+        "a missed tick retains the original lease");
+    check(
+        !TorrentPolicy.fresh(1000, 1001 + TorrentPolicy.FRESH_NANOS),
+        "mount observation expires without renewal");
+    check(!TorrentPolicy.fresh(1001, 1000), "future mount timestamp rejected");
+    check(!TorrentPolicy.fresh(0, 1000), "missing timestamp rejected");
     // Native BlockIds observed in host logs: area is the high byte.
     check(TorrentPolicy.allowedArea(0x3c2a2400L), "Limgrave overworld admits the whistle");
     check(TorrentPolicy.allowedArea(0x3d000000L), "Realm of Shadow overworld admits it");

@@ -226,6 +226,7 @@ pub struct Driver {
     flight_context: Option<flight::Context>,
     player_flight: crate::player_flight::Latest,
     player_torrent: crate::torrent::Latest,
+    player_combat: crate::combat_effects::Latest,
     fluids: Vec<crate::world_fluids::Owned>,
     view: Option<(wire::ViewSettings, u64)>,
 }
@@ -272,9 +273,13 @@ impl Driver {
             flight_context: None,
             player_flight: crate::player_flight::Latest::default(),
             player_torrent: crate::torrent::Latest::default(),
+            player_combat: crate::combat_effects::Latest::default(),
             fluids: Vec::new(),
             view: None,
         }
+    }
+    pub fn player_combat(&self, now: u64) -> Option<crate::combat_effects::Sample> {
+        self.player_combat.get(now)
     }
     pub fn player_flight(&self, now: u64) -> Option<crate::player_flight::Sample> {
         self.player_flight.get(now)
@@ -341,6 +346,7 @@ impl Driver {
         self.flight_context = None;
         self.player_flight.reset();
         self.player_torrent.reset();
+        self.player_combat.reset();
         self.fluids.clear();
     }
     fn fail(&mut self, error: &'static str) {
@@ -389,6 +395,7 @@ impl Driver {
             self.flight_context = None;
             self.player_flight.reset();
             self.player_torrent.reset();
+            self.player_combat.reset();
             self.fluids.clear();
             self.events.push_back(format!(
                 "Shared world epoch={} region={} source_map={} mode={:?}",
@@ -439,6 +446,15 @@ impl Driver {
                 };
                 self.player_flight
                     .observe(context, guest.flight, now, observed);
+                let observed = guest.combat.is_some_and(|s| {
+                    self.history.iter().any(|h| {
+                        h.frame == s.observed_frame
+                            && h.time <= now
+                            && now - h.time <= crate::combat_effects::FRESH_MS
+                    })
+                });
+                self.player_combat
+                    .observe(context, guest.combat, now, observed);
                 // The same recent-native-frame witness as the glide: a guest
                 // that stopped reading the host cannot keep a mount alive.
                 let observed = guest.torrent.is_some_and(|s| {
@@ -453,6 +469,7 @@ impl Driver {
             } else {
                 self.player_flight.revoke();
                 self.player_torrent.revoke();
+                self.player_combat.revoke();
             }
             if envelope.active && matching {
                 let context = flight::Context {
@@ -1158,6 +1175,14 @@ impl Driver {
         let reach = match e.kind.as_str() {
             "explosion" => f64::from(e.radius) * 2. + 1.,
             "mob_melee" => 6.,
+            "projectile"
+                if matches!(
+                    e.projectile_kind.as_str(),
+                    "minecraft:splash_potion" | "minecraft:lingering_potion"
+                ) =>
+            {
+                5.
+            }
             "projectile" => 3.,
             _ => return Err("world damage kind unsupported"),
         };

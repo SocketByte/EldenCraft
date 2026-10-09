@@ -203,7 +203,8 @@ public final class CampaignShops {
           status = "Not enough runes or stock.";
           continue;
         }
-        if (!offer.nativeGoods() && !fits(player, item, count)) {
+        if (!offer.nativeGoods()
+            && !fits(player, CampaignItems.stack(offer.item(), 1, offer.potion()), count)) {
           status = "Make room in your inventory first.";
           continue;
         }
@@ -219,7 +220,8 @@ public final class CampaignShops {
                 request.quantity(),
                 amount,
                 CampaignShopLedger.Stage.INTENT,
-                offer.nativeItemLot()));
+                offer.nativeItemLot(),
+                offer.potion()));
         status = "Saving rune purchase...";
         nextSend = 0;
         recover(player, s);
@@ -300,7 +302,8 @@ public final class CampaignShops {
         Item item = item(p.item());
         int count = p.count() * p.quantity();
         if (item == Items.AIR) throw new IOException("Purchased item is unavailable");
-        if (!fits(player, item, count)) {
+        var sample = CampaignItems.stack(p.item(), 1, p.potion());
+        if (!fits(player, sample, count)) {
           status = "Purchase paid. Make room in your inventory to receive it.";
           return;
         }
@@ -310,7 +313,7 @@ public final class CampaignShops {
         int left = count;
         while (left > 0) {
           ItemStack stack =
-              new ItemStack(item, Math.min(left, item.getDefaultInstance().getMaxStackSize()));
+              CampaignItems.stack(p.item(), Math.min(left, sample.getMaxStackSize()), p.potion());
           CampaignCombat.tune(stack);
           int delivered = stack.getCount();
           if (!inventory.add(stack) || !stack.isEmpty()) {
@@ -339,7 +342,10 @@ public final class CampaignShops {
   }
 
   static boolean fits(ServerPlayer player, Item item, int count) {
-    ItemStack sample = item.getDefaultInstance();
+    return fits(player, item.getDefaultInstance(), count);
+  }
+
+  static boolean fits(ServerPlayer player, ItemStack sample, int count) {
     CampaignCombat.tune(sample);
     int capacity = 0;
     for (ItemStack stack : player.getInventory().getNonEquipmentItems()) {

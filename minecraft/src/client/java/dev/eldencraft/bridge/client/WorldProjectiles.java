@@ -15,6 +15,7 @@ import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.projectile.arrow.AbstractArrow;
+import net.minecraft.world.entity.projectile.throwableitemprojectile.AbstractThrownPotion;
 import net.minecraft.world.entity.projectile.throwableitemprojectile.ThrownEnderpearl;
 import net.minecraft.world.item.*;
 import net.minecraft.world.phys.*;
@@ -126,6 +127,7 @@ public final class WorldProjectiles {
     // Same interaction convention as the actual client camera, including front view.
     // The item still computes its own vanilla spread, multishot and launch velocity.
     player.setYRot(input.yaw());
+    player.setYHeadRot(input.yaw());
     player.setXRot(input.pitch());
     return true;
   }
@@ -173,7 +175,11 @@ public final class WorldProjectiles {
   }
 
   public static boolean ranged(ItemStack item) {
-    return item.is(Items.BOW) || item.is(Items.CROSSBOW) || item.is(Items.ENDER_PEARL);
+    return item.is(Items.BOW)
+        || item.is(Items.CROSSBOW)
+        || item.is(Items.ENDER_PEARL)
+        || item.is(Items.SPLASH_POTION)
+        || item.is(Items.LINGERING_POTION);
   }
 
   public static void launched(Projectile projectile, ServerLevel level, ItemStack source) {
@@ -184,8 +190,11 @@ public final class WorldProjectiles {
             && a.getWeaponItem() != null
             && (a.getWeaponItem().is(Items.BOW) || a.getWeaponItem().is(Items.CROSSBOW));
     boolean pearl = projectile instanceof ThrownEnderpearl && source.is(Items.ENDER_PEARL);
+    boolean potion =
+        projectile instanceof AbstractThrownPotion
+            && (source.is(Items.SPLASH_POTION) || source.is(Items.LINGERING_POTION));
     var c = SharedWorldClient.projectileContext(player);
-    if ((!arrow && !pearl)
+    if ((!arrow && !pearl && !potion)
         || c == null
         || !permitItem(player)
         || level.getEntity(projectile.getUUID()) != projectile) return;

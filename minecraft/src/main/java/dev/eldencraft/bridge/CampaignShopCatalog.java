@@ -15,7 +15,21 @@ public final class CampaignShopCatalog {
       Set<String> unlockAny,
       Set<String> unlockAll,
       int nativeItemLot,
-      String nativeName) {
+      String nativeName,
+      String potion) {
+    public Offer(
+        String id,
+        String item,
+        int count,
+        long price,
+        int stock,
+        Set<String> unlockAny,
+        Set<String> unlockAll,
+        int nativeItemLot,
+        String nativeName) {
+      this(id, item, count, price, stock, unlockAny, unlockAll, nativeItemLot, nativeName, "");
+    }
+
     public boolean nativeGoods() {
       return nativeItemLot > 0;
     }
@@ -72,6 +86,8 @@ public final class CampaignShopCatalog {
         String item = JsonWire.string(offer.get("item"));
         if (!item.matches("minecraft:[a-z0-9_./-]+"))
           throw new IOException("Shop items must be vanilla Minecraft identifiers");
+        if (offer.has("potion") && offer.has("native_item_lot"))
+          throw new IOException("Native goods cannot have Minecraft potion contents");
         parsed.add(
             new Offer(
                 offerId,
@@ -84,7 +100,8 @@ public final class CampaignShopCatalog {
                 offer.has("native_item_lot")
                     ? number(offer, "native_item_lot", -1, 1, Integer.MAX_VALUE)
                     : -1,
-                text(offer, "native_name", "")));
+                text(offer, "native_name", ""),
+                CampaignItems.potion(offer, item)));
       }
       shops.add(new Shop(id, title, merchants, List.copyOf(parsed)));
     }

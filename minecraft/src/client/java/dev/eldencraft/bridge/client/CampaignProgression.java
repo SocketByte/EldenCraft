@@ -173,7 +173,7 @@ public final class CampaignProgression {
         LOG.error("Campaign reward {} has unknown item {}", id, reward.item());
         return false;
       }
-      stacks.add(new ItemStack(item, reward.count()));
+      stacks.add(CampaignItems.stack(reward.item(), reward.count(), reward.potion()));
     }
     if (!fits(player, stacks)) {
       notice(player, "Boss rewards are waiting. Make room in your inventory to receive them.");
@@ -257,7 +257,7 @@ public final class CampaignProgression {
     }
     // The cursor and the items share the next world save. Recovery after a crash before that
     // save sees the same kills and seeds again, so it delivers identical drops exactly once.
-    var looted = new LinkedHashMap<Item, Integer>();
+    var looted = new LinkedHashMap<CampaignConfig.Reward, Integer>();
     var origin = table.dropOnFloor() ? SharedWorldClient.serverOrigin() : null;
     var area = SharedWorldClient.coverage();
     for (var kill : update.kills()) {
@@ -272,7 +272,7 @@ public final class CampaignProgression {
           LOG.error("Campaign enemy loot has unknown item {}", drop.item());
           continue;
         }
-        var stack = new ItemStack(item, drop.count());
+        var stack = CampaignItems.stack(drop.item(), drop.count(), drop.potion());
         CampaignCombat.tune(stack);
         if (floor != null) {
           // Like a vanilla mob drop: a small random toss and the default pickup delay.
@@ -281,7 +281,8 @@ public final class CampaignProgression {
           player.level().addFreshEntity(entity);
           continue;
         }
-        looted.merge(item, drop.count(), Integer::sum);
+        looted.merge(
+            new CampaignConfig.Reward(drop.item(), 1, drop.potion()), drop.count(), Integer::sum);
         deliver(player, stack);
       }
     }
@@ -290,7 +291,8 @@ public final class CampaignProgression {
       boolean first = true;
       for (var row : looted.entrySet()) {
         if (!first) message.append(", ");
-        message.append(new ItemStack(row.getKey()).getHoverName());
+        message.append(
+            CampaignItems.stack(row.getKey().item(), 1, row.getKey().potion()).getHoverName());
         if (row.getValue() > 1) message.append(" x" + row.getValue());
         first = false;
       }

@@ -28,10 +28,7 @@ public final class CombatPublisher {
   }
 
   private static boolean melee(ItemStack item) {
-    return usable(item)
-        && item.has(DataComponents.WEAPON)
-        && !item.has(DataComponents.PIERCING_WEAPON)
-        && !item.has(DataComponents.KINETIC_WEAPON);
+    return usable(item) && item.has(DataComponents.WEAPON);
   }
 
   private static boolean refresh(Minecraft client) {

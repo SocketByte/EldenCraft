@@ -196,6 +196,8 @@ pub struct CombatState {
     pub timestamp_ms: u64,
     /// Sum of equipped Minecraft armor's damage-reduction percentage points.
     pub armor: f64,
+    #[serde(default = "full_resistance")]
+    pub resistance: f64,
     /// Retained for compatibility; does not modify percentage mitigation.
     pub toughness: f64,
     pub guest_max_hp: f64,
@@ -220,6 +222,9 @@ pub struct CombatState {
     pub boss_hud_ids: Vec<String>,
     #[serde(default)]
     pub boss_hud_timestamp_ms: u64,
+}
+fn full_resistance() -> f64 {
+    1.
 }
 /// Bounded read-only observation for shield contact diagnostics.
 pub fn combat_observation() -> Option<CombatState> {
@@ -296,6 +301,8 @@ fn fresh_combat() -> Option<(&'static Arc<Config>, CombatState)> {
     if state.version != 1
         || now < state.timestamp_ms
         || now - state.timestamp_ms > 250
+        || !state.resistance.is_finite()
+        || !(0. ..=1.).contains(&state.resistance)
         || !state.armor.is_finite()
         || !state.toughness.is_finite()
         || !(0. ..=100.).contains(&state.armor)
@@ -310,14 +317,29 @@ fn fresh_combat() -> Option<(&'static Arc<Config>, CombatState)> {
 }
 /// The fixed conversion prevents Vigor growth from reducing stamina pressure.
 /// `hp`/`max_hp` are the player's native health before this hit.
+#[cfg(test)]
 pub fn filter_damage(damage: i32, frontal_block: bool, hp: i32, max_hp: i32) -> Option<i32> {
+    filter_damage_from(damage, frontal_block, hp, max_hp, 0.)
+}
+pub fn filter_damage_from(
+    damage: i32,
+    frontal_block: bool,
+    hp: i32,
+    max_hp: i32,
+    attack_bonus: f64,
+) -> Option<i32> {
     // A transient publication must not turn a raised shield into an open hit.
     let (cfg, state) = fresh_combat()?;
     if damage <= 0 {
         return None;
     }
-    let raw =
-        damage as f64 * cfg.combat.native_incoming_damage_scale / cfg.native_hp_per_minecraft_hp();
+    let raw = modified_attack_damage(
+        damage as f64 * cfg.combat.native_incoming_damage_scale / cfg.native_hp_per_minecraft_hp(),
+        attack_bonus,
+    );
+    if raw == 0. {
+        return Some(0);
+    }
     if frontal_block
         && state.shield_ready
         && state.using_item
@@ -352,6 +374,9 @@ pub fn filter_damage(damage: i32, frontal_block: bool, hp: i32, max_hp: i32) -> 
     }
     Some(resolve_open(raw, &state, cfg, hp, max_hp))
 }
+fn modified_attack_damage(raw: f64, bonus: f64) -> f64 {
+    (raw + bonus.clamp(-20., 15.)).max(0.)
+}
 /// Applies and records an open hit against Minecraft's current absorption and
 /// totems, less what earlier hits Minecraft has not applied yet already spent.
 fn resolve_open(raw: f64, state: &CombatState, cfg: &Config, hp: i32, max_hp: i32) -> i32 {
@@ -362,7 +387,7 @@ fn resolve_open(raw: f64, state: &CombatState, cfg: &Config, hp: i32, max_hp: i3
         0.
     };
     let hit = open_hit(
-        damage_after_armor(raw, state.armor),
+        damage_after_armor(raw, state.armor) * state.resistance,
         absorption - spent_absorption,
         u64::from(state.totems.min(2)) > spent_totems,
         cfg.native_hp_per_minecraft_hp(),
@@ -668,7 +693,7 @@ mod armor_damage_tests {
         .unwrap();
         let open_damage = |raw: f64, state: &CombatState, cfg: &Config| {
             open_hit(
-                damage_after_armor(raw, state.armor),
+                damage_after_armor(raw, state.armor) * state.resistance,
                 0.,
                 false,
                 cfg.native_hp_per_minecraft_hp(),
@@ -701,6 +726,27 @@ mod armor_damage_tests {
             (0., 60),
             "absorption already spent by unapplied hits is not reused"
         );
+    }
+    #[test]
+    fn resistance_reduces_the_open_hit_before_absorption_and_keeps_old_guests_neutral() {
+        let state: CombatState = serde_json::from_value(serde_json::json!({
+            "version":1,"session":1,"character":"paired","timestamp_ms":1000,
+            "armor":20.,"toughness":0.,"guest_max_hp":40.,"shield_ready":false,"stamina":50.,"using_item":false
+        })).unwrap();
+        assert_eq!(state.resistance, 1.);
+        let raw = damage_after_armor(20., state.armor) * 0.4;
+        let hit = open_hit(raw, 4., false, 20., 1000, 20);
+        assert_eq!(hit.absorbed, 4.);
+        assert_eq!(hit.damage, 48, "armor, Resistance III, then absorption");
+        assert_eq!(open_hit(0., 4., false, 20., 1000, 20).damage, 0);
+    }
+    #[test]
+    fn weakness_can_cancel_an_attack_and_strength_is_applied_before_mitigation() {
+        assert_eq!(modified_attack_damage(3., -4.), 0.);
+        assert_eq!(modified_attack_damage(8., -4.), 4.);
+        assert_eq!(modified_attack_damage(8., 6.), 14.);
+        let mitigated = damage_after_armor(modified_attack_damage(8., 6.), 20.) * 0.4;
+        assert!((mitigated - 4.48).abs() < 1e-6);
     }
 
     #[test]
@@ -770,6 +816,7 @@ mod combat_contention_tests {
             character: "guard-contention-test".into(),
             timestamp_ms: epoch(),
             armor: 0.,
+            resistance: 1.,
             toughness: 0.,
             guest_max_hp: 20.,
             shield_ready: true,

@@ -17,7 +17,23 @@ public final class CampaignLoot {
   private static final List<String> DIAMOND_TIER = List.of("morgott", "maliketh");
 
   public record Entry(
-      String item, int min, int max, double weight, Set<String> unlockAny, Set<String> unlockAll) {
+      String item,
+      int min,
+      int max,
+      double weight,
+      Set<String> unlockAny,
+      Set<String> unlockAll,
+      String potion) {
+    public Entry(
+        String item,
+        int min,
+        int max,
+        double weight,
+        Set<String> unlockAny,
+        Set<String> unlockAll) {
+      this(item, min, max, weight, unlockAny, unlockAll, "");
+    }
+
     public Entry {
       unlockAny = Set.copyOf(unlockAny);
       unlockAll = Set.copyOf(unlockAll);
@@ -64,7 +80,7 @@ public final class CampaignLoot {
           pick -= entry.weight();
         }
         int count = chosen.min() + random.nextInt(chosen.max() - chosen.min() + 1);
-        drops.add(new CampaignConfig.Reward(chosen.item(), count));
+        drops.add(new CampaignConfig.Reward(chosen.item(), count, chosen.potion()));
       }
       return List.copyOf(drops);
     }
@@ -99,21 +115,188 @@ public final class CampaignLoot {
         3,
         true,
         List.of(
-            entry("minecraft:bread", 1, 2, 18),
-            entry("minecraft:apple", 1, 2, 10),
-            entry("minecraft:baked_potato", 1, 2, 6),
-            entry("minecraft:rotten_flesh", 1, 3, 14),
-            entry("minecraft:bone", 1, 2, 10),
-            entry("minecraft:string", 1, 2, 8),
-            entry("minecraft:stick", 1, 3, 8),
-            entry("minecraft:feather", 1, 2, 7),
-            entry("minecraft:flint", 1, 1, 6),
-            entry("minecraft:arrow", 2, 4, 8),
-            entry("minecraft:leather", 1, 1, 4),
-            entry("minecraft:golden_apple", 1, 1, 4),
-            entry("minecraft:enchanted_golden_apple", 1, 1, 1),
-            new Entry("minecraft:cooked_beef", 1, 2, 14, Set.copyOf(IRON_TIER), Set.of()),
-            new Entry("minecraft:golden_carrot", 1, 2, 8, Set.copyOf(DIAMOND_TIER), Set.of())));
+            new Entry("minecraft:bread", 1, 2, 18, Set.of(), Set.of(), ""),
+            new Entry("minecraft:apple", 1, 2, 10, Set.of(), Set.of(), ""),
+            new Entry("minecraft:baked_potato", 1, 2, 6, Set.of(), Set.of(), ""),
+            new Entry("minecraft:rotten_flesh", 1, 3, 14, Set.of(), Set.of(), ""),
+            new Entry("minecraft:bone", 1, 2, 10, Set.of(), Set.of(), ""),
+            new Entry("minecraft:string", 1, 2, 8, Set.of(), Set.of(), ""),
+            new Entry("minecraft:stick", 1, 3, 8, Set.of(), Set.of(), ""),
+            new Entry("minecraft:feather", 1, 2, 7, Set.of(), Set.of(), ""),
+            new Entry("minecraft:flint", 1, 1, 6, Set.of(), Set.of(), ""),
+            new Entry("minecraft:arrow", 2, 4, 8, Set.of(), Set.of(), ""),
+            new Entry("minecraft:leather", 1, 1, 4, Set.of(), Set.of(), ""),
+            new Entry("minecraft:golden_apple", 1, 1, 4, Set.of(), Set.of(), ""),
+            new Entry("minecraft:enchanted_golden_apple", 1, 1, 1, Set.of(), Set.of(), ""),
+            new Entry(
+                "minecraft:cooked_beef",
+                1,
+                2,
+                14,
+                Set.of("rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                ""),
+            new Entry(
+                "minecraft:golden_carrot", 1, 2, 8, Set.of("morgott", "maliketh"), Set.of(), ""),
+            new Entry("minecraft:wooden_spear", 1, 1, 1, Set.of(), Set.of(), ""),
+            new Entry(
+                "minecraft:stone_spear",
+                1,
+                1,
+                1,
+                Set.of("margit", "godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                ""),
+            new Entry(
+                "minecraft:copper_spear",
+                1,
+                1,
+                1,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                ""),
+            new Entry(
+                "minecraft:golden_spear",
+                1,
+                1,
+                0.5,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                ""),
+            new Entry(
+                "minecraft:iron_spear",
+                1,
+                1,
+                0.5,
+                Set.of("rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                ""),
+            new Entry(
+                "minecraft:diamond_spear", 1, 1, 0.5, Set.of("morgott", "maliketh"), Set.of(), ""),
+            new Entry("minecraft:netherite_spear", 1, 1, 0.5, Set.of("maliketh"), Set.of(), ""),
+            new Entry(
+                "minecraft:mace",
+                1,
+                1,
+                0.25,
+                Set.of("radahn", "morgott", "maliketh"),
+                Set.of(),
+                ""),
+            new Entry("minecraft:potion", 1, 1, 5, Set.of(), Set.of(), "minecraft:healing"),
+            new Entry("minecraft:potion", 1, 1, 2, Set.of(), Set.of(), "minecraft:swiftness"),
+            new Entry(
+                "minecraft:potion",
+                1,
+                1,
+                3,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:regeneration"),
+            new Entry(
+                "minecraft:potion",
+                1,
+                1,
+                2,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:fire_resistance"),
+            new Entry(
+                "minecraft:potion",
+                1,
+                1,
+                2,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:slow_falling"),
+            new Entry("minecraft:potion", 1, 1, 2, Set.of(), Set.of(), "minecraft:leaping"),
+            new Entry(
+                "minecraft:potion",
+                1,
+                1,
+                2,
+                Set.of("rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:strong_healing"),
+            new Entry(
+                "minecraft:potion",
+                1,
+                1,
+                2,
+                Set.of("rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:strength"),
+            new Entry(
+                "minecraft:potion",
+                1,
+                1,
+                1,
+                Set.of("rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:turtle_master"),
+            new Entry(
+                "minecraft:splash_potion",
+                1,
+                1,
+                1,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:poison"),
+            new Entry(
+                "minecraft:splash_potion",
+                1,
+                1,
+                1,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:weakness"),
+            new Entry(
+                "minecraft:splash_potion",
+                1,
+                1,
+                1,
+                Set.of("godrick", "rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:slowness"),
+            new Entry(
+                "minecraft:splash_potion",
+                1,
+                1,
+                1,
+                Set.of("rennala", "radahn", "morgott", "maliketh"),
+                Set.of(),
+                "minecraft:harming"),
+            new Entry(
+                "minecraft:lingering_potion",
+                1,
+                1,
+                1,
+                Set.of("morgott", "maliketh"),
+                Set.of(),
+                "minecraft:poison"),
+            new Entry(
+                "minecraft:lingering_potion",
+                1,
+                1,
+                1,
+                Set.of("morgott", "maliketh"),
+                Set.of(),
+                "minecraft:weakness"),
+            new Entry(
+                "minecraft:lingering_potion",
+                1,
+                1,
+                1,
+                Set.of("morgott", "maliketh"),
+                Set.of(),
+                "minecraft:slowness"),
+            new Entry(
+                "minecraft:lingering_potion",
+                1,
+                1,
+                1,
+                Set.of("morgott", "maliketh"),
+                Set.of(),
+                "minecraft:harming")));
   }
 
   private static Entry entry(String item, int min, int max, double weight) {
@@ -164,7 +347,15 @@ public final class CampaignLoot {
         int max = (int) JsonWire.integer(e.get("max"), min, 64);
         var any = bosses(e, "unlock_any", bossIds);
         var all = bosses(e, "unlock_all", bossIds);
-        parsed.add(new Entry(item, min, max, number(e, "weight", 0, 1_000_000), any, all));
+        parsed.add(
+            new Entry(
+                item,
+                min,
+                max,
+                number(e, "weight", 0, 1_000_000),
+                any,
+                all,
+                CampaignItems.potion(e, item)));
       }
       entries = parsed;
     }

@@ -26,20 +26,25 @@ Keep the Minecraft world, EldenCraft native save, campaign configuration and tra
 
 Start a new campaign with a fresh native character and Minecraft world. Existing sandbox inventories are preserved, and already completed bosses qualify for their configured rewards and capacities. Updating the mod does not turn an advanced sandbox save into an opening wooden-equipment playthrough.
 
-Invalid configuration is rejected. Keep the JSON below 128 KiB, use vanilla `minecraft:` item identifiers and give every boss and shop offer a unique ID. The number of remembrance entries must equal `progression.shares`. Configuration is loaded at startup; editing a running session does not change half of a purchase or combat exchange.
+Invalid configuration is rejected. Keep the JSON below 256 KiB, use vanilla `minecraft:` item identifiers and give every boss and shop offer a unique ID. The number of remembrance entries must equal `progression.shares`. Configuration is loaded at startup; editing a running session does not change half of a purchase or combat exchange.
 
 ## Balance
 
 `weapons` maps item IDs to fully charged base damage and attack speed. Damage includes the player's base attack point. These become Minecraft item attributes before ordinary attack cooldown and critical-hit calculations. Wooden swords, axes and spears, and shields, are unbreakable while the campaign is enabled. Other equipment retains vanilla durability.
 
-| Material | Sword damage | Axe damage | Sword speed | Axe speed |
-| --- | ---: | ---: | ---: | ---: |
-| Wood | 4 | 7 | 1.6 | 0.8 |
-| Stone | 5 | 8 | 1.6 | 0.8 |
-| Copper | 6 | 10 | 1.6 | 0.8 |
-| Iron | 9 | 15 | 1.6 | 0.9 |
-| Diamond | 13 | 21 | 1.6 | 1.0 |
-| Netherite | 18 | 29 | 1.6 | 1.0 |
+| Material | Sword damage | Axe damage | Spear damage | Sword speed | Axe speed | Spear speed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Wood | 4 | 6 | 5 | 1.6 | 0.8 | 1.0 |
+| Stone | 5 | 8 | 6 | 1.6 | 0.8 | 1.0 |
+| Copper | 6 | 10 | 7 | 1.6 | 0.8 | 1.0 |
+| Gold | vanilla | vanilla | 8 | vanilla | vanilla | 1.0 |
+| Iron | 9 | 15 | 10 | 1.6 | 0.9 | 1.0 |
+| Diamond | 13 | 21 | 14 | 1.6 | 1.0 | 1.0 |
+| Netherite | 18 | 29 | 19 | 1.6 | 1.0 | 1.0 |
+
+Spears retain vanilla's jab, piercing targets, minimum/maximum reach, charging delay, relative-speed damage, enchantments and durability. A jab costs 18 stamina, including a miss. A charging contact costs 18 once for the component's group of hits, with at least ten ticks between paid contacts; vanilla's own contact cooldown still applies. Spear item-use movement retains its real `use_effects` sprint and speed rules. Wooden spears join the starter kit; every material is sold and can drop at its progression gate.
+
+The mace has 6 base damage, 0.6 attack speed and costs 28 stamina. It unlocks in shops and rare ordinary drops after Radahn, Morgott or Maliketh; Radahn also awards one. Vanilla calculates smash damage and enchantments from continuously observed native falling. Landing, teleports, map changes and bridge gaps reset that fall. A successful smash consumes it and sends the actual vanilla vertical rebound to native movement once, with fall protection for that impulse.
 
 `combat.nativeDamageScale` converts the resolved Minecraft hit into native HP damage. The supplied value is 36: a full wooden sword hit becomes 144 native HP and a netherite sword 648, before any existing native damage-path behavior. The same scale converts Minecraft hazards that reach native enemies, after the hazard scales below. `combat.bowBaseDamage` (vanilla 2) and `combat.crossbowBaseDamage` (vanilla 4) are supplied at 1 and 2, so ranged play stays a safe but slow option. Both retain ordinary arrow velocity and critical calculations. These are tuning values, still requiring live boss playtests before claiming equivalence to a specific level-100 Elden Ring build.
 
@@ -69,6 +74,8 @@ Guard expenditure uses raw incoming damage in fixed Minecraft HP units, before a
 | JSON field | Default | Meaning |
 | --- | ---: | --- |
 | `stamina.costs.sword` | 12 | Each sword attack, including a miss |
+| `stamina.costs.spear` | 18 | A jab or paid charging contact |
+| `stamina.costs.mace` | 28 | A mace attack |
 | `stamina.costs.axe` | 24 | Each axe attack |
 | `stamina.costs.bow` | 24 | A released arrow |
 | `stamina.costs.crossbow` | 24 | A fired shot, once per volley |
@@ -161,6 +168,22 @@ Rewards wait when the complete batch cannot fit in the inventory. Claims are sav
 
 Confirmed lethal Minecraft melee or ranged hits award native-enemy XP using top-level `experience`: `mobBase` plus `mobPerNativeHp` times the target's maximum HP, capped by `maxPerKill`. Defaults are 3, 0.005 and 100. Boss first-clear XP is additional. Cumulative native kill receipts and a checkpoint in the Minecraft player save prevent replaying observed kills as repeated XP. A new native session starts a fresh observation baseline; target disappearance alone does not count as a kill.
 
+## Combat potions
+
+The catalog sells Healing, Regeneration, Strength, Swiftness, Leaping, Slow Falling, Fire Resistance, Water Breathing and Turtle Master, with longer or stronger variants gated by progression. Splash and lingering Healing, Regeneration, Poison, Harming, Weakness and Slowness are also available. The shop shows the actual potion name, effect strength and duration. Drinking, brewing, splash falloff, cloud timing, effect replacement, expiration and milk remain vanilla behavior.
+
+Actual server healing and regeneration update native player HP. Strength and Weakness affect vanilla weapon damage. Resistance reduces native enemy attacks after campaign armor and before absorption; Turtle Master's Slowness remains its movement tradeoff. Swiftness, Slowness and Leaping change native foot movement, and Slow Falling changes descent and suppresses fall damage. Fire Resistance and Water Breathing continue through the existing vanilla hazard authority. Enemy proxies forward Poison and Harming damage, Resistance mitigation, movement effects and Strength/Weakness attack modifiers to their exact native generation. Native AI visibility and healing native enemy HP are outside this effect bridge.
+
+Shops, starter items, boss rewards and loot entries accept an optional vanilla potion ID:
+
+```json
+{"item": "minecraft:splash_potion", "potion": "minecraft:strong_harming", "count": 1}
+```
+
+Use `min`, `max` and `weight` instead of `count` for loot, and add `id`, `price` and optional gates for a shop offer. `potion` is supported on `minecraft:potion`, `minecraft:splash_potion`, `minecraft:lingering_potion` and `minecraft:tipped_arrow`. Registry validation rejects unknown potions. Paid purchase recovery saves the exact variant; different variants use separate inventory capacity. Campaign JSON is bounded to 256 KiB.
+
+Thrown player potions use the existing bounded, observed projectile trace and native collision checks. Lingering Harming requires a real cloud created during a verified potion impact, its original paired owner/session/map, and the actual cloud effect tick. Movement and enemy modifiers expire with their original short bridge leases; reconnecting cannot replay an old mace rebound.
+
 ## Enemy drops
 
 Confirmed lethal Minecraft hits on ordinary native enemies also roll the top-level `enemyLoot` table. Minor and major bosses never roll it; they keep their authored `rewards`, which always go straight to the inventory. Native classifies an enemy as a boss while it is still alive, when the frontend has registered its boss health bar or its NpcParam awards runes as a boss.
@@ -176,7 +199,7 @@ With `dropOnFloor: false`, every drop goes straight into the inventory with the 
 | `enemyLoot.extraRollNativeHp` | 1500 | One extra roll per this much enemy maximum HP; 0 disables extra rolls |
 | `enemyLoot.maxRolls` | 3 | Roll cap (1–8) |
 | `enemyLoot.dropOnFloor` | `true` | Drop items where the enemy died; `false` delivers them to the inventory |
-| `enemyLoot.entries` | see below | `{ "item", "min", "max", "weight" }` with optional `unlock_any` / `unlock_all` boss gates |
+| `enemyLoot.entries` | see below | `{ "item", "min", "max", "weight" }` with optional `potion`, `unlock_any` / `unlock_all` boss gates |
 
 Each successful roll picks one unlocked entry by weight, then a count from `min` to `max`. Weights are relative, so a newly unlocked entry also makes the existing ones a little rarer. Gates must name configured bosses. Omitted fields, or a missing `enemyLoot` section in an older campaign file, use the defaults:
 
@@ -197,8 +220,16 @@ Each successful roll picks one unlocked entry by weight, then a count from `min`
 | Enchanted golden apple | 1 | 1 | |
 | Cooked beef | 1–2 | 14 | Any iron-tier victory (as the shop) |
 | Golden carrot | 1–2 | 8 | Any diamond-tier victory (as the shop) |
+| Wooden / stone / copper spear | 1 | 1 each | Respective material gate |
+| Golden / iron / diamond / netherite spear | 1 | 0.5 each | Respective material gate |
+| Mace | 1 | 0.25 | Radahn, Morgott or Maliketh |
+| Healing / Swiftness / Leaping potion | 1 | 5 / 2 / 2 | Opening |
+| Regeneration / Fire Resistance / Slow Falling potion | 1 | 3 / 2 / 2 | Copper tier |
+| Healing II / Strength / Turtle Master potion | 1 | 2 / 2 / 1 | Iron tier |
+| Splash Poison / Weakness / Slowness / Harming | 1 | 1 each | Copper; Harming waits for iron |
+| Lingering Poison / Weakness / Slowness / Harming | 1 | 1 each | Diamond tier |
 
-An ordinary Limgrave enemy drops something on 40% of kills; about one in 65 kills drops a golden apple and one in 260 an enchanted golden apple. Late-game enemies have enough HP for two or three rolls and the better food, matching the larger health pool that food has to refill. String, sticks, feathers and flint become bows and arrows once Margit grants a crafting table. The table deliberately excludes logs, metal nuggets and ingots, gunpowder and paper, so drops never bypass a material tier, the crafting gate or the deferred enchanting economy. Drops supplement merchants; buying food remains the dependable way to prepare for a boss.
+An ordinary Limgrave enemy drops something on 40% of kills; about one in 70 kills drops a golden apple and one in 285 an enchanted golden apple. Late-game enemies have enough HP for two or three rolls and the better food, matching the larger health pool that food has to refill. String, sticks, feathers and flint become bows and arrows once Margit grants a crafting table. The table deliberately excludes logs, metal nuggets and ingots, gunpowder and paper, so drops never bypass a material tier, the crafting gate or the deferred enchanting economy. Drops supplement merchants; buying food remains the dependable way to prepare for a boss.
 
 Each native session numbers ordinary kills. Minecraft saves its loot cursor in the same world save as the delivered or dropped items, so a reload cannot replay a kill. Each roll is seeded by the character, session and kill, so a Minecraft crash before the save delivers the same items again rather than a reroll. Native keeps the latest 64 kills; kills older than that before Minecraft observes them are forfeited, as are kills from before a new native session's baseline.
 
@@ -227,7 +258,7 @@ The catalog and selected-item details have separate panels, with purchase feedba
 }
 ```
 
-Put these entries in top-level `shops`. `merchant_ids` contains native shop-range IDs, as strings. Exact merchant matches take priority over the `"*"` fallback. The supplied fallback gives all recognized merchants the same 73-offer campaign catalog; replace or supplement it with regional catalogs. `count` is the number of items in a bundle, `price` the rune cost per bundle, and `stock` the number of bundles available per native character (`-1` means unlimited). `unlock_any` requires at least one listed victory; `unlock_all` requires all listed victories. Empty arrays impose no condition.
+Put these entries in top-level `shops`. `merchant_ids` contains native shop-range IDs, as strings. Exact merchant matches take priority over the `"*"` fallback. The supplied fallback gives all recognized merchants the same 130-offer campaign catalog; replace or supplement it with regional catalogs. `count` is the number of items in a bundle, `price` the rune cost per bundle, and `stock` the number of bundles available per native character (`-1` means unlimited). `unlock_any` requires at least one listed victory; `unlock_all` requires all listed victories. Empty arrays impose no condition.
 
 The native host independently validates merchant context, prerequisites, configured price, stock and wallet balance. It writes a durable purchase intent, debits the real wallet and requests a native save. Minecraft delivers only after the confirmed debit. The inventory save records a purchase UUID before shop stock commits, allowing safe retries after a disconnect or crash. An ambiguous native save quarantines the purchase instead of debiting again or delivering free items. Keep journals when restoring paired saves; manually mixing different save generations cannot be reconciled automatically.
 

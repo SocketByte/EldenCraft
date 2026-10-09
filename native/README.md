@@ -133,6 +133,23 @@ Elden Ring terrain keeps native stepping. Terrain sampling sizes its ray budget
 from measured query cost (about 1.25 ms per 33 ms tick, 96 to 1020 rays) and
 refines floors at 25 cm within three cells of the feet.
 
+Grounded Torrent strides follow the native floor normal at a constant path
+speed, rather than pushing a horizontal stride into uphill terrain. Wall
+feedback includes height gained or lost along the stride, so sustained slope
+travel does not repeatedly clear momentum. Brief contact loss keeps the riding
+ground gait until the vertical model declares a ledge fall; jumps and double
+jumps retain airborne travel. The floor normal must be finite, approximately
+unit length and within 60 degrees of upright. Collision, sliding on steeper
+surfaces and ground adhesion remain native.
+
+Torrent state uses the copied native clock, without extrapolating it with the
+guest's separate clock. A missing publication keeps the last accepted mount
+until its original 350 ms deadline; it never renews that deadline. Real
+dismounts publish `mounted=false` and apply immediately. This keeps the riding
+gait, saddle height and mounted camera bob suppression coherent across client,
+server and native ticks. Movement diagnostics report mount sequence, age and
+transition count to distinguish a lease dropout from terrain contact.
+
 Subsystem implementations: [transport index](../PROTOCOL.md),
 [movement](src/movement_driver.rs), [flight](src/player_flight.rs),
 [damage](src/native_damage.rs), [colliders](src/native_colliders.rs)

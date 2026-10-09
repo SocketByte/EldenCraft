@@ -305,13 +305,13 @@ public final class WorldTorrent {
 
   public static void endTick(MinecraftServer server) {
     var c = context;
-    if (horse == null || c == null || c.server != server) {
+    if (c == null || c.server != server) {
       published = null;
       return;
     }
     if (syncedTick != server.getTickCount()) {
-      // No mount without a fresh host sync; a long gap (warp, menu, death) dismisses.
-      published = null;
+      // Keep the last observation with its original timestamp through a missed
+      // server sync. The client/native freshness checks still expire it.
       if (++unsynced > TorrentPolicy.UNSYNCED_TICKS) {
         var p = rider;
         if (p != null && !p.isRemoved()) dismiss(p, "", false);
@@ -323,17 +323,20 @@ public final class WorldTorrent {
     var h = host;
     var json = new JsonObject();
     json.addProperty("sequence", ++sequence);
-    json.addProperty("time_ms", clock + (System.nanoTime() - readNanos) / 1_000_000);
+    // This is the actual native clock copied with the host lease. Extrapolating
+    // it with nanoTime can put a genuine observation ahead of GetTickCount64,
+    // making the native consumer reject it and drop both gait and saddle lift.
+    json.addProperty("time_ms", clock);
     json.addProperty("observed_frame", h.frame());
-    json.addProperty("mounted", true);
+    json.addProperty("mounted", horse != null);
     published = new Published(c, System.nanoTime(), json);
   }
 
-  /** Guest publication field, or null on foot. */
+  /** Guest mount state, including explicit dismounts; null without a fresh observation. */
   public static JsonObject snapshot(WorldProtocol.Host h, long session) {
     var p = published;
     if (p == null
-        || !FlightPolicy.fresh(p.nanos, System.nanoTime())
+        || !TorrentPolicy.fresh(p.nanos, System.nanoTime())
         || p.context.pid != h.pid()
         || p.context.epoch != h.epoch()
         || p.context.session != session) return null;

@@ -75,7 +75,7 @@ We also took a novel approach to modelling the world, which means no janky colli
       <a href="https://imgur.com/a/eMdF0NL"><img src="assets/showcase/merchant.webp" alt="Talking to Merchant Kalé opens a Minecraft dialog, then a rune shop selling Minecraft items" width="100%"></a>
       <h3>💰 Runes buy diamonds</h3>
       <p>Talk to Kalé and get a Minecraft dialog. Open his shop and spend your
-      <em>actual</em> Elden Ring runes on swords, food, armour and building
+      <em>actual</em> Elden Ring runes on swords, spears, maces, combat potions, food, armour and building
       blocks. Purchases are journaled across both saves, so a purchase cut off
       by a crash is recovered instead of charged twice.</p>
     </td>
@@ -373,7 +373,7 @@ so you can start with the launcher/me3 logs instead of hunting for empty folders
 - HDR output isn't supported.
 - Placed blocks, water, lava and animated blocks are drawn natively in Elden Ring's frame. Block entities (chests, signs, beds), mobs, items and your avatar still come from the captured Minecraft frame and can trail slightly while the camera turns.
 - Native enemies don't pathfind around Minecraft walls.
-- Absorption hearts, potion effects on native enemies and crossbow fireworks are incomplete.
+- Native enemy healing, Invisibility AI behavior and crossbow fireworks are incomplete.
 - Picking Elden Ring terrain is approximate; native collision stays authoritative for movement and projectiles.
 - Incoming damage still passes through native armour and stat defences before Minecraft armour, so your native class and loadout affect difficulty.
 - The campaign values are a starting balance. Automated checks cover progression and recovery; boss difficulty and the economy still need full playthroughs.

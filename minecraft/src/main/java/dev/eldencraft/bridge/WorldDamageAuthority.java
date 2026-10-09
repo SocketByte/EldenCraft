@@ -23,6 +23,10 @@ public final class WorldDamageAuthority {
       return null;
     }
 
+    default Object potionCloud(ServerLevel level, LivingEntity target, DamageSource source) {
+      return null;
+    }
+
     default boolean environmentalEffects(Entity entity) {
       return false;
     }
@@ -74,7 +78,11 @@ public final class WorldDamageAuthority {
 
   public static Object environment(ServerLevel level, LivingEntity target, DamageSource source) {
     var a = adapter;
-    return a == null || !environmental(source) ? null : a.environment(level, target, source);
+    return a == null
+        ? null
+        : environmental(source)
+            ? a.environment(level, target, source)
+            : a.potionCloud(level, target, source);
   }
 
   public static boolean environmentalEffects(Entity entity) {

@@ -7,7 +7,8 @@ import java.util.Set;
 public final class CampaignGearTiers {
   private static final List<String> MATERIALS =
       List.of("wooden", "stone", "copper", "iron", "diamond", "netherite");
-  private static final Set<String> TOOLS = Set.of("sword", "axe", "pickaxe", "shovel", "hoe");
+  private static final Set<String> TOOLS =
+      Set.of("sword", "axe", "spear", "pickaxe", "shovel", "hoe");
   private static final Set<String> ARMOR = Set.of("helmet", "chestplate", "leggings", "boots");
 
   private CampaignGearTiers() {}
@@ -26,7 +27,7 @@ public final class CampaignGearTiers {
       List<CampaignConfig.Reward> rewards, Set<String> defeated) {
     int tier = unlocked(defeated);
     return rewards.stream()
-        .map(r -> new CampaignConfig.Reward(capItem(r.item(), tier), r.count()))
+        .map(r -> new CampaignConfig.Reward(capItem(r.item(), tier), r.count(), r.potion()))
         .toList();
   }
 

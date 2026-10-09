@@ -26,7 +26,35 @@ public final class CampaignShopLedger {
       int quantity,
       long amount,
       Stage stage,
-      int nativeItemLot) {
+      int nativeItemLot,
+      String potion) {
+    public Pending(
+        String id,
+        String merchantToken,
+        String merchantId,
+        String shopId,
+        String offerId,
+        String item,
+        int count,
+        int quantity,
+        long amount,
+        Stage stage,
+        int nativeItemLot) {
+      this(
+          id,
+          merchantToken,
+          merchantId,
+          shopId,
+          offerId,
+          item,
+          count,
+          quantity,
+          amount,
+          stage,
+          nativeItemLot,
+          "");
+    }
+
     public Pending(
         String id,
         String merchantToken,
@@ -54,7 +82,8 @@ public final class CampaignShopLedger {
           quantity,
           amount,
           Stage.DEBITED,
-          nativeItemLot);
+          nativeItemLot,
+          potion);
     }
   }
 
@@ -142,6 +171,7 @@ public final class CampaignShopLedger {
   }
 
   private static void validate(Pending p) throws IOException {
+    CampaignItems.validate(p.item(), p.potion());
     try {
       UUID.fromString(p.id());
     } catch (IllegalArgumentException e) {
@@ -163,7 +193,7 @@ public final class CampaignShopLedger {
         || p.amount() > 2_147_483_647L
         || p.nativeItemLot() == 0
         || p.nativeItemLot() < -1
-        || (p.nativeItemLot() > 0 && p.quantity() != 1))
+        || (p.nativeItemLot() > 0 && (p.quantity() != 1 || !p.potion().isEmpty())))
       throw new IOException("Invalid pending purchase");
   }
 
@@ -200,7 +230,8 @@ public final class CampaignShopLedger {
                 Stage.valueOf(JsonWire.string(p.get("stage"))),
                 p.has("native_item_lot")
                     ? (int) JsonWire.integer(p.get("native_item_lot"), 1, Integer.MAX_VALUE)
-                    : -1);
+                    : -1,
+                p.has("potion") ? JsonWire.string(p.get("potion")) : "");
       } catch (IllegalArgumentException e) {
         throw new IOException("Invalid purchase stage", e);
       }
@@ -223,6 +254,7 @@ public final class CampaignShopLedger {
       p.addProperty("shop_id", pending.shopId());
       p.addProperty("offer_id", pending.offerId());
       p.addProperty("item", pending.item());
+      if (!pending.potion().isEmpty()) p.addProperty("potion", pending.potion());
       p.addProperty("count", pending.count());
       p.addProperty("quantity", pending.quantity());
       p.addProperty("amount", pending.amount());

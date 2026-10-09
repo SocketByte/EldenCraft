@@ -3,7 +3,10 @@
 //! Minecraft owns the summon, the horse entity and its health; native owns the
 //! gait. A mount stays in effect only while the guest keeps republishing it.
 use serde::{Deserialize, Serialize};
-pub const FRESH_MS: u64 = 150;
+/// The mount crosses native publication, client, integrated-server and native
+/// consumption ticks. Keep its original lease through a missed tick; this is a
+/// state observation, not a flight velocity or an input command.
+pub const FRESH_MS: u64 = 350;
 /// Grounded acceleration in blocks/tick, a top-tier horse movement-speed
 /// attribute (vanilla ridden travel; terminal gallop is about 11 m/s).
 pub const GALLOP_ACCELERATION: f32 = 0.25;
@@ -61,6 +64,13 @@ impl Latest {
             self.reset();
             self.context = Some(context);
         }
+        // A missing observation is a scheduling gap, not a dismount. It cannot
+        // renew the original timestamp, and get() still expires it. The guest
+        // publishes mounted=false for a real dismount; loss of kinematics calls
+        // revoke() directly in the world bridge.
+        if sample.is_none() {
+            return;
+        }
         let Some(s) = sample.filter(|s| s.fresh(now) && observed) else {
             self.revoke();
             return;
@@ -101,13 +111,13 @@ mod tests {
     fn a_mount_expires_unless_the_guest_republishes_it() {
         let mut l = Latest::default();
         l.observe(context(), Some(sample()), 1000, true);
-        assert!(l.get(1150).is_some());
-        assert!(l.get(1151).is_none());
-        l.observe(context(), Some(sample()), 1151, true);
-        assert!(l.get(1151).is_none());
+        assert!(l.get(1000 + FRESH_MS).is_some());
+        assert!(l.get(1001 + FRESH_MS).is_none());
+        l.observe(context(), Some(sample()), 1001 + FRESH_MS, true);
+        assert!(l.get(1001 + FRESH_MS).is_none());
     }
     #[test]
-    fn dismount_missing_unobserved_and_regressed_samples_revoke() {
+    fn dismount_unobserved_and_mutated_samples_revoke() {
         for (next, observed) in [
             (
                 Some(Sample {
@@ -117,7 +127,6 @@ mod tests {
                 }),
                 true,
             ),
-            (None, true),
             (
                 Some(Sample {
                     sequence: 2,
@@ -138,6 +147,91 @@ mod tests {
             l.observe(context(), next, 1000, observed);
             assert!(l.get(1000).is_none());
         }
+    }
+    #[test]
+    fn missed_publications_keep_the_mount_but_never_renew_its_deadline() {
+        let mut l = Latest::default();
+        l.observe(context(), Some(sample()), 1000, true);
+        for now in [1050, 1100, 1200, 1000 + FRESH_MS] {
+            l.observe(context(), None, now, false);
+            assert_eq!(l.get(now), Some(sample()));
+        }
+        l.observe(context(), None, 1001 + FRESH_MS, false);
+        assert!(l.get(1001 + FRESH_MS).is_none());
+        l.observe(context(), Some(sample()), 1001 + FRESH_MS, true);
+        assert!(
+            l.get(1001 + FRESH_MS).is_none(),
+            "replaying an expired mount cannot revive it"
+        );
+    }
+    #[test]
+    fn copied_native_clock_avoids_false_future_rejection_between_clock_ticks() {
+        let mut l = Latest::default();
+        // Extrapolating native time with a different clock can get ahead of the
+        // native reader between clock ticks, even for a genuine new server state.
+        l.observe(
+            context(),
+            Some(Sample {
+                time_ms: 1008,
+                ..sample()
+            }),
+            1000,
+            true,
+        );
+        assert!(l.get(1000).is_none());
+        l.observe(context(), Some(sample()), 1000, true);
+        assert!(
+            l.get(1000).is_some(),
+            "the copied native timestamp is admissible immediately"
+        );
+    }
+    #[test]
+    fn interleaved_client_server_ticks_do_not_toggle_the_gait_or_saddle_height() {
+        let mut l = Latest::default();
+        let mut sequence = 1;
+        for frame in 0..600u64 {
+            let now = 1000 + frame * 16;
+            // A server publication every three frames, one lost publication in
+            // each nine. Other client frames can omit the field while copying.
+            if frame % 3 == 0 && frame % 9 != 6 {
+                l.observe(
+                    context(),
+                    Some(Sample {
+                        sequence,
+                        time_ms: now.saturating_sub(80),
+                        observed_frame: frame + 1,
+                        mounted: true,
+                    }),
+                    now,
+                    true,
+                );
+                sequence += 1;
+            } else {
+                l.observe(context(), None, now, false);
+            }
+            assert!(
+                l.get(now).is_some(),
+                "frame {frame}: do not switch a summoned rider to foot travel"
+            );
+        }
+        let now = 11000;
+        l.observe(
+            context(),
+            Some(Sample {
+                sequence,
+                time_ms: now,
+                observed_frame: 700,
+                mounted: false,
+            }),
+            now,
+            true,
+        );
+        assert!(
+            l.get(now).is_none(),
+            "a genuine dismount takes effect immediately"
+        );
+        l.observe(context(), None, now + 16, false);
+        assert!(l.get(now + 16).is_none());
     }
     #[test]
     fn a_new_context_resets_the_sequence_high_water() {

@@ -27,7 +27,16 @@ public final class JsonWire {
   }
 
   public static JsonObject parse(byte[] bytes) throws IOException {
-    if (bytes.length > MAX_INPUT_BYTES) throw new IOException("JSON input exceeds limit");
+    return parseBounded(bytes, MAX_INPUT_BYTES);
+  }
+
+  /** Campaign catalogs contain the full boss reward roster and item variants. */
+  public static JsonObject parseCampaign(byte[] bytes) throws IOException {
+    return parseBounded(bytes, 262_144);
+  }
+
+  private static JsonObject parseBounded(byte[] bytes, int limit) throws IOException {
+    if (bytes.length > limit) throw new IOException("JSON input exceeds limit");
     String text =
         StandardCharsets.UTF_8
             .newDecoder()

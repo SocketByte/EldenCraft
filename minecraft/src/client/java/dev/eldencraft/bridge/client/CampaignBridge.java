@@ -407,11 +407,13 @@ public final class CampaignBridge {
       double stamina,
       boolean usingItem,
       double absorption,
-      int totems) {
+      int totems,
+      double resistance) {
     var s = snapshot();
     if (s == null) return;
     var j = envelope(s);
     j.addProperty("armor", armorReductionPercent);
+    j.addProperty("resistance", resistance);
     // Native spends these on its own hits; damage_ack tells it which spends are applied here.
     j.addProperty("absorption", absorption);
     j.addProperty("totems", totems);
@@ -440,7 +442,7 @@ public final class CampaignBridge {
         || !CampaignProgression.paired(player, s.character())
         || !Float.isFinite(amount)
         || amount <= 0
-        || amount > 10) return;
+        || amount > 20) return;
     prepareHealing(s);
     healingTotal += amount;
     ++healingSequence;

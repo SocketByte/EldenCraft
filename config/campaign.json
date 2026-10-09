@@ -95,6 +95,38 @@
     "minecraft:netherite_axe": {
       "damage": 29,
       "attackSpeed": 1
+    },
+    "minecraft:wooden_spear": {
+      "damage": 5,
+      "attackSpeed": 1.0
+    },
+    "minecraft:stone_spear": {
+      "damage": 6,
+      "attackSpeed": 1.0
+    },
+    "minecraft:copper_spear": {
+      "damage": 7,
+      "attackSpeed": 1.0
+    },
+    "minecraft:golden_spear": {
+      "damage": 8,
+      "attackSpeed": 1.0
+    },
+    "minecraft:iron_spear": {
+      "damage": 10,
+      "attackSpeed": 1.0
+    },
+    "minecraft:diamond_spear": {
+      "damage": 14,
+      "attackSpeed": 1.0
+    },
+    "minecraft:netherite_spear": {
+      "damage": 19,
+      "attackSpeed": 1.0
+    },
+    "minecraft:mace": {
+      "damage": 6,
+      "attackSpeed": 0.6
     }
   },
   "armors": {
@@ -353,7 +385,9 @@
       "axe": 24,
       "bow": 24,
       "crossbow": 24,
-      "other": 12
+      "other": 12,
+      "spear": 18,
+      "mace": 28
     },
     "regenPerSecond": 20,
     "regenDelaySeconds": 0.5,
@@ -466,6 +500,10 @@
     {
       "item": "minecraft:leather_boots",
       "count": 1
+    },
+    {
+      "item": "minecraft:wooden_spear",
+      "count": 1
     }
   ],
   "bosses": [
@@ -496,6 +534,10 @@
         },
         {
           "item": "minecraft:enchanted_golden_apple",
+          "count": 1
+        },
+        {
+          "item": "minecraft:stone_spear",
           "count": 1
         }
       ],
@@ -528,6 +570,10 @@
         },
         {
           "item": "minecraft:enchanted_golden_apple",
+          "count": 1
+        },
+        {
+          "item": "minecraft:copper_spear",
           "count": 1
         }
       ],
@@ -565,6 +611,15 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:iron_spear",
+          "count": 1
+        },
+        {
+          "item": "minecraft:potion",
+          "count": 1,
+          "potion": "minecraft:strong_healing"
         }
       ],
       "experience": 600
@@ -593,6 +648,15 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:mace",
+          "count": 1
+        },
+        {
+          "item": "minecraft:potion",
+          "count": 1,
+          "potion": "minecraft:strength"
         }
       ],
       "experience": 800
@@ -753,6 +817,15 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:diamond_spear",
+          "count": 1
+        },
+        {
+          "item": "minecraft:lingering_potion",
+          "count": 1,
+          "potion": "minecraft:weakness"
         }
       ],
       "experience": 1200
@@ -868,6 +941,10 @@
         },
         {
           "item": "minecraft:enchanted_golden_apple",
+          "count": 1
+        },
+        {
+          "item": "minecraft:netherite_spear",
           "count": 1
         }
       ],
@@ -5149,6 +5226,747 @@
             "maliketh"
           ],
           "unlock_all": []
+        },
+        {
+          "id": "wooden_spear",
+          "item": "minecraft:wooden_spear",
+          "count": 1,
+          "price": 75,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "stone_spear",
+          "item": "minecraft:stone_spear",
+          "count": 1,
+          "price": 150,
+          "stock": -1,
+          "unlock_any": [
+            "margit",
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "copper_spear",
+          "item": "minecraft:copper_spear",
+          "count": 1,
+          "price": 300,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "golden_spear",
+          "item": "minecraft:golden_spear",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "iron_spear",
+          "item": "minecraft:iron_spear",
+          "count": 1,
+          "price": 1500,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "diamond_spear",
+          "item": "minecraft:diamond_spear",
+          "count": 1,
+          "price": 13500,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "netherite_spear",
+          "item": "minecraft:netherite_spear",
+          "count": 1,
+          "price": 135000,
+          "stock": -1,
+          "unlock_any": [
+            "maliketh"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "mace",
+          "item": "minecraft:mace",
+          "count": 1,
+          "price": 12000,
+          "stock": -1,
+          "unlock_any": [
+            "radahn",
+            "morgott",
+            "maliketh"
+          ],
+          "unlock_all": []
+        },
+        {
+          "id": "potion_healing",
+          "item": "minecraft:potion",
+          "potion": "minecraft:healing",
+          "count": 1,
+          "price": 350,
+          "stock": -1,
+          "unlock_any": []
+        },
+        {
+          "id": "potion_strong_healing",
+          "item": "minecraft:potion",
+          "potion": "minecraft:strong_healing",
+          "count": 1,
+          "price": 700,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_regeneration",
+          "item": "minecraft:potion",
+          "potion": "minecraft:regeneration",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_long_regeneration",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_regeneration",
+          "count": 1,
+          "price": 900,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_strong_regeneration",
+          "item": "minecraft:potion",
+          "potion": "minecraft:strong_regeneration",
+          "count": 1,
+          "price": 1100,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_strength",
+          "item": "minecraft:potion",
+          "potion": "minecraft:strength",
+          "count": 1,
+          "price": 900,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_long_strength",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_strength",
+          "count": 1,
+          "price": 1200,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_strong_strength",
+          "item": "minecraft:potion",
+          "potion": "minecraft:strong_strength",
+          "count": 1,
+          "price": 1800,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_swiftness",
+          "item": "minecraft:potion",
+          "potion": "minecraft:swiftness",
+          "count": 1,
+          "price": 400,
+          "stock": -1,
+          "unlock_any": []
+        },
+        {
+          "id": "potion_long_swiftness",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_swiftness",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_strong_swiftness",
+          "item": "minecraft:potion",
+          "potion": "minecraft:strong_swiftness",
+          "count": 1,
+          "price": 850,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_leaping",
+          "item": "minecraft:potion",
+          "potion": "minecraft:leaping",
+          "count": 1,
+          "price": 400,
+          "stock": -1,
+          "unlock_any": []
+        },
+        {
+          "id": "potion_long_leaping",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_leaping",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_strong_leaping",
+          "item": "minecraft:potion",
+          "potion": "minecraft:strong_leaping",
+          "count": 1,
+          "price": 850,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_slow_falling",
+          "item": "minecraft:potion",
+          "potion": "minecraft:slow_falling",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_long_slow_falling",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_slow_falling",
+          "count": 1,
+          "price": 900,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_fire_resistance",
+          "item": "minecraft:potion",
+          "potion": "minecraft:fire_resistance",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_long_fire_resistance",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_fire_resistance",
+          "count": 1,
+          "price": 900,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_water_breathing",
+          "item": "minecraft:potion",
+          "potion": "minecraft:water_breathing",
+          "count": 1,
+          "price": 400,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_long_water_breathing",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_water_breathing",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_turtle_master",
+          "item": "minecraft:potion",
+          "potion": "minecraft:turtle_master",
+          "count": 1,
+          "price": 1000,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_long_turtle_master",
+          "item": "minecraft:potion",
+          "potion": "minecraft:long_turtle_master",
+          "count": 1,
+          "price": 1400,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "potion_strong_turtle_master",
+          "item": "minecraft:potion",
+          "potion": "minecraft:strong_turtle_master",
+          "count": 1,
+          "price": 1600,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_poison",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:poison",
+          "count": 1,
+          "price": 450,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_long_poison",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:long_poison",
+          "count": 1,
+          "price": 700,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_strong_poison",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:strong_poison",
+          "count": 1,
+          "price": 900,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_harming",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:harming",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_strong_harming",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:strong_harming",
+          "count": 1,
+          "price": 1200,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_weakness",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:weakness",
+          "count": 1,
+          "price": 500,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_long_weakness",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:long_weakness",
+          "count": 1,
+          "price": 750,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_slowness",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:slowness",
+          "count": 1,
+          "price": 450,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_long_slowness",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:long_slowness",
+          "count": 1,
+          "price": 650,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_strong_slowness",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:strong_slowness",
+          "count": 1,
+          "price": 900,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_healing",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:healing",
+          "count": 1,
+          "price": 350,
+          "stock": -1,
+          "unlock_any": []
+        },
+        {
+          "id": "splash_strong_healing",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:strong_healing",
+          "count": 1,
+          "price": 700,
+          "stock": -1,
+          "unlock_any": [
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "splash_regeneration",
+          "item": "minecraft:splash_potion",
+          "potion": "minecraft:regeneration",
+          "count": 1,
+          "price": 600,
+          "stock": -1,
+          "unlock_any": [
+            "godrick",
+            "rennala",
+            "radahn",
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_poison",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:poison",
+          "count": 1,
+          "price": 720,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_long_poison",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:long_poison",
+          "count": 1,
+          "price": 1120,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_strong_poison",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:strong_poison",
+          "count": 1,
+          "price": 1440,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_harming",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:harming",
+          "count": 1,
+          "price": 960,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_strong_harming",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:strong_harming",
+          "count": 1,
+          "price": 1920,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_weakness",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:weakness",
+          "count": 1,
+          "price": 800,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_long_weakness",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:long_weakness",
+          "count": 1,
+          "price": 1200,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_slowness",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:slowness",
+          "count": 1,
+          "price": 720,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_long_slowness",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:long_slowness",
+          "count": 1,
+          "price": 1040,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_strong_slowness",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:strong_slowness",
+          "count": 1,
+          "price": 1440,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_healing",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:healing",
+          "count": 1,
+          "price": 560,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_strong_healing",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:strong_healing",
+          "count": 1,
+          "price": 1120,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
+        },
+        {
+          "id": "lingering_regeneration",
+          "item": "minecraft:lingering_potion",
+          "potion": "minecraft:regeneration",
+          "count": 1,
+          "price": 960,
+          "stock": -1,
+          "unlock_any": [
+            "morgott",
+            "maliketh"
+          ]
         }
       ]
     }
@@ -5260,6 +6078,299 @@
         "min": 1,
         "max": 2,
         "weight": 8,
+        "unlock_any": [
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:wooden_spear",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": []
+      },
+      {
+        "item": "minecraft:stone_spear",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "margit",
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:copper_spear",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:golden_spear",
+        "min": 1,
+        "max": 1,
+        "weight": 0.5,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:iron_spear",
+        "min": 1,
+        "max": 1,
+        "weight": 0.5,
+        "unlock_any": [
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:diamond_spear",
+        "min": 1,
+        "max": 1,
+        "weight": 0.5,
+        "unlock_any": [
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:netherite_spear",
+        "min": 1,
+        "max": 1,
+        "weight": 0.5,
+        "unlock_any": [
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:mace",
+        "min": 1,
+        "max": 1,
+        "weight": 0.25,
+        "unlock_any": [
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:healing",
+        "min": 1,
+        "max": 1,
+        "weight": 5,
+        "unlock_any": []
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:swiftness",
+        "min": 1,
+        "max": 1,
+        "weight": 2,
+        "unlock_any": []
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:regeneration",
+        "min": 1,
+        "max": 1,
+        "weight": 3,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:fire_resistance",
+        "min": 1,
+        "max": 1,
+        "weight": 2,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:slow_falling",
+        "min": 1,
+        "max": 1,
+        "weight": 2,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:leaping",
+        "min": 1,
+        "max": 1,
+        "weight": 2,
+        "unlock_any": []
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:strong_healing",
+        "min": 1,
+        "max": 1,
+        "weight": 2,
+        "unlock_any": [
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:strength",
+        "min": 1,
+        "max": 1,
+        "weight": 2,
+        "unlock_any": [
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:potion",
+        "potion": "minecraft:turtle_master",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:splash_potion",
+        "potion": "minecraft:poison",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:splash_potion",
+        "potion": "minecraft:weakness",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:splash_potion",
+        "potion": "minecraft:slowness",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "godrick",
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:splash_potion",
+        "potion": "minecraft:harming",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "rennala",
+          "radahn",
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:lingering_potion",
+        "potion": "minecraft:poison",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:lingering_potion",
+        "potion": "minecraft:weakness",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:lingering_potion",
+        "potion": "minecraft:slowness",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
+        "unlock_any": [
+          "morgott",
+          "maliketh"
+        ]
+      },
+      {
+        "item": "minecraft:lingering_potion",
+        "potion": "minecraft:harming",
+        "min": 1,
+        "max": 1,
+        "weight": 1,
         "unlock_any": [
           "morgott",
           "maliketh"

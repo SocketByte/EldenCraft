@@ -17,6 +17,11 @@ public final class ProxyCombatAuthority {
   public interface Adapter {
     Object begin(ServerPlayer player, CombatProxyEntity target);
 
+    /** A genuine server-side spear component selected this target with vanilla's hit ray. */
+    default Object beginStab(ServerPlayer player, CombatProxyEntity target) {
+      return null;
+    }
+
     boolean permit(Object token, ServerPlayer player, CombatProxyEntity target);
 
     void finished(
@@ -55,9 +60,18 @@ public final class ProxyCombatAuthority {
   private ProxyCombatAuthority() {}
 
   public static boolean begin(ServerPlayer player, CombatProxyEntity target) {
+    return begin(player, target, false);
+  }
+
+  public static boolean beginStab(ServerPlayer player, CombatProxyEntity target) {
+    if (CURRENT.get() != null) return CURRENT.get().player == player;
+    return begin(player, target, true);
+  }
+
+  private static boolean begin(ServerPlayer player, CombatProxyEntity target, boolean stab) {
     Adapter a = adapter;
     if (a == null || CURRENT.get() != null) return false;
-    Object token = a.begin(player, target);
+    Object token = stab ? a.beginStab(player, target) : a.begin(player, target);
     if (token == null) return false;
     CURRENT.set(
         new Context(

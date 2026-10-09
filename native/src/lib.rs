@@ -7,6 +7,7 @@ mod campaign_runtime;
 #[cfg(windows)]
 mod chat_input;
 mod clock_sync;
+mod combat_effects;
 #[cfg(windows)]
 mod combat_targets;
 #[cfg(windows)]

@@ -28,12 +28,36 @@ pub struct Status {
     pub last: Option<String>,
     pub reason: Option<&'static str>,
 }
+fn is_spear(item: &str) -> bool {
+    [
+        "wooden",
+        "stone",
+        "copper",
+        "golden",
+        "iron",
+        "diamond",
+        "netherite",
+    ]
+    .iter()
+    .any(|tier| item == format!("minecraft:{tier}_spear"))
+}
+fn spear_ray(target: &wire::Target, forward: [f32; 3]) -> bool {
+    entry(
+        [0., 1.62, 0.],
+        forward,
+        target.min.map(|v| v - 0.3),
+        target.max.map(|v| v + 0.3),
+        PLAYER_REACH_CEILING_M,
+    )
+    .is_some()
+}
 #[derive(Clone)]
 struct Published {
     frame: u64,
     time: u64,
     targets: Vec<wire::Target>,
     nearest: Option<u64>,
+    forward: [f32; 3],
 }
 pub struct Driver {
     publisher: Option<combat_transport::Publisher>,
@@ -275,6 +299,7 @@ impl Driver {
             frame,
             time: now,
             nearest: self.status.nearest,
+            forward: publication.forward,
             targets: publication.targets.clone(),
         });
         while self
@@ -444,7 +469,8 @@ impl Driver {
             // Aim belongs to the frame Minecraft actually attacked. A later
             // mouse movement must not erase an already accepted vanilla hit.
             // Current identity, reach and cover are still checked above.
-            if old.nearest != Some(r.target) {
+            let spear = is_spear(&r.item) && spear_ray(before, old.forward);
+            if old.nearest != Some(r.target) && !spear {
                 return Err("target is not the crosshair selection");
             }
         }
@@ -534,6 +560,7 @@ mod tests {
             time: 998,
             targets: publication().targets,
             nearest: Some(7),
+            forward: [0., 0., 1.],
         });
         d.status.nearest = Some(7);
     }
@@ -674,6 +701,32 @@ mod tests {
         assert_eq!(
             d.validate(&receipt(1, 7), &current, 1000),
             Err("target changed or obscured")
+        );
+    }
+    #[test]
+    fn genuine_spear_ray_can_begin_a_piercing_attack_without_an_orbit_camera_pick() {
+        let mut d = driver();
+        history(&mut d);
+        d.history.back_mut().unwrap().nearest = None;
+        let current = publication();
+        let mut r = receipt(1, 7);
+        assert!(
+            d.validate(&r, &current, 1000).is_err(),
+            "ordinary swings still need their pick"
+        );
+        r.item = "minecraft:iron_spear".into();
+        assert!(d.validate(&r, &current, 1000).is_ok());
+        d.history.back_mut().unwrap().forward = [1., 0., 0.];
+        assert!(
+            d.validate(&r, &current, 1000).is_err(),
+            "spear still needs the observed player ray"
+        );
+        d.history.back_mut().unwrap().forward = [0., 0., 1.];
+        let mut hidden = current;
+        hidden.targets[0].flags = 1;
+        assert!(
+            d.validate(&r, &hidden, 1000).is_err(),
+            "cover cannot be bypassed by piercing"
         );
     }
     #[test]

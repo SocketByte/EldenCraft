@@ -19,7 +19,11 @@ public final class CampaignConfig {
 
   public record Point(double level, double value) {}
 
-  public record Reward(String item, int count) {}
+  public record Reward(String item, int count, String potion) {
+    public Reward(String item, int count) {
+      this(item, count, "");
+    }
+  }
 
   public record Experience(int mobBase, double mobPerNativeHp, int maxPerKill) {}
 
@@ -178,13 +182,13 @@ public final class CampaignConfig {
   public static CampaignConfig load(Path path) throws IOException {
     byte[] bytes;
     try (var input = Files.newInputStream(path)) {
-      bytes = input.readNBytes(131073);
+      bytes = input.readNBytes(262145);
     }
-    return parse(JsonWire.parse(bytes));
+    return parse(JsonWire.parseCampaign(bytes));
   }
 
   public static CampaignConfig parse(String text) throws IOException {
-    return parse(JsonWire.parse(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    return parse(JsonWire.parseCampaign(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
   }
 
   public static CampaignConfig parse(JsonObject json) throws IOException {
@@ -409,8 +413,8 @@ public final class CampaignConfig {
     var out = new ArrayList<Reward>();
     for (var value : array(json, key, 256)) {
       var r = value.getAsJsonObject();
-      out.add(
-          new Reward(itemId(JsonWire.string(r.get("item"))), (int) integer(r, "count", 1, 4096)));
+      String item = itemId(JsonWire.string(r.get("item")));
+      out.add(new Reward(item, (int) integer(r, "count", 1, 4096), CampaignItems.potion(r, item)));
     }
     return List.copyOf(out);
   }

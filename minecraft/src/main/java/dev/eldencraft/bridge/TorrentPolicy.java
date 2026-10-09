@@ -15,6 +15,13 @@ public final class TorrentPolicy {
 
   public static final long COOLDOWN_NANOS = 1_000_000_000L;
 
+  /** Mount observations cross several 20 Hz ticks; a missed tick is not a dismount. */
+  public static final long FRESH_NANOS = 350_000_000L;
+
+  public static boolean fresh(long produced, long now) {
+    return produced > 0 && now >= produced && now - produced <= FRESH_NANOS;
+  }
+
   /** A mount survives this long without a host sync (menus, loads) before it is dismissed. */
   public static final int UNSYNCED_TICKS = 20;
 

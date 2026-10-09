@@ -3,6 +3,7 @@ package dev.eldencraft.bridge.client.mixin;
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.*;
 import dev.eldencraft.bridge.*;
+import dev.eldencraft.bridge.client.CampaignWeapons;
 import java.util.List;
 import net.minecraft.core.particles.*;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -16,9 +17,23 @@ import net.minecraft.world.phys.AABB;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Player.class)
 abstract class ProxyAttackMixin {
+  @Inject(method = "stabAttack", at = @At("HEAD"), cancellable = true)
+  private void eldencraft$stab(
+      EquipmentSlot slot,
+      Entity target,
+      float damage,
+      boolean damages,
+      boolean knockback,
+      boolean dismount,
+      CallbackInfoReturnable<Boolean> cir) {
+    if ((Object) this instanceof ServerPlayer player
+        && !CampaignWeapons.permitStab(player, target, damages)) cir.setReturnValue(false);
+  }
+
   @Inject(method = "playServerSideSound", at = @At("HEAD"), cancellable = true)
   private void eldencraft$relocateSound(SoundEvent sound, CallbackInfo ci) {
     if (ProxyCombatAuthority.sound(sound)) ci.cancel();

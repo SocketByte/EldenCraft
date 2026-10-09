@@ -85,6 +85,8 @@ fn validate(f: &Flight, stamp: u64, now: u64) -> Result<(), &'static str> {
     if ![
         "minecraft:arrow",
         "minecraft:spectral_arrow",
+        "minecraft:splash_potion",
+        "minecraft:lingering_potion",
         "minecraft:ender_pearl",
     ]
     .contains(&f.projectile_kind.as_str())
@@ -474,6 +476,17 @@ mod tests {
             }),
             Ok(())
         );
+    }
+    #[test]
+    fn thrown_potions_follow_the_same_verified_flight_and_expiry_rules() {
+        for kind in ["minecraft:splash_potion", "minecraft:lingering_potion"] {
+            let mut f = basic("potion");
+            f.projectile_kind = kind.into();
+            assert!(validate(&f, 1100, 1100).is_ok());
+            assert!(validate(&f, 8000, 8000).is_err());
+            f.trajectory[1][0] = f64::NAN;
+            assert!(validate(&f, 1100, 1100).is_err());
+        }
     }
     #[test]
     fn contact_is_stable_and_removal_cannot_replay_it() {

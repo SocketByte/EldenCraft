@@ -55,6 +55,20 @@ public final class CampaignCombat {
       if (item == null || item == Items.AIR)
         throw new IOException("Unknown Minecraft item in campaign JSON: " + id);
     }
+    try {
+      for (var reward : config.starterItems)
+        CampaignItems.validateRegistry(reward.item(), reward.potion());
+      for (var boss : config.bosses)
+        for (var reward : boss.rewards())
+          CampaignItems.validateRegistry(reward.item(), reward.potion());
+      for (var entry : config.enemyLoot.entries())
+        CampaignItems.validateRegistry(entry.item(), entry.potion());
+      for (var shop : CampaignShopCatalog.parse(config.raw()).shops())
+        for (var offer : shop.offers())
+          CampaignItems.validateRegistry(offer.item(), offer.potion());
+    } catch (IllegalArgumentException error) {
+      throw new IOException(error.getMessage(), error);
+    }
     var blocks = new HashSet<>(config.mining.allowedBlocks());
     for (var zone : config.mining.resourceZones()) blocks.add(zone.block());
     for (String id : blocks) {
@@ -236,6 +250,8 @@ public final class CampaignCombat {
     String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
     if (id.endsWith("_sword")) return "sword";
     if (id.endsWith("_axe")) return "axe";
+    if (id.endsWith("_spear")) return "spear";
+    if (stack.is(Items.MACE)) return "mace";
     if (stack.is(Items.BOW)) return "bow";
     if (stack.is(Items.CROSSBOW)) return "crossbow";
     return "other";

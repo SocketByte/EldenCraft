@@ -6,12 +6,14 @@ pub const FRESH_MS: u64 = 150;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Medium {
+    None,
     Water,
     Lava,
 }
 impl Medium {
     pub fn horizontal_scale(self) -> f32 {
         match self {
+            Self::None => 1.,
             Self::Water => 0.5,
             Self::Lava => 0.25,
         }
@@ -25,6 +27,13 @@ pub struct Contact {
     pub position: [f64; 3],
     pub time_ms: u64,
     pub observed_frame: u64,
+    #[serde(default = "full_speed")]
+    pub speed_scale: f32,
+    #[serde(default)]
+    pub attack_bonus: f32,
+}
+fn full_speed() -> f32 {
+    1.
 }
 impl Contact {
     pub fn valid(self) -> bool {
@@ -34,6 +43,10 @@ impl Contact {
             && self.time_ms > 0
             && self.observed_frame > 0
             && finite_position(self.position)
+            && self.speed_scale.is_finite()
+            && (0. ..=3.).contains(&self.speed_scale)
+            && self.attack_bonus.is_finite()
+            && (-20. ..=15.).contains(&self.attack_bonus)
     }
     pub fn fresh(self, now: u64) -> bool {
         self.valid() && self.time_ms <= now && now - self.time_ms <= FRESH_MS
@@ -60,8 +73,26 @@ impl Owned {
             && self.contact.id == id
             && self.instance == instance
             && instance != 0)
-            .then(|| self.contact.medium.horizontal_scale())
+            .then(|| self.contact.medium.horizontal_scale() * self.contact.speed_scale)
     }
+}
+static EFFECTS: std::sync::Mutex<Vec<Owned>> = std::sync::Mutex::new(Vec::new());
+pub fn publish(contacts: &[Owned]) {
+    if let Ok(mut current) = EFFECTS.try_lock() {
+        *current = contacts.iter().copied().take(64).collect();
+    }
+}
+pub fn attack_bonus(now: u64, id: u64, instance: usize) -> f64 {
+    EFFECTS
+        .try_lock()
+        .ok()
+        .and_then(|contacts| {
+            contacts
+                .iter()
+                .find(|c| c.scale(now, id, instance).is_some())
+                .map(|c| c.contact.attack_bonus as f64)
+        })
+        .unwrap_or(0.)
 }
 #[cfg(test)]
 mod tests {
@@ -74,6 +105,8 @@ mod tests {
             position: [0.; 3],
             time_ms: 1000,
             observed_frame: 3,
+            speed_scale: 1.,
+            attack_bonus: 0.,
         }
     }
     #[test]
@@ -129,5 +162,36 @@ mod tests {
             .valid()
         );
         assert!(!Contact { id: 1, ..c }.valid());
+    }
+    #[test]
+    fn debuffs_combine_with_fluids_and_release_with_the_exact_actor_lease() {
+        let c = Contact {
+            speed_scale: 0.4,
+            attack_bonus: -4.,
+            ..contact()
+        };
+        let owned = Owned {
+            contact: c,
+            instance: 20,
+        };
+        assert_eq!(owned.scale(1000, 10, 20), Some(0.2));
+        publish(&[owned]);
+        assert_eq!(attack_bonus(1000, 10, 20), -4.);
+        assert_eq!(attack_bonus(1151, 10, 20), 0.);
+        assert_eq!(attack_bonus(1000, 10, 21), 0.);
+        publish(&[]);
+        assert_eq!(attack_bonus(1000, 10, 20), 0.);
+        for c in [
+            Contact {
+                speed_scale: f32::NAN,
+                ..c
+            },
+            Contact {
+                attack_bonus: -21.,
+                ..c
+            },
+        ] {
+            assert!(!c.valid());
+        }
     }
 }

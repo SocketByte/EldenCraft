@@ -387,7 +387,21 @@ unsafe fn filter(regs: &Registers) {
         .filter(|_| permit_valid)
         .and_then(|p| incoming.and_then(|direction| reduced_damage(damage, p.forward, direction)));
     let breaks = crate::campaign_runtime::guard_breaks();
-    let filtered = crate::campaign_runtime::filter_damage(damage, blocking.is_some(), hp, max_hp);
+    let attack_bonus = if incoming.is_some() {
+        let chr = unsafe { &*(source as *const ChrIns) };
+        let handle = chr.field_ins_handle;
+        let id = u64::from(handle.selector.0) | (u64::from(handle.block_id.0 as u32) << 32);
+        crate::world_fluids::attack_bonus(now, id, source)
+    } else {
+        0.
+    };
+    let filtered = crate::campaign_runtime::filter_damage_from(
+        damage,
+        blocking.is_some(),
+        hp,
+        max_hp,
+        attack_bonus,
+    );
     let broken_through = crate::campaign_runtime::guard_breaks() != breaks;
     let reduced = filtered.or_else(|| {
         (!crate::campaign_runtime::enabled())
