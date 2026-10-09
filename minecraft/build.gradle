@@ -60,6 +60,7 @@ def conformanceSuites = [
     hostDamageConformance: ['dev.eldencraft.bridge.HostDamageConformance', 'Check host hurt feedback lifecycle, stale gaps, duplicate frames and health-cap changes.'],
     proxyConformance: ['dev.eldencraft.bridge.ProxyConformance', 'Check bounded authoritative combat packets, handshake, receipt ACKs and no replay across loss.'],
     proxyShapeConformance: ['dev.eldencraft.bridge.ProxyShapeConformance', 'Check actual target dimensions and vanilla particle sampling bounds.'],
+    proxyHealthConformance: ['dev.eldencraft.bridge.ProxyHealthConformance', 'Check large native HP pools, bounded vanilla recipients and pending melee/ranged damage.'],
     proxyViewConformance: ['dev.eldencraft.bridge.ProxyViewConformance', 'Check coherent camera-relative geometry and host screen-right projection.'],
     healingConformance: ['dev.eldencraft.bridge.HealingConformance', 'Check golden apple server cadence, healing frame bounds, acknowledgements and disconnect resets.'],
     framePipelineConformance: ['dev.eldencraft.bridge.FramePipelineConformance', 'Check active-host frame limits and bounded frame pipeline freshness.'],

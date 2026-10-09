@@ -26,8 +26,7 @@ impl Eligibility {
     fn rejection(self) -> Option<&'static str> {
         if !self.enemy_class {
             Some("not_enemy_class")
-        } else if !self.boss_registered && self.character_type != eldenring::cs::ChrType::Npc as i32
-        {
+        } else if !self.boss_registered && !native_enemy_type(self.character_type) {
             Some("not_native_npc")
         } else if self.team == self.player_team {
             Some("same_team")
@@ -41,6 +40,15 @@ impl Eligibility {
             None
         }
     }
+}
+
+/// Ordinary NPC enemies use type 5. Large scripted enemies (live: Fire Giant
+/// c4760, c4750, c2030) use the unnamed type 7. The Fire Giant's boss-health
+/// gauge is registered to its dormant second-phase character, so the body in
+/// combat must qualify through this ordinary path. Phantoms/ghosts never do.
+fn native_enemy_type(character_type: i32) -> bool {
+    use eldenring::cs::ChrType;
+    character_type == ChrType::Npc as i32 || character_type == ChrType::Unk7 as i32
 }
 
 /// Rechecked immediately before damage as well as when publishing target boxes.
@@ -296,6 +304,58 @@ fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
 }
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|i| a[i] - b[i])
+}
+/// Copied evidence from a current native character/projectile on the damage task.
+/// The identity token stays inside native processing and is never published.
+pub(crate) struct ShieldAttack {
+    pub handle: Handle,
+    pub instance_token: usize,
+    pub npc_param_id: i32,
+    pub source_position: [f32; 3],
+    pub projectile_position: Option<[f32; 3]>,
+    pub incoming: [f32; 3],
+    pub direction_source: &'static str,
+}
+fn consistent_owner<T: Copy + PartialEq>(caller: Option<T>, request: Option<T>) -> Option<T> {
+    match (caller, request) {
+        (Some(a), Some(b)) if a != b => None,
+        (Some(a), _) => Some(a),
+        (_, b) => b,
+    }
+}
+fn shield_direction(
+    victim: [f32; 3],
+    owner: [f32; 3],
+    projectile: Option<([f32; 3], [f32; 3])>,
+) -> Option<([f32; 3], &'static str)> {
+    let bounded = |v| finite(v) && dot(v, v) <= 256. * 256.;
+    let horizontal = |v: [f32; 3]| v[0] * v[0] + v[2] * v[2] >= 0.000001;
+    if !finite(victim) || !finite(owner) {
+        return None;
+    }
+    if let Some((position, velocity)) = projectile {
+        let delta = sub(victim, position);
+        if !finite(position) || !bounded(delta) || !bounded(velocity) {
+            return None;
+        }
+        if horizontal(delta) {
+            return Some((delta, "projectile_position"));
+        }
+        // A moving projectile can already be at the player's centre when the
+        // HP processor runs. Its copied velocity still describes its approach.
+        if horizontal(velocity) {
+            return Some((velocity, "projectile_velocity"));
+        }
+    }
+    let delta = sub(victim, owner);
+    (bounded(delta) && horizontal(delta)).then_some((
+        delta,
+        if projectile.is_some() {
+            "stationary_projectile_owner"
+        } else {
+            "character_position"
+        },
+    ))
 }
 fn finite(v: [f32; 3]) -> bool {
     v.into_iter()
@@ -692,32 +752,139 @@ mod live {
         }
         Ok(unsafe { std::slice::from_raw_parts(raw.first, bytes / stride) })
     }
-    /// Derive a shield attack direction only from current registered characters.
-    /// Native reaction vectors can instead encode attacker facing; do not use
-    /// those as evidence that the attacker is in front of the defender.
-    pub(crate) unsafe fn shield_incoming(source: usize, target: usize) -> Option<[f32; 3]> {
+    fn current_character<'a>(
+        world: &'a WorldChrMan,
+        id: &eldenring::cs::FieldInsHandle,
+    ) -> Option<&'a ChrIns> {
+        if id.is_empty() || id.selector.field_ins_type() != Some(FieldInsType::Chr) {
+            return None;
+        }
+        let chr = world.chr_ins_by_handle(id)?;
+        if chr.field_ins_handle != *id
+            || !chr.chr_flags1c8.is_active()
+            || !chr.chr_flags1c8.update_tasks_registered()
+            || !unsafe { chr.chr_set_entry.as_ref() }
+                .chr_ins
+                .is_some_and(|entry| std::ptr::eq(entry.as_ptr(), chr))
+        {
+            return None;
+        }
+        Some(chr)
+    }
+    /// Both arguments originate in the pinned native damage call, whose sources
+    /// are FieldIns derivants. Read only their common handle before resolving
+    /// and comparing the exact current ChrIns; distance-priority lists are not
+    /// the character registry and can omit the owner of a ranged attack.
+    unsafe fn source_character(world: &WorldChrMan, source: usize) -> Option<&ChrIns> {
+        if source == 0 || !source.is_multiple_of(8) {
+            return None;
+        }
+        const HANDLE_OFFSET: usize = std::mem::offset_of!(ChrIns, field_ins_handle);
+        const _: () = assert!(HANDLE_OFFSET == 8);
+        let id =
+            unsafe { ((source + HANDLE_OFFSET) as *const eldenring::cs::FieldInsHandle).read() };
+        current_character(world, &id).filter(|chr| std::ptr::from_ref(*chr) as usize == source)
+    }
+    #[derive(Clone, Copy)]
+    struct ProjectileSource {
+        owner: eldenring::cs::FieldInsHandle,
+        position: [f32; 3],
+        velocity: [f32; 3],
+    }
+    unsafe fn source_projectile(source: usize) -> Option<ProjectileSource> {
+        use eldenring::cs::CSBulletManager;
+        if source == 0 || !source.is_multiple_of(8) {
+            return None;
+        }
+        let manager = unsafe { CSBulletManager::instance() }.ok()?;
+        // Compare pointers in the current native list before accessing bullet
+        // fields. The bound also prevents a malformed/cyclic list from hanging.
+        let bullet = manager
+            .bullets()
+            .take(MAX_VECTOR_ENTRIES)
+            .find(|bullet| std::ptr::from_ref(*bullet) as usize == source)?;
+        if bullet.field_ins_handle.is_empty()
+            || bullet.field_ins_handle.selector.field_ins_type() != Some(FieldInsType::Bullet)
+            || !std::ptr::eq(bullet.targeting_owner.bullet.as_ptr(), bullet)
+        {
+            return None;
+        }
+        let p = bullet.physics.position;
+        let v = bullet.physics.velocity;
+        Some(ProjectileSource {
+            owner: bullet.targeting_owner.owner_chr_handle,
+            position: [p.0, p.1, p.2],
+            velocity: [v.0, v.1, v.2],
+        })
+    }
+    /// A native projectile and its owning character may occupy different source
+    /// slots. Resolve their owner identities instead of requiring pointer equality.
+    /// Reaction vectors remain diagnostics, never attack-direction evidence.
+    pub(crate) unsafe fn shield_attack(
+        source: usize,
+        request_source: usize,
+        target: usize,
+    ) -> Option<ShieldAttack> {
         let world = unsafe { WorldChrMan::instance() }.ok()?;
         let player = world.main_player.as_ref()?;
-        if &player.chr_ins as *const ChrIns as usize != target || source == target {
+        if &player.chr_ins as *const ChrIns as usize != target {
             return None;
         }
-        let entry = unsafe { entries(&world.chr_inses_by_distance) }
-            .ok()?
-            .iter()
-            .find(|entry| entry.chr_ins.as_ptr() as usize == source)?;
-        let chr = unsafe { entry.chr_ins.as_ref() };
-        let handle = chr.field_ins_handle;
-        if handle.is_empty() || handle.selector.field_ins_type() != Some(FieldInsType::Chr) {
+        let caller_character = unsafe { source_character(world, source) };
+        let caller_projectile = caller_character
+            .is_none()
+            .then(|| unsafe { source_projectile(source) })
+            .flatten();
+        let request_character = if request_source == source {
+            caller_character
+        } else {
+            unsafe { source_character(world, request_source) }
+        };
+        let request_projectile = if request_source == source {
+            caller_projectile
+        } else {
+            request_character
+                .is_none()
+                .then(|| unsafe { source_projectile(request_source) })
+                .flatten()
+        };
+        let caller_owner = caller_character
+            .or_else(|| caller_projectile.and_then(|p| current_character(world, &p.owner)));
+        let request_owner = request_character
+            .or_else(|| request_projectile.and_then(|p| current_character(world, &p.owner)));
+        if caller_projectile.is_some() && caller_owner.is_none()
+            || request_projectile.is_some() && request_owner.is_none()
+        {
             return None;
         }
-        let resolved = world.chr_ins_by_handle(&handle)?;
-        if resolved as *const ChrIns as usize != source {
+        let owner = consistent_owner(
+            caller_owner.map(std::ptr::from_ref),
+            request_owner.map(std::ptr::from_ref),
+        )?;
+        let chr = caller_owner
+            .filter(|chr| std::ptr::eq(*chr, owner))
+            .or(request_owner)?;
+        if owner as usize == target {
             return None;
         }
+        let projectile = request_projectile.or(caller_projectile);
         let a = chr.modules.physics.position;
         let b = player.chr_ins.modules.physics.position;
-        let delta = [b.0 - a.0, b.1 - a.1, b.2 - a.2];
-        (finite(delta) && dot(delta, delta) <= 256.0 * 256.0).then_some(delta)
+        let source_position = [a.0, a.1, a.2];
+        let (incoming, direction_source) = shield_direction(
+            [b.0, b.1, b.2],
+            source_position,
+            projectile.map(|p| (p.position, p.velocity)),
+        )?;
+        Some(ShieldAttack {
+            handle: handle(chr),
+            instance_token: owner as usize,
+            npc_param_id: chr.npc_param_id,
+            source_position,
+            projectile_position: projectile.map(|p| p.position),
+            incoming,
+            direction_source,
+        })
     }
     fn handle(chr: &ChrIns) -> Handle {
         Handle {
@@ -1068,13 +1235,60 @@ mod live {
 #[cfg(windows)]
 pub(crate) use live::readiness_rejection;
 #[cfg(windows)]
-pub(crate) use live::shield_incoming;
+pub(crate) use live::shield_attack;
 #[cfg(windows)]
 pub use live::{target_snapshot, target_snapshot_with_radius};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damage_sources_share_owner_identity_without_needing_the_same_pointer() {
+        // A caller character and a request projectile resolve to the same native
+        // owner, even though their source object pointers differ.
+        assert_eq!(consistent_owner(Some(7), Some(7)), Some(7));
+        assert_eq!(consistent_owner(Some(7), None), Some(7));
+        assert_eq!(consistent_owner(None, Some(7)), Some(7));
+        assert_eq!(consistent_owner(Some(7), Some(8)), None);
+        assert_eq!(consistent_owner::<usize>(None, None), None);
+    }
+    #[test]
+    fn stationary_snow_wave_and_moving_projectiles_keep_their_approach_direction() {
+        let victim = [0.; 3];
+        let owner = [0., 0., 20.];
+        assert_eq!(
+            shield_direction(victim, owner, Some(([0., 0., 2.], [0.; 3]))),
+            Some(([0., 0., -2.], "projectile_position"))
+        );
+        assert_eq!(
+            shield_direction(victim, owner, Some((victim, [0., 0., -12.]))),
+            Some(([0., 0., -12.], "projectile_velocity"))
+        );
+        assert_eq!(
+            shield_direction(victim, owner, Some((victim, [0.; 3]))),
+            Some(([0., 0., -20.], "stationary_projectile_owner"))
+        );
+        // Shooter position cannot turn a projectile behind the shield into a
+        // frontal block, even when the shooter remains in front.
+        assert_eq!(
+            shield_direction(victim, owner, Some(([0., 0., -2.], [0., 0., 12.]))),
+            Some(([0., 0., 2.], "projectile_position"))
+        );
+        assert_eq!(
+            shield_direction(victim, [0., 0., -20.], None),
+            Some(([0., 0., 20.], "character_position"))
+        );
+        for projectile in [
+            ([f32::NAN, 0., 2.], [0.; 3]),
+            ([0., 0., 2.], [f32::INFINITY, 0., 0.]),
+            ([0., 0., 257.], [0.; 3]),
+        ] {
+            assert!(shield_direction(victim, owner, Some(projectile)).is_none());
+        }
+        assert!(shield_direction(victim, victim, None).is_none());
+        assert!(shield_direction(victim, [0., 0., 257.], None).is_none());
+    }
 
     #[test]
     fn giant_collision_is_admitted_by_body_surface_in_both_height_profiles() {
@@ -1300,6 +1514,55 @@ mod tests {
             .rejection(),
             Some("npc_not_lockable")
         );
+    }
+    #[test]
+    fn fire_giant_combat_body_qualifies_without_its_phase_two_gauge_registration() {
+        // Live 47600050: the gauge belongs to dormant 47601050, so this
+        // attacking body is unregistered and reports native character type 7.
+        let fire_giant = Eligibility {
+            enemy_class: true,
+            character_type: eldenring::cs::ChrType::Unk7 as i32,
+            team: 33,
+            player_team: 1,
+            npc_param_present: true,
+            boss_registered: false,
+            lock_distance: 100,
+            lock_disabled: false,
+        };
+        assert_eq!(fire_giant.rejection(), None);
+        // The ordinary path still applies every other gate to type 7.
+        for (target, reason) in [
+            (
+                Eligibility {
+                    enemy_class: false,
+                    ..fire_giant
+                },
+                "not_enemy_class",
+            ),
+            (
+                Eligibility {
+                    team: 1,
+                    ..fire_giant
+                },
+                "same_team",
+            ),
+            (
+                Eligibility {
+                    lock_distance: 0,
+                    ..fire_giant
+                },
+                "npc_not_lockable",
+            ),
+            (
+                Eligibility {
+                    lock_disabled: true,
+                    ..fire_giant
+                },
+                "native_lock_disabled",
+            ),
+        ] {
+            assert_eq!(target.rejection(), Some(reason));
+        }
     }
     #[test]
     fn authored_dimensions_keep_specialized_boss_collision_pickable() {

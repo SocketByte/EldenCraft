@@ -236,7 +236,7 @@ public final class CampaignConformance {
     check(
         offers.values().stream().noneMatch(o -> o.item().startsWith("minecraft:chainmail_")),
         "chainmail remains an optional-boss reward");
-    near(rules.weapons.get("minecraft:netherite_sword").damage(), 18, "material damage default");
+    near(rules.weapons.get("minecraft:netherite_sword").damage(), 27, "material damage default");
     near(
         rules.explosionDamageScale, .125, "TNT and creepers receive the increased explosion share");
     near(rules.lavaDamageScale, .075, "lava and fire keep a small share against native enemies");

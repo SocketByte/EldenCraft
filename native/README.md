@@ -63,8 +63,40 @@ a distant edge cannot invalidate the entire target frame. These remain upright
 collision proxies, rather than per-bone weak-point hitboxes. Rejected shape
 diagnostics include the instance and authored dimensions. Native encounter,
 activity, phase protection, fresh identity, reach and cover checks still apply.
+Unregistered enemies qualify with native character type 5 or the large scripted
+enemy type 7. The Fire Giant's gauge belongs to its dormant second-phase
+character, so its fighting body (type 7) uses the ordinary lockable-enemy gates.
+The direct HP processor does not forward that body's loss to the gauge owner, so
+native damage mirrors the observed loss onto the only dormant registered gauge
+owner of the same model and map block, never below 1 HP. Receipts log it as
+`gauge_mirror`.
+The guest accepts the same player-relative +/-64 m coordinate window, with each
+entity extent still limited to 64 m. Large native HP pools use a capped 1024 HP
+Minecraft damage recipient; native health and each vanilla damage receipt keep
+their configured scale. Pending melee and ranged loss is subtracted after the cap.
+
+Raised shields resolve native damage sources through the current character and
+projectile registries. A projectile and its owner may occupy different caller and
+request source slots. Current owner identity must agree when both resolve;
+projectile position, then its velocity at a coincident impact, supplies the front
+half-plane test. Stationary coincident waves fall back to their verified owner.
+Reaction vectors remain diagnostic only. The normal guard lease and server
+stamina costs still apply.
 
 ## Interaction menus
+
+The explicit `/unlockall` debug command unlocks every discoverable Site of Grace
+and reveals all map fragments, including DLC rows, using the loaded
+`BonfireWarpParam` and `WorldMapPieceParam` tables. It requires
+the active offline campaign bridge and an unshared singleplayer Minecraft session;
+the supplies-only `debugKits` setting does not hide this command. Native processing
+checks the current character/session and request freshness, then sets only each
+grace row's `eventflagId` discovery flag and map row's `openEventFlagId` reveal
+condition, then reads them back before acknowledging success. Map opening flags
+also expand the travel area. Boss-clear, quest, map acquisition animation and
+grace text-condition flags are untouched.
+The prefix layout follows the pinned SDK and
+[Paramdex's grace definition](https://github.com/soulsmods/Paramdex/blob/master/ER/Defs/BonfireWarpParam.xml).
 
 `interaction_runtime` captures the pinned ESD talk events and environment queries.
 Campaign shops and interaction menus share one idempotent talk-event dispatcher;

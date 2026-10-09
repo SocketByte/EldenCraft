@@ -92,7 +92,7 @@ public final class ProxyDebugRenderer {
       var sharedId = SharedWorldClient.proxyUuid(target.handle());
       int color =
           ProxyDebugColors.classify(
-              target.hittable() && target.maxHp() / frame.scale() <= 1024,
+              target.hittable(),
               canAttack,
               range,
               (sharedId == null ? target.uuid(frame.epoch()) : sharedId).equals(selected));

@@ -69,6 +69,29 @@ public final class ProxyConformance {
   public static void main(String[] args) {
     var valid = ProxyProtocol.decodeTargets(packet().array(), 1000);
     check(valid.ready() && valid.targets().getFirst().hittable(), "ready and visible");
+    var giantPacket = packet();
+    giantPacket.putFloat(144, -12).putFloat(148, -.25f).putFloat(152, 2);
+    giantPacket.putFloat(156, 12).putFloat(160, 63.75f).putFloat(164, 26);
+    giantPacket.putFloat(168, 42363).putFloat(172, 42363).putFloat(92, 36);
+    var giant = ProxyProtocol.decodeTargets(giantPacket.array(), 1000);
+    check(
+        giant.ready() && giant.targets().getFirst().hittable(),
+        "giant target survives the native 64m coordinate window and a large HP pool");
+    var giantShape = new ProxyShape(24, 64, 24);
+    check(
+        giantShape.entityHeight()
+            == giant.targets().getFirst().max().y() - giant.targets().getFirst().min().y(),
+        "decoded giant box fits the actual entity extent limit");
+    for (int axis = 0; axis < 3; axis++) {
+      for (int side : new int[] {-1, 1}) {
+        var edge = packet();
+        edge.putFloat(144 + axis * 4, side < 0 ? -64 : 63);
+        edge.putFloat(156 + axis * 4, side < 0 ? -63 : 64);
+        check(
+            ProxyProtocol.decodeTargets(edge.array(), 1000).targets().size() == 1,
+            "all six native coordinate boundaries are accepted");
+      }
+    }
     check(
         valid.targets().getFirst().uuid(42).equals(valid.targets().getFirst().uuid(42)),
         "stable proxy identity");
@@ -142,7 +165,11 @@ public final class ProxyConformance {
     reject(b -> b.putLong(128, 0), "zero handle");
     reject(b -> b.putLong(136, 0), "zero generation");
     reject(b -> b.putFloat(144, 1), "inverted box");
-    reject(b -> b.putFloat(144, -33), "remote box");
+    reject(b -> b.putFloat(144, -65), "remote box");
+    reject(b -> b.putFloat(160, 65), "remote top");
+    reject(b -> b.putFloat(144, -64).putFloat(156, 1), "oversized X extent");
+    reject(b -> b.putFloat(148, -1).putFloat(160, 64), "oversized Y extent");
+    reject(b -> b.putFloat(152, -64).putFloat(164, 1), "oversized Z extent");
     reject(b -> b.putFloat(168, -1), "negative hp");
     reject(b -> b.putFloat(168, 1001), "over maximum hp");
     reject(b -> b.putFloat(172, Float.NaN), "NaN hp");

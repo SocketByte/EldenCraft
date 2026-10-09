@@ -74,7 +74,7 @@ function Read-Release([string]$Root) {
         catch {
             if ($file.path -eq 'config/campaign.json') {
                 $dataRoot = if ($DataDirectory) { $DataDirectory } else { Join-Path $env:LOCALAPPDATA 'EldenCraft' }
-                throw "The bundled campaign template was changed: $path. Restore it from the release ZIP, then edit the runtime copy at $(Join-Path $dataRoot 'campaign.json'). Setup preserves that copy. Restart both games after editing."
+                throw "The bundled campaign template was changed: $path. Restore it from the release ZIP, then edit the runtime copy at $(Join-Path $dataRoot 'campaign.json'). Setup keeps that copy until a release ships a new template, then saves it as a .bak. Restart both games after editing."
             }
             throw
         }
@@ -429,13 +429,36 @@ path = "eldencraft_native.dll"
 '@
 }
 
+# A release with a new bundled template replaces the runtime rules once, after
+# saving the player's copy beside it. Later edits persist until the next new template.
+function Update-CampaignRules([string]$Template, [string]$Path, [string]$Version) {
+    $marker = "$Path.template-sha256"
+    $templateHash = (Get-FileHash -LiteralPath $Template -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (Test-Path -LiteralPath $Path) {
+        $applied = if (Test-Path -LiteralPath $marker) { (Get-Content -LiteralPath $marker -Raw).Trim() } else { '' }
+        if ($applied -eq $templateHash) { return }
+        if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ine $templateHash) {
+            $backup = "$Path.pre-$Version-$(Get-Date -Format 'yyyyMMdd-HHmmss').bak"
+            if (Test-Path -LiteralPath $backup) { $backup = "$Path.pre-$Version-$([guid]::NewGuid().ToString('N')).bak" }
+            Copy-Item -LiteralPath $Path -Destination $backup
+            $temporary = "$Path.tmp-$([guid]::NewGuid().ToString('N'))"
+            Copy-Item -LiteralPath $Template -Destination $temporary
+            Move-Item -LiteralPath $temporary -Destination $Path -Force
+            Write-Host "Campaign rules updated to the $Version template. Previous rules saved as: $backup"
+        }
+    } else {
+        Copy-Item -LiteralPath $Template -Destination $Path
+    }
+    Write-Utf8File $marker $templateHash
+}
+
 function Set-CampaignProfile($Release, [string]$DataDirectory, [string]$Instance, [string]$Runtime) {
     $campaignPath = Join-Path $DataDirectory 'campaign.json'
     if ($env:ELDENCRAFT_CAMPAIGN_CONFIG) {
         $campaignPath = [IO.Path]::GetFullPath($env:ELDENCRAFT_CAMPAIGN_CONFIG)
         if (-not (Test-Path -LiteralPath $campaignPath -PathType Leaf)) { throw "Campaign configuration not found: $campaignPath" }
-    } elseif (-not (Test-Path -LiteralPath $campaignPath)) {
-        Copy-Item -LiteralPath (Join-Path $Release.Root 'config/campaign.json') -Destination $campaignPath
+    } else {
+        Update-CampaignRules (Join-Path $Release.Root 'config/campaign.json') $campaignPath $Release.Version
     }
     $campaignDirectory = Join-Path $Runtime 'data/campaign'
     if ($env:ELDENCRAFT_CAMPAIGN_DIR) { $campaignDirectory = [IO.Path]::GetFullPath($env:ELDENCRAFT_CAMPAIGN_DIR) }

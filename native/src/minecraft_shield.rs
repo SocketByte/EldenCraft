@@ -1,7 +1,7 @@
 //! Real Minecraft raised-shield intent at the verified native HP processor.
 //! The native weapon's absorption is deliberately not involved. This modifies
 //! the final positive HP loss before subtraction, including otherwise fatal hits.
-use eldenring::cs::{ChrIns, PlayerIns};
+use eldenring::cs::PlayerIns;
 use fromsoftware_shared::program::Program;
 use ilhook::x64::{HookFlags, Registers, hook_closure_jmp_back};
 use pelite::pe64::PeObject;
@@ -43,6 +43,9 @@ pub struct HitTrace {
     pub decision: &'static str,
     pub source_npc_param: Option<i32>,
     pub source_position: Option<[f32; 3]>,
+    pub projectile_position: Option<[f32; 3]>,
+    pub direction_source: Option<&'static str>,
+    pub request_source_matches_caller: Option<bool>,
     pub incoming: Option<[f32; 3]>,
     /// Existing verified request reaction vector; diagnostic only. A native
     /// reaction vector is not verified contact-origin/approach evidence.
@@ -269,6 +272,9 @@ fn skipped_trace(
         decision,
         source_npc_param: None,
         source_position: None,
+        projectile_position: None,
+        direction_source: None,
+        request_source_matches_caller: None,
         incoming: None,
         request_reaction: [0.; 3],
         forward: permit.map(|p| p.forward),
@@ -332,9 +338,6 @@ unsafe fn filter(regs: &Registers) {
     if module == 0 || !module.is_multiple_of(8) {
         return skip("skipped: damage module missing");
     }
-    if source == 0 {
-        return skip("skipped: attack source missing");
-    }
     let self_inflicted = source == identity.player;
     if regs.r9 as u8 != 0 {
         return skip("skipped: target already dead");
@@ -352,8 +355,8 @@ unsafe fn filter(regs: &Registers) {
         return skip("skipped: not the player's damage module");
     }
     let request_source = unsafe { request.add(0x1d8).cast::<usize>().read_unaligned() };
-    if request_source != source {
-        return skip("skipped: request source differs from caller");
+    if source == 0 && request_source == 0 {
+        return skip("skipped: attack source missing");
     }
     if !(1..=crate::native_damage::MAX_DAMAGE).contains(&damage) {
         return skip("skipped: damage outside bounds");
@@ -373,28 +376,19 @@ unsafe fn filter(regs: &Registers) {
         }
         return skip("skipped: self-inflicted damage");
     }
-    let target = local;
-    let incoming = unsafe { crate::combat_targets::shield_incoming(source, target) };
-    let source_info = incoming.map(|_| {
-        // shield_incoming already resolved this exact current registered ChrIns.
-        let chr = unsafe { &*(source as *const ChrIns) };
-        let p = chr.modules.physics.position;
-        (chr.npc_param_id, [p.0, p.1, p.2])
-    });
+    let attack = unsafe { crate::combat_targets::shield_attack(source, request_source, local) };
+    let incoming = attack.as_ref().map(|attack| attack.incoming);
     let permit_valid =
         permit.is_some_and(|p| lease_matches(p, identity, now, GENERATION.load(Ordering::Acquire)));
     let blocking = permit
         .filter(|_| permit_valid)
         .and_then(|p| incoming.and_then(|direction| reduced_damage(damage, p.forward, direction)));
     let breaks = crate::campaign_runtime::guard_breaks();
-    let attack_bonus = if incoming.is_some() {
-        let chr = unsafe { &*(source as *const ChrIns) };
-        let handle = chr.field_ins_handle;
-        let id = u64::from(handle.selector.0) | (u64::from(handle.block_id.0 as u32) << 32);
-        crate::world_fluids::attack_bonus(now, id, source)
-    } else {
-        0.
-    };
+    let attack_bonus = attack.as_ref().map_or(0., |attack| {
+        let id =
+            u64::from(attack.handle.selector) | (u64::from(attack.handle.block_id as u32) << 32);
+        crate::world_fluids::attack_bonus(now, id, attack.instance_token)
+    });
     let filtered = crate::campaign_runtime::filter_damage_from(
         damage,
         blocking.is_some(),
@@ -428,8 +422,13 @@ unsafe fn filter(regs: &Registers) {
             Some(_) if crate::campaign_runtime::enabled() => "server_guard_unready_or_stamina_debt",
             Some(_) => "sandbox_block_reduction",
         },
-        source_npc_param: source_info.map(|s| s.0),
-        source_position: source_info.map(|s| s.1),
+        source_npc_param: attack.as_ref().map(|attack| attack.npc_param_id),
+        source_position: attack.as_ref().map(|attack| attack.source_position),
+        projectile_position: attack
+            .as_ref()
+            .and_then(|attack| attack.projectile_position),
+        direction_source: attack.as_ref().map(|attack| attack.direction_source),
+        request_source_matches_caller: Some(request_source == source),
         incoming,
         request_reaction: std::array::from_fn(|i| unsafe {
             request.add(0x1c0 + i * 4).cast::<f32>().read_unaligned()

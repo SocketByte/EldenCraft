@@ -81,19 +81,19 @@
       "attackSpeed": 0.9
     },
     "minecraft:diamond_sword": {
-      "damage": 13,
+      "damage": 19.5,
       "attackSpeed": 1.6
     },
     "minecraft:diamond_axe": {
-      "damage": 21,
+      "damage": 31.5,
       "attackSpeed": 1
     },
     "minecraft:netherite_sword": {
-      "damage": 18,
+      "damage": 27,
       "attackSpeed": 1.6
     },
     "minecraft:netherite_axe": {
-      "damage": 29,
+      "damage": 43.5,
       "attackSpeed": 1
     },
     "minecraft:wooden_spear": {
@@ -117,11 +117,11 @@
       "attackSpeed": 1.0
     },
     "minecraft:diamond_spear": {
-      "damage": 14,
+      "damage": 21,
       "attackSpeed": 1.0
     },
     "minecraft:netherite_spear": {
-      "damage": 19,
+      "damage": 28.5,
       "attackSpeed": 1.0
     },
     "minecraft:mace": {

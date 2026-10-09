@@ -8,6 +8,7 @@ import java.util.*;
 public final class ProxyProtocol {
   public static final int BYTES = 4096, MAX_TARGETS = 16, MAX_RECEIPTS = 32;
   public static final int DEBUG_BOUNDS = 8;
+  public static final int COORDINATE_LIMIT = 64, MAX_EXTENT = 64;
 
   public record Vec(double x, double y, double z) {}
 
@@ -81,7 +82,7 @@ public final class ProxyProtocol {
         "target identity");
     require(millis >= 0 && now >= millis && now - millis < 250, "target freshness");
     require((flags & ~15) == 0 && count >= 0 && count <= MAX_TARGETS, "target flags/count");
-    Vec camera = vec(b, 56, 32), forward = vec(b, 68, 1.01);
+    Vec camera = vec(b, 56, COORDINATE_LIMIT), forward = vec(b, 68, 1.01);
     double length =
         Math.sqrt(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
     require(Math.abs(length - 1) < .001, "target direction");
@@ -112,12 +113,15 @@ public final class ProxyProtocol {
     for (int i = 0; i < count; i++) {
       int at = 128 + i * 80;
       long handle = b.getLong(at), generation = b.getLong(at + 8);
-      Vec min = vec(b, at + 16, 32), max = vec(b, at + 28, 32);
+      Vec min = vec(b, at + 16, COORDINATE_LIMIT), max = vec(b, at + 28, COORDINATE_LIMIT);
       float hp = b.getFloat(at + 40), maxHp = b.getFloat(at + 44);
       int tf = b.getInt(at + 48);
       long team = Integer.toUnsignedLong(b.getInt(at + 52));
       require(handle != 0 && generation > 0 && identities.add(handle), "target handle");
       require(min.x < max.x && min.y < max.y && min.z < max.z, "target bounds");
+      require(
+          max.x - min.x <= MAX_EXTENT && max.y - min.y <= MAX_EXTENT && max.z - min.z <= MAX_EXTENT,
+          "target extents");
       require(
           Float.isFinite(hp)
               && Float.isFinite(maxHp)

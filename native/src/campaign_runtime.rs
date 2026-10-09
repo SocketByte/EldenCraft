@@ -1450,6 +1450,36 @@ impl Driver {
                     if req.session != self.session || req.character != character {
                         continue;
                     }
+                    if req.action == "unlock_all_graces" {
+                        let result = if crate::grace_unlock::fresh_request(&req, epoch()) {
+                            unsafe { crate::grace_unlock::unlock_all() }
+                        } else {
+                            Err("Site of Grace debug request expired")
+                        };
+                        self.ack = Some(match result {
+                            Ok(unlocked) => Ack {
+                                id: req.id,
+                                status: if unlocked.remaining == 0 {
+                                    "graces_unlocked"
+                                } else {
+                                    "graces_partial"
+                                }
+                                .into(),
+                                amount: unlocked.graces,
+                                reason: format!(
+                                    "{} of {} grace/map reveal flags remain locked",
+                                    unlocked.remaining, unlocked.total
+                                ),
+                            },
+                            Err(reason) => Ack {
+                                id: req.id,
+                                status: "graces_rejected".into(),
+                                amount: 0,
+                                reason: reason.into(),
+                            },
+                        });
+                        continue;
+                    }
                     if req.action == "close_shop" {
                         if self
                             .merchant

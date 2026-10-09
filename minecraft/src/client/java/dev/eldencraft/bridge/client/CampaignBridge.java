@@ -399,6 +399,23 @@ public final class CampaignBridge {
     return write("campaign-guest.json", j);
   }
 
+  /**
+   * Explicit debug command; the native task verifies the current save and replies by request ID.
+   */
+  public static synchronized String requestUnlockAll(Snapshot expected) {
+    var s = snapshot();
+    if (s == null
+        || expected == null
+        || s.pid() != expected.pid()
+        || s.session() != expected.session()
+        || !s.character().equals(expected.character())) return null;
+    String id = UUID.randomUUID().toString();
+    var j = envelope(s);
+    j.addProperty("id", id);
+    j.addProperty("action", "unlock_all_graces");
+    return write("campaign-guest.json", j) ? id : null;
+  }
+
   public static synchronized void publishCombat(
       double armorReductionPercent,
       double toughness,

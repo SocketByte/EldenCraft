@@ -340,6 +340,8 @@ pub struct Request {
     pub version: u32,
     pub session: u64,
     pub character: String,
+    #[serde(default)]
+    pub timestamp_ms: u64,
     pub id: String,
     pub action: String,
     #[serde(default, alias = "merchant")]
@@ -476,6 +478,7 @@ mod tests {
             version: 1,
             session: 1,
             character: "slot".into(),
+            timestamp_ms: 0,
             id: "12345678-1234-1234-1234-123456789abc".into(),
             action: "purchase".into(),
             merchant_token: "lease".into(),

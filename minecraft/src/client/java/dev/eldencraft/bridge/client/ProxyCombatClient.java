@@ -156,12 +156,15 @@ public final class ProxyCombatClient implements ProxyCombatAuthority.Adapter {
     }
     var retained = new HashSet<UUID>();
     for (var target : l.host.targets()) {
-      float maximum = target.maxHp() / l.host.scale(),
-          health =
-              target.hp() / l.host.scale()
-                  - outbox.pendingDamage(target.handle(), target.generation())
-                  - SharedWorldClient.pendingDamage(target.handle());
-      if (!target.hittable() || maximum > 1024 || health <= 0 || !Float.isFinite(health)) continue;
+      var recipient =
+          ProxyHealth.fromNative(
+              target.hp(),
+              target.maxHp(),
+              l.host.scale(),
+              outbox.pendingDamage(target.handle(), target.generation())
+                  + SharedWorldClient.pendingDamage(target.handle()));
+      float maximum = recipient.maximum(), health = recipient.remaining();
+      if (!target.hittable() || health <= 0) continue;
       UUID id = target.uuid(l.host.epoch());
       retained.add(id);
       CombatProxyEntity proxy = proxies.get(id);
@@ -364,7 +367,7 @@ public final class ProxyCombatClient implements ProxyCombatAuthority.Adapter {
     var end = start.add(f.x() * 16, f.y() * 16, f.z() * 16);
     Pick closest = null;
     for (var target : frame.targets()) {
-      if (!target.hittable() || target.maxHp() / frame.scale() > 1024) continue;
+      if (!target.hittable()) continue;
       var box = bounds(base, target);
       if (!player.getAttackRangeWith(item).isInRange(player, box, 0)) continue;
       var hit = box.contains(start) ? Optional.of(start) : box.clip(start, end);

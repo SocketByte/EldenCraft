@@ -164,7 +164,10 @@ pub fn encode_targets(
             || !finite(t.max_hp, 1., 10_000_000.)
             || t.hp > t.max_hp
             || (0..3).any(|j| {
-                !finite(t.min[j], -64., 64.) || !finite(t.max[j], -64., 64.) || t.min[j] >= t.max[j]
+                !finite(t.min[j], -64., 64.)
+                    || !finite(t.max[j], -64., 64.)
+                    || t.min[j] >= t.max[j]
+                    || t.max[j] - t.min[j] > 64.
             })
         {
             return Err("invalid target entry");
@@ -478,6 +481,34 @@ mod tests {
         s.targets.pop();
         t.min[0] = f32::NAN;
         s.targets[0] = t;
+        assert!(encode_targets(&s, 2, 1, 1000, 20).is_err());
+    }
+    #[test]
+    fn giant_wire_uses_the_complete_coordinate_window_but_bounds_entity_extents() {
+        let mut s = Targets {
+            flags: ACTIVE | DAMAGE_READY,
+            targets: vec![Target {
+                handle: 7,
+                generation: 1,
+                min: [-12., -0.25, 2.],
+                max: [12., 63.75, 26.],
+                hp: 42363.,
+                max_hp: 42363.,
+                flags: 3,
+                team: 6,
+            }],
+            ..Targets::default()
+        };
+        let b = encode_targets(&s, 2, 1, 1000, 20).unwrap();
+        assert_eq!(nf(&b, 160), 63.75);
+        assert_eq!(nf(&b, 172), 42363.);
+        s.targets[0].min[0] = -64.;
+        s.targets[0].max[0] = -63.;
+        assert!(encode_targets(&s, 2, 1, 1000, 20).is_ok());
+        s.targets[0].max[0] = 1.;
+        assert!(encode_targets(&s, 2, 1, 1000, 20).is_err());
+        s.targets[0].max[0] = -63.;
+        s.targets[0].min[0] = -65.;
         assert!(encode_targets(&s, 2, 1, 1000, 20).is_err());
     }
     #[test]

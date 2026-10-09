@@ -20,6 +20,8 @@ mod crash;
 mod glide_safety;
 #[cfg(any(windows, test))]
 mod grace_reset;
+#[cfg(any(windows, test))]
+mod grace_unlock;
 #[cfg(windows)]
 mod healing_transport;
 pub mod healing_wire;

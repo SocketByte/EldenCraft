@@ -152,6 +152,94 @@ pub struct Receipt {
     pub feedback_dispatched: bool,
     /// No value means the same instance was no longer available after feedback.
     pub post_feedback: Option<TargetObservation>,
+    /// Loss mirrored onto a dormant boss-gauge owner of this same body.
+    pub gauge_mirror: Option<GaugeMirror>,
+}
+
+/// Some phase-split bosses (live: Fire Giant c4760) register the health gauge
+/// to a dormant later-phase character. Native attacks on the fighting body
+/// lower that gauge; this direct processor call does not, so mirror its loss.
+#[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // Emitted through Debug receipt logs.
+pub struct GaugeMirror {
+    pub owner: FieldInsHandle,
+    pub hp_before: i32,
+    pub hp_after: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct GaugeOwner<H> {
+    handle: H,
+    npc_id: i32,
+    block_id: i32,
+    /// Fails combat readiness, such as unregistered update tasks.
+    dormant: bool,
+    hp: i32,
+}
+
+/// The only dormant registered gauge owner of the hit body's model and block.
+/// A registered target owns its own gauge; ambiguity mirrors nothing.
+fn linked_gauge_owner<H: Copy + PartialEq>(
+    target: H,
+    npc_id: i32,
+    block_id: i32,
+    owners: &[GaugeOwner<H>],
+) -> Option<GaugeOwner<H>> {
+    if owners.iter().any(|owner| owner.handle == target) {
+        return None;
+    }
+    let mut linked = owners.iter().filter(|owner| {
+        owner.npc_id == npc_id && owner.block_id == block_id && owner.dormant && owner.hp > 1
+    });
+    let first = *linked.next()?;
+    linked
+        .all(|owner| owner.handle == first.handle)
+        .then_some(first)
+}
+
+/// Never kills the dormant owner: its scripted phase owns that transition.
+fn mirrored_hp(hp: i32, loss: i32) -> i32 {
+    hp.saturating_sub(loss.max(0)).max(1)
+}
+
+/// Game thread only, after the hit's synchronous feedback; no references span calls.
+unsafe fn mirror_gauge_owner(target: FieldInsHandle, loss: i32) -> Option<GaugeMirror> {
+    use eldenring::cs::CSFeManImp;
+    let frontend = unsafe { CSFeManImp::instance() }.ok()?;
+    let world = unsafe { WorldChrMan::instance_mut() }.ok()?;
+    let npc_id = world.chr_ins_by_handle(&target)?.npc_id;
+    let owners = frontend
+        .boss_health_displays
+        .iter()
+        .filter(|display| display.fmg_id > 0 && !display.field_ins_handle.is_empty())
+        .filter_map(|display| {
+            let chr = world
+                .chr_ins_by_handle(&display.field_ins_handle)
+                .filter(|chr| chr.field_ins_handle == display.field_ins_handle)?;
+            let dead = chr.chr_flags1c5.death_flag();
+            Some(GaugeOwner {
+                handle: display.field_ins_handle,
+                npc_id: chr.npc_id,
+                block_id: display.field_ins_handle.block_id.0,
+                dormant: crate::combat_targets::readiness_rejection(chr).is_some(),
+                hp: if dead { 0 } else { chr.modules.data.hp },
+            })
+        })
+        .collect::<Vec<_>>();
+    let owner = linked_gauge_owner(target, npc_id, target.block_id.0, &owners)?;
+    let chr = world.chr_ins_by_handle_mut(&owner.handle)?;
+    let max_hp = chr.modules.data.max_hp;
+    let hp_before = chr.modules.data.hp;
+    if hp_before != owner.hp || hp_before <= 1 || hp_before > max_hp {
+        return None;
+    }
+    let hp_after = mirrored_hp(hp_before, loss);
+    chr.modules.data.hp = hp_after;
+    Some(GaugeMirror {
+        owner: owner.handle,
+        hp_before,
+        hp_after,
+    })
 }
 
 /// Immutable entrypoint addresses, never character/module pointers.
@@ -327,6 +415,9 @@ impl Sink {
             // may still occur after this synchronous receipt.
             let post_feedback = unsafe { self.read_receipt(target, target_ptr, module) }.ok();
             let latest = post_feedback.unwrap_or(initial);
+            let gauge_mirror = (actual_delta > 0)
+                .then(|| unsafe { mirror_gauge_owner(target, actual_delta) })
+                .flatten();
             Ok(Receipt {
                 source,
                 target,
@@ -343,6 +434,7 @@ impl Sink {
                 protection_before,
                 feedback_dispatched: actual_delta > 0,
                 post_feedback,
+                gauge_mirror,
             })
         })();
         unsafe {
@@ -493,6 +585,56 @@ impl Sink {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn owner(handle: u32, npc_id: i32, dormant: bool, hp: i32) -> GaugeOwner<u32> {
+        GaugeOwner {
+            handle,
+            npc_id,
+            block_id: 1007488258,
+            dormant,
+            hp,
+        }
+    }
+    #[test]
+    fn fire_giant_body_damage_reaches_its_dormant_phase_two_gauge_owner() {
+        // Live: body 389021696 (47600050) fights; the gauge belongs to the
+        // dormant phase-two character 389021697 (47601050), same model 4760.
+        let phase_two = owner(389021697, 4760, true, 43263);
+        assert_eq!(
+            linked_gauge_owner(389021696, 4760, 1007488258, &[phase_two]),
+            Some(phase_two)
+        );
+        assert_eq!(mirrored_hp(43263, 648), 42615);
+        // The mirror never performs the scripted phase owner's death.
+        assert_eq!(mirrored_hp(500, 648), 1);
+        assert_eq!(mirrored_hp(500, -5), 500);
+    }
+    #[test]
+    fn gauge_mirror_ignores_registered_unrelated_active_or_ambiguous_owners() {
+        let phase_two = owner(2, 4760, true, 43263);
+        // A registered target already owns its gauge, e.g. phase two itself.
+        assert_eq!(linked_gauge_owner(2, 4760, 1007488258, &[phase_two]), None);
+        // Another model, another block, or an active registered boss: no link.
+        for other in [
+            owner(2, 3800, true, 1000),
+            GaugeOwner {
+                block_id: 7,
+                ..phase_two
+            },
+            owner(2, 4760, false, 43263),
+            owner(2, 4760, true, 1),
+        ] {
+            assert_eq!(linked_gauge_owner(1, 4760, 1007488258, &[other]), None);
+        }
+        // Duplicate display slots for one owner remain one link.
+        assert_eq!(
+            linked_gauge_owner(1, 4760, 1007488258, &[phase_two, phase_two]),
+            Some(phase_two)
+        );
+        assert_eq!(
+            linked_gauge_owner(1, 4760, 1007488258, &[phase_two, owner(3, 4760, true, 9)]),
+            None
+        );
+    }
     #[test]
     fn rejects_zero_negative_and_unbounded_damage() {
         assert!(!valid_damage(0));

@@ -231,6 +231,31 @@ try {
     $campaignZip = [IO.Compression.ZipFile]::OpenRead($campaignBackups[0].FullName)
     try { Assert-True ($null -ne $campaignZip.GetEntry('native-ledger.json')) 'Campaign backup contains the native transaction journal.' }
     finally { $campaignZip.Dispose() }
+    # An upgrade shipping a different template replaces the customized rules once,
+    # after saving them beside the runtime copy.
+    $upgrade = Join-Path $scratch 'upgrade'
+    New-Item -ItemType Directory -Force -Path (Join-Path $upgrade 'config') | Out-Null
+    $upgradeRules = Get-Content -LiteralPath (Join-Path $repo 'config/campaign.json') -Raw | ConvertFrom-Json
+    $upgradeRules.stamina.regenPerSecond = 23
+    Write-Utf8File (Join-Path $upgrade 'config/campaign.json') ($upgradeRules | ConvertTo-Json -Depth 14)
+    $upgradeRelease = [pscustomobject]@{ Root = $upgrade; Version = '0.20.2' }
+    $runtimeDirectory = Join-Path $data 'runtime'
+    Set-CampaignProfile $upgradeRelease $data $instance $runtimeDirectory | Out-Null
+    Assert-True ((Get-Hash $campaign) -eq (Get-Hash (Join-Path $upgrade 'config/campaign.json'))) 'An upgraded template replaces the runtime campaign rules.'
+    $saved = @(Get-ChildItem -LiteralPath $data -File -Filter 'campaign.json.pre-0.20.2-*.bak')
+    Assert-True ($saved.Count -eq 1 -and (Get-Hash $saved[0].FullName) -eq $campaignHash) 'The replaced campaign rules are saved as a .bak.'
+    $upgradeRules.stamina.regenPerSecond = 29
+    Write-Utf8File $campaign ($upgradeRules | ConvertTo-Json -Depth 14)
+    $editedHash = Get-Hash $campaign
+    Set-CampaignProfile $upgradeRelease $data $instance $runtimeDirectory | Out-Null
+    Assert-True ((Get-Hash $campaign) -eq $editedHash) 'Edits after an upgrade persist until the next new template.'
+    Assert-True (@(Get-ChildItem -LiteralPath $data -File -Filter 'campaign.json.pre-*.bak').Count -eq 1) 'An unchanged template makes no further backups.'
+    # Installs from before template tracking that already match need no backup.
+    Copy-Item -LiteralPath (Join-Path $upgrade 'config/campaign.json') -Destination $campaign -Force
+    Remove-Item -LiteralPath "$campaign.template-sha256"
+    Set-CampaignProfile $upgradeRelease $data $instance $runtimeDirectory | Out-Null
+    Assert-True (@(Get-ChildItem -LiteralPath $data -File -Filter 'campaign.json.pre-*.bak').Count -eq 1) 'Matching untracked rules are adopted without a backup.'
+    Assert-True ((Test-Path -LiteralPath "$campaign.template-sha256")) 'The applied template is recorded.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $instance '.minecraft/options.txt') -Raw) -eq 'user preferences') 'Repeat setup must preserve Minecraft settings.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $data 'runtime/EldenCraftPreset.ini') -Raw) -eq 'custom shader preferences') 'Repeat setup must preserve shader settings.'
     Assert-True ((Get-Content -LiteralPath (Join-Path $data 'minecraft/accounts.json') -Raw) -eq 'private account fixture') 'Setup must leave account data untouched.'

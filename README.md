@@ -265,7 +265,7 @@ faster. Releasing the controls lets you hover; landing ends flight.
 - Runtime files, the Minecraft instance, logs and backups live in `%LOCALAPPDATA%\EldenCraft`. Pass `-DataDirectory "D:\EldenCraftData"` each time to use another location.
 - Elden Ring uses a separate **`EldenCraft.sl2`** save; Minecraft uses a dedicated **EldenCraft** survival world. Existing saves are backed up to verified ZIPs before any change or launch, and a failed backup stops the operation. Game installation files are never modified.
 - **Updating:** extract the new release into its own folder and run its `EldenCraft.cmd`. Worlds, sign-in, settings and shader preferences carry over.
-- **Balance:** boss rewards, enemy drops, shops, stamina, armour, weapons and gathering are configured in `%LOCALAPPDATA%\EldenCraft\campaign.json` (setup preserves your edits). See the [campaign guide](docs/campaign-configuration.md). Restart both games after changes, and keep each character's Minecraft world and campaign journal together.
+- **Balance:** boss rewards, enemy drops, shops, stamina, armour, weapons and gathering are configured in `%LOCALAPPDATA%\EldenCraft\campaign.json`. Upgrades with new default rules replace it and save your previous copy as a `.bak` beside it. See the [campaign guide](docs/campaign-configuration.md). Restart both games after changes, and keep each character's Minecraft world and campaign journal together.
 - **Debug kits:** with `debugKits: true`, `/eldencraft kit ranged`, `/eldencraft kit flight` and `/eldencraft kit nether` fill free inventory slots in the dedicated world.
 
 ## Troubleshooting

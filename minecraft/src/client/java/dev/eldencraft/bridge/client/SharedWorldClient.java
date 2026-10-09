@@ -877,12 +877,11 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
         proxies.put(t.id(), entity);
         level.addFreshEntity(entity);
       }
-      float max = Math.min(1024, t.maxHp() / host.damageScale());
-      entity.getAttribute(Attributes.MAX_HEALTH).setBaseValue(Math.max(1, max));
-      entity.setHealth(
-          Math.max(
-              .001f,
-              Math.min(max, t.hp() / host.damageScale() - EVENTS.pending(t.id(), t.generation()))));
+      var recipient =
+          ProxyHealth.fromNative(
+              t.hp(), t.maxHp(), host.damageScale(), EVENTS.pending(t.id(), t.generation()));
+      entity.getAttribute(Attributes.MAX_HEALTH).setBaseValue(recipient.maximum());
+      entity.setHealth(Math.max(.001f, recipient.remaining()));
       var min = o.toGuest(t.min().x(), t.min().y(), t.min().z());
       var maxPos = o.toGuest(t.max().x(), t.max().y(), t.max().z());
       entity.setHostBounds(new AABB(min.x(), min.y(), min.z(), maxPos.x(), maxPos.y(), maxPos.z()));

@@ -1,5 +1,6 @@
 package dev.eldencraft.bridge.client;
 
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import java.util.List;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.commands.CommandSourceStack;
@@ -12,6 +13,16 @@ import net.minecraft.world.item.component.Fireworks;
 
 /** Explicit development supplies for the existing disposable, unshared lab save. */
 public final class LabCommands {
+  private static PendingUnlock pendingUnlock;
+
+  private record PendingUnlock(
+      CommandSourceStack source,
+      String id,
+      long pid,
+      long session,
+      String character,
+      long deadline) {}
+
   private LabCommands() {}
 
   public static void initialize() {
@@ -42,6 +53,16 @@ public final class LabCommands {
                             .then(
                                 Commands.literal("close")
                                     .executes(context -> netherClose(context.getSource()))))));
+    CommandRegistrationCallback.EVENT.register(
+        (dispatcher, registries, selection) -> dispatcher.register(unlockAllCommand()));
+    net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(
+        server -> tickUnlockAll());
+  }
+
+  static LiteralArgumentBuilder<CommandSourceStack> unlockAllCommand() {
+    return Commands.literal("unlockall")
+        .requires(LabCommands::unlockVisible)
+        .executes(context -> unlockAll(context.getSource()));
   }
 
   static boolean allowed(CommandSourceStack source) {
@@ -50,13 +71,120 @@ public final class LabCommands {
     if (source == null) return false;
     if (dev.eldencraft.bridge.CampaignConfig.current().enabled()
         && !dev.eldencraft.bridge.CampaignConfig.current().debugKits()) return false;
+    return offlineAllowed(source)
+        && EldenCraftWorld.supportedName(source.getServer().getWorldData().getLevelName());
+  }
+
+  static boolean offlineAllowed(CommandSourceStack source) {
+    return unlockVisible(source) && source.getServer().getPlayerCount() == 1;
+  }
+
+  private static boolean unlockVisible(CommandSourceStack source) {
+    if (source == null) return false;
     var server = source.getServer();
+    // The initial command tree can be sent before PlayerList has added the
+    // joining local player. Visibility cannot depend on a full count yet.
     return server != null
         && server.isSingleplayer()
         && !server.isPublished()
-        && server.getPlayerCount() == 1
-        && source.getPlayer() != null
-        && EldenCraftWorld.supportedName(server.getWorldData().getLevelName());
+        && server.getPlayerCount() <= 1
+        && source.getPlayer() != null;
+  }
+
+  private static int unlockAll(CommandSourceStack source) {
+    if (!offlineAllowed(source)) {
+      source.sendFailure(Component.literal("Use /unlockall in a private singleplayer session."));
+      return 0;
+    }
+    if (pendingUnlock != null) {
+      source.sendFailure(Component.literal("A map and grace unlock request is already pending."));
+      return 0;
+    }
+    var host = CampaignBridge.snapshot();
+    if (host == null) {
+      source.sendFailure(
+          Component.literal("Load Elden Ring with the offline campaign bridge active first."));
+      return 0;
+    }
+    String id = CampaignBridge.requestUnlockAll(host);
+    if (id == null) {
+      source.sendFailure(Component.literal("Could not send the map and grace unlock request."));
+      return 0;
+    }
+    pendingUnlock =
+        new PendingUnlock(
+            source,
+            id,
+            host.pid(),
+            host.session(),
+            host.character(),
+            System.nanoTime() + 10_000_000_000L);
+    source.sendSuccess(
+        () -> Component.literal("Revealing the full map and unlocking all Sites of Grace..."),
+        false);
+    return 1;
+  }
+
+  private static void tickUnlockAll() {
+    var pending = pendingUnlock;
+    if (pending == null) return;
+    if (!offlineAllowed(pending.source())) {
+      pendingUnlock = null;
+      return;
+    }
+    var host = CampaignBridge.snapshot();
+    if (host != null
+        && (host.pid() != pending.pid()
+            || host.session() != pending.session()
+            || !host.character().equals(pending.character()))) {
+      pendingUnlock = null;
+      pending
+          .source()
+          .sendFailure(Component.literal("Elden Ring character changed; grace unlock cancelled."));
+      return;
+    }
+    if (host != null && host.ack() != null && host.ack().id().equals(pending.id())) {
+      pendingUnlock = null;
+      var ack = host.ack();
+      if (ack.status().equals("graces_unlocked")) {
+        pending
+            .source()
+            .sendSuccess(
+                () ->
+                    Component.literal(
+                        "Unlocked all "
+                            + ack.amount()
+                            + " Sites of Grace and revealed the full map. Reopen the map to see"
+                            + " it."),
+                false);
+      } else if (ack.status().equals("graces_partial")) {
+        pending
+            .source()
+            .sendFailure(
+                Component.literal(
+                    "Unlocked "
+                        + ack.amount()
+                        + " Sites of Grace, but some map or grace flags are unavailable. Try again"
+                        + " when the world is fully loaded."));
+      } else {
+        pending
+            .source()
+            .sendFailure(
+                Component.literal(
+                    "The native game rejected the grace unlock request. Try again in the loaded"
+                        + " offline world."));
+      }
+      return;
+    }
+    if (System.nanoTime() >= pending.deadline()) {
+      pendingUnlock = null;
+      pending
+          .source()
+          .sendFailure(
+              Component.literal(
+                  "No grace unlock confirmation received. Check Elden Ring's map before"
+                      + " retrying."));
+    }
   }
 
   /** Reports what the ground under the player and the hidden terrain they look at are made of. */
