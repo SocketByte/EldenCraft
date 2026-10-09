@@ -426,6 +426,8 @@ impl Sink {
             .as_ref()
             .ok_or("native damage local player unavailable")?;
         if player.chr_ins.field_ins_handle != source
+            || !player.chr_ins.chr_flags1c8.is_active()
+            || !player.chr_ins.chr_flags1c8.update_tasks_registered()
             || player.chr_ins.modules.data.hp <= 0
             || player.chr_ins.chr_flags1c5.death_flag()
         {
@@ -434,6 +436,18 @@ impl Sink {
         let chr = world
             .chr_ins_by_handle(&target)
             .ok_or("native damage target unavailable")?;
+        // Target publications are only observations. A prior queued hit can run
+        // a phase script before this one: recheck protection at the mutation,
+        // before reading modules or entering the already-calculated HP processor.
+        if let Some(reason) = crate::combat_targets::readiness_rejection(chr) {
+            return Err(reason);
+        }
+        if !unsafe { chr.chr_set_entry.as_ref() }
+            .chr_ins
+            .is_some_and(|entry| std::ptr::eq(entry.as_ptr(), chr))
+        {
+            return Err("native damage target set entry changed");
+        }
         if let Some(reason) = crate::combat_targets::target_rejection(chr, player.chr_ins.team_type)
         {
             return Err(reason);

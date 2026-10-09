@@ -69,6 +69,7 @@ def conformanceSuites = [
     rangedConformance: ['dev.eldencraft.bridge.RangedConformance', 'Check actual-flight bounds, per-impact immutable evidence, native contact validation and stale-use cancellation.'],
     labCommandsConformance: ['dev.eldencraft.bridge.client.LabCommandsConformance', 'Check the actual lab command permission predicate with vanilla serverless validation sources.'],
     worldStartupConformance: ['dev.eldencraft.bridge.client.EldenCraftWorldConformance', 'Check automatic world creation, reopening, startup cancellation and vanilla world settings.'],
+    worldDeathSafetyConformance: ['dev.eldencraft.bridge.client.WorldDeathSafetyConformance', 'Check persistent inventory protection, void isolation and death/respawn recovery across bridge gaps.'],
     worldFocusConformance: ['dev.eldencraft.bridge.client.WorldFocusConformance', 'Check background focus handoff, pause recovery and preservation of inventory, chat and unrelated sessions.'],
     presentationConformance: ['dev.eldencraft.bridge.PresentationConformance', 'Check confirmed projectile feedback and fresh host footstep displacement without starting a game.'],
     hostAvatarConformance: ['dev.eldencraft.bridge.HostAvatarConformance', 'Check F5 frame timing, animation cadence, angle wrap and context loss.'],
@@ -77,6 +78,10 @@ def conformanceSuites = [
     travelConformance: ['dev.eldencraft.bridge.TravelConformance', 'Check fluid/climb controls, bounded velocity and the pinned vanilla travel hook sites.'],
     torrentConformance: ['dev.eldencraft.bridge.TorrentConformance', 'Check Torrent summon areas, refusals, revival cost, shared damage, rest and render heading.'],
     chatConformance: ['dev.eldencraft.bridge.ChatConformance', 'Check ordered Unicode chat, editing controls, stale/gapped input cancellation and session isolation.'],
+    veinwearConformance: ['dev.eldencraft.bridge.VeinwearConformance', 'Check server chat admission, packaged painting resources and real painting-item component persistence.'],
+    veinwearPaintingConformance: ['dev.eldencraft.bridge.VeinwearPaintingConformance', 'Check pinned vanilla painting drop, fixed variant placement and save persistence contracts.'],
+    paintingImageConformance: ['dev.eldencraft.bridge.PaintingImageConformance', 'Check whole painting image orientation, atlas sampling and pinned front-only render hooks.'],
+    worldTextCaptureConformance: ['dev.eldencraft.bridge.WorldTextCaptureConformance', 'Check captured-world glyph orientation, vertex winding, formatting and overlay isolation.'],
     sharedLightingConformance: ['dev.eldencraft.bridge.SharedLightingConformance', 'Check actual hidden-terrain skylight and ambient shading against vanilla barrier behavior.'],
     netherConformance: ['dev.eldencraft.bridge.NetherConformance', 'Check the shared Nether layout rules, ECNH page encoding and the scoped wave admission.'],
     colliderConformance: ['dev.eldencraft.bridge.ColliderConformance', 'Check exact seamless collider merging, nearest-first caps and the motion-aware publication window.']

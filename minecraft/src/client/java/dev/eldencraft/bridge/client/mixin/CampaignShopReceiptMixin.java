@@ -1,6 +1,7 @@
 package dev.eldencraft.bridge.client.mixin;
 
 import dev.eldencraft.bridge.client.CampaignShopReceipt;
+import dev.eldencraft.bridge.client.WorldStartupSafety;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
@@ -39,5 +40,11 @@ public abstract class CampaignShopReceiptMixin implements CampaignShopReceipt {
   private void eldencraft$respawn(ServerPlayer previous, boolean keepInventory, CallbackInfo ci) {
     if (previous instanceof CampaignShopReceipt receipt)
       eldencraft$shopReceipt = receipt.eldencraft$shopReceipt();
+    // Vanilla restoreFrom copies inventory and the ender chest, but not Entity's saved tags.
+    // Keep pairing, boss receipts and loot cursors with their items across a fallback respawn.
+    if (WorldStartupSafety.protects(previous)) {
+      var player = (ServerPlayer) (Object) this;
+      for (var tag : previous.entityTags()) if (tag.startsWith("eldencraft.")) player.addTag(tag);
+    }
   }
 }

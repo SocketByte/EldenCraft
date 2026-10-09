@@ -15,6 +15,24 @@ public final class HostMiningConformance {
   }
 
   public static void main(String[] args) {
+    var mining =
+        new CampaignConfig.Mining(
+            java.util.Set.of("minecraft:stone"),
+            12000,
+            java.util.List.of(
+                new CampaignConfig.ResourceZone(7, java.util.Set.of(6), "minecraft:iron_ore")));
+    for (int hit : new int[] {-1, 0, 21, 121})
+      check(
+          mining.mineAs(7, hit, null) == null,
+          "unmapped/water terrain is rejected without crashing the mining packet: " + hit);
+    check(
+        "minecraft:stone".equals(mining.mineAs(7, 2, "minecraft:stone")),
+        "ordinary allowed terrain remains mineable");
+    check(mining.mineAs(7, 2, "minecraft:diamond_ore") == null, "disallowed terrain rejected");
+    check(
+        "minecraft:iron_ore".equals(mining.mineAs(7, 106, null)),
+        "configured regional resource can supply an unmapped surface");
+    check(mining.mineAs(-1, 106, null) == null, "missing host cannot borrow regional resources");
     var held = new Input(41, 7, 100, 1);
     var laterHeld = new Input(41, 7, 101, 1);
     check(allow(held, held, 0), "one fresh publication can sustain the held action");

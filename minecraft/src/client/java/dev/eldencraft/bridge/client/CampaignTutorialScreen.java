@@ -31,8 +31,9 @@ final class CampaignTutorialScreen extends Screen {
               List.of(
                   "Explore, fight and earn stronger Minecraft equipment. Wooden weapons and your"
                       + " shield are indestructible.",
-                  "Margit awards a stone sword and opens crafting access. Godrick awards an iron"
-                      + " sword. Later victories provide diamond equipment and netherite upgrades.",
+                  "Margit unlocks stone and crafting; Godrick unlocks copper. Defeat Rennala or"
+                      + " Radahn for iron, Morgott for diamond, and Maliketh for netherite."
+                      + " Optional boss equipment is capped at your unlocked tier.",
                   "The first defeat of each unique remembrance boss automatically increases maximum"
                       + " health and stamina. You begin with 10 full hearts and can reach 30. There"
                       + " is no manual character leveling.")),

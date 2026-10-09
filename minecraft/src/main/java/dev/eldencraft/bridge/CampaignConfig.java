@@ -72,6 +72,13 @@ public final class CampaignConfig {
 
   public record Mining(
       Set<String> allowedBlocks, long regrowTicks, List<ResourceZone> resourceZones) {
+    /** Unknown/water surfaces have no default block; immutable sets reject null lookups. */
+    public String mineAs(long sourceMap, int hitMaterial, String defaultBlock) {
+      String resource = resource(sourceMap, hitMaterial);
+      if (resource != null) return resource;
+      return defaultBlock != null && allowedBlocks.contains(defaultBlock) ? defaultBlock : null;
+    }
+
     public String resource(long sourceMap, int hitMaterial) {
       for (var zone : resourceZones)
         if (zone.sourceMap == sourceMap
@@ -84,6 +91,7 @@ public final class CampaignConfig {
 
   /** Shares of hazard damage that reach native enemies when an older file omits the tuning. */
   public static final double DEFAULT_EXPLOSION_SCALE = .125;
+
   public static final double DEFAULT_LAVA_SCALE = .075;
 
   private static volatile CampaignConfig current = disabled();

@@ -23,6 +23,7 @@ abstract class GameRendererMixin {
 
   @Inject(method = "renderLevel", at = @At("HEAD"))
   private void eldencraft$resetBlockHandoff(CallbackInfo ci) {
+    SceneCapture.beginWorld();
     BlockMeshClient.resetFrame();
   }
 
@@ -36,9 +37,15 @@ abstract class GameRendererMixin {
   private void eldencraft$captureWorld(CallbackInfo ci) {
     if (SceneCapture.active()) ProxyFeedback.render(mainRenderTarget);
     FrameExporter.captureWorld(mainRenderTarget);
+    SceneCapture.endWorld();
     HostAvatarRenderer.render(mainRenderTarget);
     if (!SceneCapture.active()) ProxyFeedback.render(mainRenderTarget);
     ProxyDebugRenderer.render(mainRenderTarget);
+  }
+
+  @Inject(method = "renderLevel", at = @At("TAIL"))
+  private void eldencraft$finishWorld(CallbackInfo ci) {
+    SceneCapture.endWorld();
   }
 
   @ModifyArg(
@@ -57,6 +64,7 @@ abstract class GameRendererMixin {
   // Screen input before this frame's GUI renders, so hover and drags use the newest host cursor.
   @Inject(method = "render", at = @At("HEAD"))
   private void eldencraft$screenInput(CallbackInfo ci) {
+    SceneCapture.endWorld();
     Minecraft client = Minecraft.getInstance();
     WorldFocus.tick(client);
     HostController.frame(client);

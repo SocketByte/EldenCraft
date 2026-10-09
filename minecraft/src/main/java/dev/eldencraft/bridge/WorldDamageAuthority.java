@@ -30,8 +30,9 @@ public final class WorldDamageAuthority {
 
   /**
    * Hazards that become Elden Ring damage, so one health pool decides death. Collision-derived
-   * damage stays excluded: Elden Ring owns falls and walls, and the invisible terrain approximation
-   * must never suffocate or crush the player.
+   * damage stays excluded: Elden Ring owns falls, world bounds and walls, and the invisible terrain
+   * approximation must never suffocate, crush or void-kill the player. Minecraft's /kill is also
+   * not a physical hazard in the native world.
    */
   public static final List<ResourceKey<DamageType>> ENVIRONMENT =
       List.of(
@@ -45,12 +46,10 @@ public final class WorldDamageAuthority {
           DamageTypes.DROWN,
           DamageTypes.STARVE,
           DamageTypes.CACTUS,
-          DamageTypes.FELL_OUT_OF_WORLD,
           DamageTypes.MAGIC,
           DamageTypes.WITHER,
           DamageTypes.SWEET_BERRY_BUSH,
-          DamageTypes.FREEZE,
-          DamageTypes.GENERIC_KILL);
+          DamageTypes.FREEZE);
 
   /** Lava and the fire it lights share one scale, so burning cannot replace a reduced lava hit. */
   public static final List<ResourceKey<DamageType>> LAVA =

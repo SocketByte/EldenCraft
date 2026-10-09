@@ -28,6 +28,144 @@ public final class CampaignConformance {
     throw new AssertionError(message);
   }
 
+  private static void verifyGearStages(
+      CampaignConfig rules, Map<String, CampaignShopCatalog.Offer> offers) {
+    var stages =
+        List.of(
+            Set.<String>of(),
+            Set.of("margit"),
+            Set.of("godrick"),
+            Set.of("rennala"),
+            Set.of("radahn"),
+            Set.of("morgott"),
+            Set.of("maliketh"));
+    int[] tiers = {0, 1, 2, 3, 3, 4, 5};
+    var materials = List.of("wooden", "stone", "copper", "iron", "diamond", "netherite");
+    var milestoneSwords =
+        Map.of(
+            "margit",
+            "stone",
+            "godrick",
+            "copper",
+            "rennala",
+            "iron",
+            "radahn",
+            "iron",
+            "morgott",
+            "diamond",
+            "maliketh",
+            "netherite");
+    for (var milestone : milestoneSwords.entrySet()) {
+      var boss =
+          rules.bosses.stream()
+              .filter(b -> b.id().equals(milestone.getKey()))
+              .findFirst()
+              .orElseThrow();
+      var rewards = CampaignGearTiers.cap(boss.rewards(), Set.of(boss.id()));
+      check(
+          rewards.stream()
+              .anyMatch(r -> r.item().equals("minecraft:" + milestone.getValue() + "_sword")),
+          "each milestone immediately grants its sword even on an alternate route: " + boss.id());
+    }
+    for (int i = 0; i < stages.size(); i++) {
+      var defeated = stages.get(i);
+      int tier = tiers[i];
+      check(
+          CampaignGearTiers.unlocked(defeated) == tier, "independent milestone unlock " + defeated);
+      for (var row :
+          Map.of("copper_sword", 2, "iron_sword", 3, "diamond_sword", 4, "netherite_sword", 5)
+              .entrySet())
+        check(
+            offers.get(row.getKey()).unlocked(defeated) == (tier >= row.getValue()),
+            "shop tier " + row.getKey() + " " + defeated);
+      for (var row :
+          Map.of(
+                  "copper_ingots",
+                  2,
+                  "iron_ingots",
+                  3,
+                  "diamonds",
+                  4,
+                  "netherite_ingot",
+                  5,
+                  "netherite_template",
+                  5)
+              .entrySet())
+        check(
+            offers.get(row.getKey()).unlocked(defeated) == (tier >= row.getValue()),
+            "recipe ingredient tier " + row.getKey() + " " + defeated);
+      check(
+          offers.get("crafting_table").unlocked(defeated) == (tier >= 1),
+          "crafting fallback on every route " + defeated);
+      check(
+          offers.get("oak_logs").unlocked(defeated) == (tier >= 1),
+          "raw wood cannot bypass stone unlock " + defeated);
+      for (var boss : rules.bosses) {
+        var rewards = CampaignGearTiers.cap(boss.rewards(), defeated);
+        check(
+            rewards.size() == boss.rewards().size(), "optional rewards are retained " + boss.id());
+        for (int j = 0; j < rewards.size(); j++) {
+          var reward = rewards.get(j);
+          check(
+              reward.count() == boss.rewards().get(j).count(),
+              "reward quantities are preserved " + boss.id());
+          for (int forbidden = tier + 1; forbidden < materials.size(); forbidden++)
+            check(
+                !reward.item().startsWith("minecraft:" + materials.get(forbidden) + "_")
+                    && !reward.item().equals("minecraft:" + materials.get(forbidden)),
+                "no optional boss bypass at " + defeated + ": " + boss.id() + " " + reward.item());
+          if (tier < 3)
+            check(
+                !reward.item().startsWith("minecraft:chainmail_"),
+                "chainmail waits for iron-tier armor");
+        }
+      }
+    }
+    var optionalOnly =
+        Set.of(
+            "rykard",
+            "astel",
+            "fortissax",
+            "mohg",
+            "malenia",
+            "placidusax",
+            "fire_giant",
+            "godskin_duo");
+    check(
+        CampaignGearTiers.unlocked(optionalOnly) == 0,
+        "non-milestone bosses cannot unlock material tiers");
+    for (var id : List.of("copper_ingots", "iron_ingots", "diamonds", "netherite_ingot"))
+      check(
+          !offers.get(id).unlocked(optionalOnly),
+          "optional route cannot unlock shop materials " + id);
+    for (var utility :
+        List.of(
+            "ender_pearl",
+            "obsidian",
+            "smithing_table",
+            "crafting_table",
+            "oak_log",
+            "crossbow",
+            "golden_apple"))
+      check(
+          CampaignGearTiers.capItem("minecraft:" + utility, 0).equals("minecraft:" + utility),
+          "utility reward remains usable " + utility);
+    check(
+        CampaignGearTiers.capItem("minecraft:netherite_upgrade_smithing_template", 4)
+            .equals("minecraft:diamond"),
+        "pre-Maliketh templates become diamond supplies");
+    check(
+        CampaignGearTiers.capItem("minecraft:netherite_chestplate", 1)
+            .equals("minecraft:leather_chestplate"),
+        "stone progression never produces nonexistent stone armor");
+    check(
+        CampaignGearTiers.capItem("minecraft:iron_sword", 5).equals("minecraft:iron_sword"),
+        "older-region rewards keep their authored maximum tier");
+    check(
+        CampaignGearTiers.unlocked(Set.of("margit", "maliketh")) == 5,
+        "out-of-order victory retains highest earned tier");
+  }
+
   public static void main(String[] args) throws Exception {
     checks += CampaignExperienceConformance.verify();
     checks += CampaignHudConformance.verify();
@@ -99,7 +237,8 @@ public final class CampaignConformance {
         offers.values().stream().noneMatch(o -> o.item().startsWith("minecraft:chainmail_")),
         "chainmail remains an optional-boss reward");
     near(rules.weapons.get("minecraft:netherite_sword").damage(), 18, "material damage default");
-    near(rules.explosionDamageScale, .125, "TNT and creepers receive the increased explosion share");
+    near(
+        rules.explosionDamageScale, .125, "TNT and creepers receive the increased explosion share");
     near(rules.lavaDamageScale, .075, "lava and fire keep a small share against native enemies");
     var older = rules.raw();
     older.getAsJsonObject("combat").remove("explosionDamageScale");
@@ -110,13 +249,17 @@ public final class CampaignConformance {
             && olderRules.lavaDamageScale == CampaignConfig.DEFAULT_LAVA_SCALE,
         "older campaign files receive the reduced hazard defaults");
     for (var bossId : List.of("margit", "godrick")) {
-      String sword = bossId.equals("margit") ? "minecraft:stone_sword" : "minecraft:iron_sword";
+      String sword = bossId.equals("margit") ? "minecraft:stone_sword" : "minecraft:copper_sword";
       var boss = rules.bosses.stream().filter(b -> b.id().equals(bossId)).findFirst().orElseThrow();
+      check(
+          boss.eventFlag() == (bossId.equals("margit") ? 10000850L : 10000800L),
+          bossId + " uses its encounter completion flag, avoiding ambiguous global boss flags");
       check(
           boss.rewards().stream().anyMatch(r -> r.item().equals(sword) && r.count() == 1)
               && boss.rewards().stream().filter(r -> r.item().endsWith("_sword")).count() == 1,
           bossId + " grants exactly its intended sword tier");
     }
+    verifyGearStages(rules, offers);
     check(
         offers.get("totem_of_undying").unlockAny().isEmpty()
             && offers.get("totem_of_undying").stock() == -1,
@@ -124,7 +267,7 @@ public final class CampaignConformance {
     check(
         rules.weapons.get("minecraft:copper_sword").damage()
             > rules.weapons.get("minecraft:stone_sword").damage(),
-        "copper reward beats gatherable stone");
+        "Godrick's copper reward beats Margit's gatherable stone");
     check(
         !rules.mining.allowedBlocks().contains("minecraft:iron_ore")
             && !rules.mining.allowedBlocks().contains("minecraft:oak_log"),

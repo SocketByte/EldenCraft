@@ -42,6 +42,40 @@ impl Eligibility {
         }
     }
 }
+
+/// Rechecked immediately before damage as well as when publishing target boxes.
+/// A previous hit may have started an invulnerable boss phase in the same tick.
+#[derive(Clone, Copy, Debug)]
+struct TargetActivity {
+    active: bool,
+    tasks_registered: bool,
+    dead: bool,
+    invincible: bool,
+    character_disabled: bool,
+    hit_disabled: bool,
+    delta_time: f32,
+}
+impl TargetActivity {
+    fn rejection(self) -> Option<&'static str> {
+        if !self.active {
+            Some("target_inactive")
+        } else if !self.tasks_registered {
+            Some("target_tasks_unregistered")
+        } else if self.dead {
+            Some("target_dead")
+        } else if self.invincible {
+            Some("target_invincible")
+        } else if self.character_disabled {
+            Some("target_character_disabled")
+        } else if self.hit_disabled {
+            Some("target_hit_disabled")
+        } else if !self.delta_time.is_finite() || !(0.0..=0.25).contains(&self.delta_time) {
+            Some("target_delta_time_invalid")
+        } else {
+            None
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize)]
 pub struct RejectedTarget {
     pub handle: Handle,
@@ -675,25 +709,22 @@ mod live {
             block_id: chr.field_ins_handle.block_id.0,
         }
     }
-    fn readiness_rejection(chr: &ChrIns) -> Option<&'static str> {
+    pub(crate) fn readiness_rejection(chr: &ChrIns) -> Option<&'static str> {
         // No ChrType, ChrLoadStatus, ChrUpdateType or OmissionMode enum is read.
-        if !chr.chr_flags1c8.is_active() {
-            Some("target_inactive")
-        } else if !chr.chr_flags1c8.update_tasks_registered() {
-            Some("target_tasks_unregistered")
-        } else if chr.chr_flags1c5.death_flag() {
-            Some("target_dead")
-        } else if chr.chr_flags1c5.is_invincible() {
-            Some("target_invincible")
-        } else if chr.debug_flags.character_disabled() {
-            Some("target_character_disabled")
-        } else if chr.debug_flags.disabled_hit() {
-            Some("target_hit_disabled")
-        } else if !chr.chr_update_delta_time.is_finite()
-            || !(0.0..=0.25).contains(&chr.chr_update_delta_time)
-        {
-            Some("target_delta_time_invalid")
-        } else if chr.modules.data.hp <= 0
+        let activity = TargetActivity {
+            active: chr.chr_flags1c8.is_active(),
+            tasks_registered: chr.chr_flags1c8.update_tasks_registered(),
+            dead: chr.chr_flags1c5.death_flag(),
+            invincible: chr.chr_flags1c5.is_invincible(),
+            character_disabled: chr.debug_flags.character_disabled(),
+            hit_disabled: chr.debug_flags.disabled_hit(),
+            delta_time: chr.chr_update_delta_time,
+        };
+        if let Some(reason) = activity.rejection() {
+            return Some(reason);
+        }
+        // Do not access modules until the actor is active and its tasks exist.
+        if chr.modules.data.hp <= 0
             || chr.modules.data.max_hp <= 0
             || chr.modules.data.hp > chr.modules.data.max_hp
         {
@@ -1002,6 +1033,8 @@ mod live {
     }
 }
 #[cfg(windows)]
+pub(crate) use live::readiness_rejection;
+#[cfg(windows)]
 pub(crate) use live::shield_incoming;
 #[cfg(windows)]
 pub use live::{target_snapshot, target_snapshot_with_radius};
@@ -1009,6 +1042,87 @@ pub use live::{target_snapshot, target_snapshot_with_radius};
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn queued_hits_recheck_scripted_phase_protection_before_native_damage() {
+        let vulnerable = TargetActivity {
+            active: true,
+            tasks_registered: true,
+            dead: false,
+            invincible: false,
+            character_disabled: false,
+            hit_disabled: false,
+            delta_time: 1. / 60.,
+        };
+        assert_eq!(vulnerable.rejection(), None);
+        // Each is a possible state after the preceding hit's native notification.
+        for (current, reason) in [
+            (
+                TargetActivity {
+                    active: false,
+                    ..vulnerable
+                },
+                "target_inactive",
+            ),
+            (
+                TargetActivity {
+                    tasks_registered: false,
+                    ..vulnerable
+                },
+                "target_tasks_unregistered",
+            ),
+            (
+                TargetActivity {
+                    dead: true,
+                    ..vulnerable
+                },
+                "target_dead",
+            ),
+            (
+                TargetActivity {
+                    invincible: true,
+                    ..vulnerable
+                },
+                "target_invincible",
+            ),
+            (
+                TargetActivity {
+                    character_disabled: true,
+                    ..vulnerable
+                },
+                "target_character_disabled",
+            ),
+            (
+                TargetActivity {
+                    hit_disabled: true,
+                    ..vulnerable
+                },
+                "target_hit_disabled",
+            ),
+        ] {
+            assert_eq!(current.rejection(), Some(reason));
+        }
+        for delta_time in [f32::NAN, f32::INFINITY, -0.01, 0.251] {
+            assert_eq!(
+                TargetActivity {
+                    delta_time,
+                    ..vulnerable
+                }
+                .rejection(),
+                Some("target_delta_time_invalid")
+            );
+        }
+        // Zero-delta frames do not manufacture a permanent phase lock.
+        assert_eq!(
+            TargetActivity {
+                delta_time: 0.,
+                ..vulnerable
+            }
+            .rejection(),
+            None
+        );
+        assert_eq!(vulnerable.rejection(), None);
+    }
     fn ordinary_enemy() -> Eligibility {
         Eligibility {
             enemy_class: true,

@@ -19,11 +19,25 @@ public final class SceneCapture {
       long meshSession) {}
 
   private static Matrix4f projection;
+  private static boolean worldPass;
 
   private SceneCapture() {}
 
   public static boolean active() {
     return FrameExporter.enabled() && SharedWorldClient.active();
+  }
+
+  /** The vanilla world pass ends before the separately captured avatar, hands and GUI. */
+  public static void beginWorld() {
+    worldPass = active();
+  }
+
+  public static void endWorld() {
+    worldPass = false;
+  }
+
+  public static boolean worldPass() {
+    return worldPass && active();
   }
 
   public static dev.eldencraft.bridge.FramePipeline.SceneKey key() {

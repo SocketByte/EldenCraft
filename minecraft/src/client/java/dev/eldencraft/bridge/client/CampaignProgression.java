@@ -140,7 +140,12 @@ public final class CampaignProgression {
     changed |= grant(player, "starter", config.starterItems, 0);
     for (var boss : config.bosses)
       if (host.defeated().contains(boss.id()))
-        changed |= grant(player, boss.id(), boss.rewards(), boss.experience());
+        changed |=
+            grant(
+                player,
+                boss.id(),
+                CampaignGearTiers.cap(boss.rewards(), host.defeated()),
+                boss.experience());
     if (changed) {
       // Integrated singleplayer loads its owner from level.dat. Save its Player data as well as
       // playerdata/<uuid>.dat, keeping every receipt and the corresponding inventory together.

@@ -34,6 +34,22 @@ abstract class WorldPlayerDamageMixin {
 
   @Inject(method = "die", at = @At("HEAD"), cancellable = true)
   private void eldencraft$nativeOwnsDeath(DamageSource source, CallbackInfo ci) {
-    if (WorldDamageAuthority.playerDamage()) ci.cancel();
+    // Preserve the zero-HP sample until the damage wrapper records its full native receipt.
+    if (WorldDamageAuthority.playerDamage()) {
+      ci.cancel();
+    } else {
+      var player = (ServerPlayer) (Object) this;
+      if (WorldStartupSafety.protects(player)) {
+        WorldStartupSafety.keepAlive(player);
+        ci.cancel();
+      }
+    }
+  }
+
+  @Inject(method = "restoreFrom", at = @At("HEAD"))
+  private void eldencraft$retainInventoryOnRespawn(
+      ServerPlayer previous, boolean keepEverything, CallbackInfo ci) {
+    if (WorldStartupSafety.protects(previous))
+      WorldStartupSafety.preserveInventory(previous.level().getServer());
   }
 }

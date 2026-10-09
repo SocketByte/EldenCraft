@@ -13,10 +13,8 @@ public final class CampaignLoot {
   public static final String PREFIX = "eldencraft.loot.";
   public static final int MAX_EVENTS = 64;
   private static final long MAX_COUNTER = 9_000_000_000_000_000L;
-  private static final List<String> IRON_TIER =
-      List.of("godrick", "rennala", "radahn", "rykard", "morgott");
-  private static final List<String> DIAMOND_TIER =
-      List.of("radahn", "rykard", "astel", "fortissax", "morgott", "fire_giant");
+  private static final List<String> IRON_TIER = List.of("rennala", "radahn", "morgott", "maliketh");
+  private static final List<String> DIAMOND_TIER = List.of("morgott", "maliketh");
 
   public record Entry(
       String item, int min, int max, double weight, Set<String> unlockAny, Set<String> unlockAll) {

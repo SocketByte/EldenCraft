@@ -45,11 +45,11 @@ This route is the first tuning baseline. Alternate native shardbearer routes rem
 
 | Stretch | Equipment entering the principal fights | Important rewards and merchant changes |
 | --- | --- | --- |
-| Limgrave and Weeping Peninsula through Margit | Wooden weapons and tools, leather armor assembled through exploration, shield; optional plain bow | Minor bosses give armor pieces, bow access and substantial supplies. Merchants sell wooden replacements, food and arrows. Margit introduces copper, the crafting table and wood supplies. |
-| Stormveil through Godrick | Copper weapons and increasingly complete copper armor; stone remains a cheap backup | Encounters and minor bosses fill armor gaps. Godrick introduces an iron weapon, iron shop stock and the first remembrance capacity increase on this baseline route. |
-| Liurnia, Raya Lucaria and approachable Caelid content | Iron equipment, with crossbow access | Rennala and other major encounters complete or improve iron coverage, supply equipment alternatives and expand merchant offerings. Remembrance victories add capacity. |
-| Radahn, Nokron, Altus, Mt Gelmir and Leyndell | Iron becoming diamond | Major and minor bosses distribute diamond weapons and armor. Relevant victories unlock expensive diamond shop alternatives. Morgott establishes a dependable diamond baseline for Mountaintops. |
-| Mountaintops and Farum Azula | Established diamond equipment becoming netherite | Fire Giant, Godskin Duo and Maliketh supply netherite upgrade ingredients and templates. Shops sell suitable repair supplies and costly additional upgrades after access is earned. |
+| Limgrave and Weeping Peninsula through Margit | Wooden weapons and tools, leather armor assembled through exploration, shield; optional plain bow | Minor bosses give armor pieces, bow access and substantial supplies. Merchants sell wooden replacements, food and arrows. Margit introduces stone, the crafting table and wood supplies. |
+| Stormveil through Godrick | Stone weapons and leather armor | Godrick introduces a copper weapon, copper armor and shop stock, and the first remembrance capacity increase on this baseline route. |
+| Liurnia, Raya Lucaria and approachable Caelid content | Copper until either Rennala or Radahn; then iron | Either milestone grants an iron sword and unlocks iron replacements and ingredients. Remembrance victories add capacity. |
+| Nokron, Altus, Mt Gelmir and Leyndell | Iron until Morgott; then diamond | Optional equipment is capped at the highest earned tier. Morgott grants a diamond sword and opens diamond stock for Mountaintops. |
+| Mountaintops and Farum Azula | Diamond until Maliketh; then netherite | Fire Giant and Godskin Duo supply diamond gear and materials. Maliketh supplies a netherite sword, boots and four ingot/template pairs; shops open additional upgrades. |
 | Godfrey, Radagon and Elden Beast | Full netherite is attainable; capacities reflect the remembrance bosses actually defeated | The normal route must be viable without clearing every optional region. The final remembrance bonus arrives after Elden Beast is defeated. |
 | Snowfield, Haligtree, Mohgwyn Palace and other optional major routes | Equipment appropriate to when the player enters | Useful missing equipment, alternate loadouts, large rune rewards and remembrance capacity gains make detours meaningful. |
 
@@ -63,7 +63,7 @@ Cobblestone, sticks and a crafting table allow stone weapons. Early raw wood als
 
 This also applies to merchant catalogs. A shop must not sell early iron ingots, diamonds, usable equipment blocks or other recipe ingredients that bypass the tier.
 
-An out-of-order higher boss victory is different from buying unearned gear. The baseline permits earned sequence-breaking rewards. Wooden Margit describes the normal route; an absolute restriction would additionally require deferring stronger rewards until the Margit flag. That remains a separate campaign rule.
+An out-of-order milestone victory unlocks its tier and lower-tier replacements. Optional boss rewards are capped at the highest earned milestone, so defeating a difficult optional encounter cannot independently unlock iron, diamond or netherite. Wooden Margit describes the normal route; defeating Rennala first legitimately opens iron and crafting without requiring Margit.
 
 ## Stronger base material damage
 
@@ -267,7 +267,7 @@ Boss loot supplies weapons, armor and important upgrade ingredients. Ordinary en
 
 Smithing Stone mine rewards remain candidates for lapis conversion in the later enchanting pass. Mines must already be worthwhile without enchanting, through a gear reward, rune cache or useful supply package. Do not make a deferred book the sole reward for a difficult optional encounter.
 
-Full netherite armor and one sword require five upgrades. A possible guaranteed late-route distribution remains two ingot/template packages from Fire Giant, two from Godskin Duo and one from Maliketh, plus smithing-table access. Godskin Duo provides equipment progress without a remembrance capacity gain. Merchants and optional encounters provide additional upgrades for an axe or other equipment.
+Full netherite armor and one sword require five upgrades. Maliketh now grants the sword and boots directly plus four ingot/template pairs, enough to upgrade the other three armor pieces and one tool. Fire Giant and Godskin Duo remain capped at diamond before Maliketh. Smithing access, merchants and optional encounters provide additional upgrades after the milestone.
 
 Define a reward manifest for every encounter instance with its stable completion identifier, expected material and capacity baseline, vanilla item stacks, rune policy, future XP reward, first-clear behavior and remembrance-credit eligibility. One boss family can have several encounters; only the correct remembrance instance grants capacity.
 
@@ -318,7 +318,7 @@ A later implementation should proceed in this order:
 2. Make Minecraft damage and defense authoritative, then apply the proposed unenchanted weapon attributes and establish native conversion benchmarks.
 3. Add derived boss health/stamina capacities and the stamina action rules, with durable unique-kill detection and correct healing/death synchronization.
 4. Build a real merchant transaction through native rune spending and Minecraft inventory, including save interruption recovery, then the custom shop screen.
-5. Author the wooden-to-copper-to-iron slice through Godrick with minor-boss equipment, a useful merchant economy and the first remembrance upgrade.
+5. Author the wooden-to-stone-to-copper slice through Godrick, then iron at Rennala or Radahn, with minor-boss equipment, a useful merchant economy and remembrance upgrades.
 6. Extend loot, shop catalogs and capacity checks through all mandatory and optional regions.
 7. Run complete shield/sword, axe and ranged playthroughs without enchantments, including the minimum route and extensive exploration.
 8. Return to enchanting after material, capacity and rune progression work independently; keep its contribution supplementary.

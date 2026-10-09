@@ -471,7 +471,7 @@
   "bosses": [
     {
       "id": "margit",
-      "eventFlag": 9101,
+      "eventFlag": 10000850,
       "remembrance": false,
       "rewards": [
         {
@@ -479,7 +479,7 @@
           "count": 1
         },
         {
-          "item": "minecraft:copper_chestplate",
+          "item": "minecraft:leather_chestplate",
           "count": 1
         },
         {
@@ -503,23 +503,23 @@
     },
     {
       "id": "godrick",
-      "eventFlag": 9100,
+      "eventFlag": 10000800,
       "remembrance": true,
       "rewards": [
         {
-          "item": "minecraft:iron_sword",
+          "item": "minecraft:copper_sword",
           "count": 1
         },
         {
-          "item": "minecraft:iron_chestplate",
+          "item": "minecraft:copper_chestplate",
           "count": 1
         },
         {
-          "item": "minecraft:iron_leggings",
+          "item": "minecraft:copper_leggings",
           "count": 1
         },
         {
-          "item": "minecraft:iron_ingot",
+          "item": "minecraft:copper_ingot",
           "count": 8
         },
         {
@@ -575,15 +575,15 @@
       "remembrance": true,
       "rewards": [
         {
-          "item": "minecraft:diamond_sword",
+          "item": "minecraft:iron_sword",
           "count": 1
         },
         {
-          "item": "minecraft:diamond_chestplate",
+          "item": "minecraft:iron_chestplate",
           "count": 1
         },
         {
-          "item": "minecraft:diamond",
+          "item": "minecraft:iron_ingot",
           "count": 8
         },
         {
@@ -855,16 +855,16 @@
           "count": 1
         },
         {
-          "item": "minecraft:netherite_axe",
+          "item": "minecraft:netherite_sword",
           "count": 1
         },
         {
           "item": "minecraft:netherite_upgrade_smithing_template",
-          "count": 1
+          "count": 4
         },
         {
           "item": "minecraft:netherite_ingot",
-          "count": 1
+          "count": 4
         },
         {
           "item": "minecraft:enchanted_golden_apple",
@@ -4468,8 +4468,8 @@
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4484,8 +4484,8 @@
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4496,12 +4496,11 @@
           "price": 600,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4512,12 +4511,11 @@
           "price": 200,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4528,12 +4526,11 @@
           "price": 280,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4544,12 +4541,11 @@
           "price": 280,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4560,12 +4556,11 @@
           "price": 100,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4576,12 +4571,11 @@
           "price": 480,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4592,12 +4586,11 @@
           "price": 750,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4608,12 +4601,11 @@
           "price": 650,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4624,12 +4616,11 @@
           "price": 380,
           "stock": -1,
           "unlock_any": [
-            "margit",
             "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4640,11 +4631,10 @@
           "price": 1500,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4655,11 +4645,10 @@
           "price": 1000,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4670,11 +4659,10 @@
           "price": 1400,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4685,11 +4673,10 @@
           "price": 1400,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4700,11 +4687,10 @@
           "price": 500,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4715,11 +4701,10 @@
           "price": 2400,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4730,11 +4715,10 @@
           "price": 3750,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4745,11 +4729,10 @@
           "price": 3250,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4760,11 +4743,10 @@
           "price": 1900,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4775,11 +4757,10 @@
           "price": 4250,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4790,11 +4771,10 @@
           "price": 400,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4805,11 +4785,10 @@
           "price": 11500,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4820,11 +4799,10 @@
           "price": 1500,
           "stock": 12,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4835,12 +4813,8 @@
           "price": 7000,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4851,12 +4825,8 @@
           "price": 9000,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4867,12 +4837,8 @@
           "price": 13000,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4883,12 +4849,8 @@
           "price": 13000,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4899,12 +4861,8 @@
           "price": 4500,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4915,12 +4873,8 @@
           "price": 22000,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4931,12 +4885,8 @@
           "price": 35000,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4947,12 +4897,8 @@
           "price": 30500,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4963,12 +4909,8 @@
           "price": 17500,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4979,12 +4921,8 @@
           "price": 1200,
           "stock": -1,
           "unlock_any": [
-            "radahn",
-            "rykard",
-            "astel",
-            "fortissax",
             "morgott",
-            "fire_giant"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -4995,10 +4933,7 @@
           "price": 45000,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5009,10 +4944,7 @@
           "price": 30000,
           "stock": 12,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5023,10 +4955,7 @@
           "price": 7500,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5037,10 +4966,7 @@
           "price": 102500,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5051,10 +4977,7 @@
           "price": 107500,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5065,10 +4988,7 @@
           "price": 107500,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5079,10 +4999,7 @@
           "price": 97500,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5093,10 +5010,7 @@
           "price": 115000,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5107,10 +5021,7 @@
           "price": 130000,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5121,10 +5032,7 @@
           "price": 125000,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5135,10 +5043,7 @@
           "price": 112500,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5146,11 +5051,10 @@
           "count": 1,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": [],
           "id": "enchanting_table",
@@ -5161,11 +5065,10 @@
           "count": 1,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": [],
           "id": "book",
@@ -5176,11 +5079,10 @@
           "count": 3,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": [],
           "id": "bookshelf",
@@ -5230,11 +5132,10 @@
           "price": 4000,
           "stock": -1,
           "unlock_any": [
-            "godrick",
             "rennala",
             "radahn",
-            "rykard",
-            "morgott"
+            "morgott",
+            "maliketh"
           ],
           "unlock_all": []
         },
@@ -5245,10 +5146,7 @@
           "price": 100000,
           "stock": -1,
           "unlock_any": [
-            "fire_giant",
-            "maliketh",
-            "hoarah_loux",
-            "elden_beast"
+            "maliketh"
           ],
           "unlock_all": []
         }
@@ -5351,11 +5249,10 @@
         "max": 2,
         "weight": 14,
         "unlock_any": [
-          "godrick",
           "rennala",
           "radahn",
-          "rykard",
-          "morgott"
+          "morgott",
+          "maliketh"
         ]
       },
       {
@@ -5364,12 +5261,8 @@
         "max": 2,
         "weight": 8,
         "unlock_any": [
-          "radahn",
-          "rykard",
-          "astel",
-          "fortissax",
           "morgott",
-          "fire_giant"
+          "maliketh"
         ]
       }
     ]

@@ -75,7 +75,7 @@ public final class CampaignLootConformance {
         early.count("minecraft:cooked_beef") == 0 && early.count("minecraft:golden_carrot") == 0,
         "better food waits for its material tier");
     check(early.withinBounds, "stack sizes stay within each entry's range");
-    var iron = sample(table, Set.of("godrick"), 219);
+    var iron = sample(table, Set.of("rennala"), 219);
     check(
         iron.count("minecraft:cooked_beef") > 0 && iron.count("minecraft:golden_carrot") == 0,
         "the iron tier adds cooked beef only");

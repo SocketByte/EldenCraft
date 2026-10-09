@@ -54,12 +54,9 @@ public final class TerrainMining {
     if (config.enabled) {
       var player = SharedWorldClient.hostPlayer(level.getServer());
       var context = player == null ? null : SharedWorldClient.projectileContext(player);
-      var resource =
-          context == null
-              ? null
-              : config.mining.resource(context.host().sourceMap(), material.hit());
-      if (resource != null) id = resource;
-      else if (!config.mining.allowedBlocks().contains(id)) return null;
+      id =
+          config.mining.mineAs(
+              context == null ? -1 : context.host().sourceMap(), material.hit(), id);
     }
     if (id == null) return null;
     var block = BuiltInRegistries.BLOCK.getValue(Identifier.tryParse(id));

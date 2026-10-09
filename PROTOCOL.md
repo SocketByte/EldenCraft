@@ -360,6 +360,14 @@ extra lead. More than one submission per Present on average, or a lead that neve
 returns to zero for two seconds, adds nothing. `EcCameraAutoPacing` disables the
 measured part; the 5-second scene log reports the chosen offsets.
 
+Shared region XYZ keep their gameplay coordinates. The host screen basis has
+opposite horizontal handedness to vanilla Minecraft, so captured world paintings
+reflect their front sprite U coordinates across the whole image. World text
+reflects each line around its center and reverses emitted quad winding, retaining
+vanilla glyph UVs, colors, lighting and depth. These corrections run only during
+the world pass, which ends after world capture and before avatar, hand and GUI
+rendering. Scene projection metadata and world geometry retain their alignment.
+
 ## Placed-block colliders
 
 The shared-world guest publishes the collision boxes of real placed blocks around

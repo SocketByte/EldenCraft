@@ -442,6 +442,21 @@ mod tests {
         result
     }
     #[test]
+    fn stormveil_encounters_have_distinct_completion_flags_and_capacity_credit() {
+        let c: Config = serde_json::from_str(include_str!("../../config/campaign.json")).unwrap();
+        c.validate().unwrap();
+        let margit = c.bosses.iter().find(|b| b.id == "margit").unwrap();
+        let godrick = c.bosses.iter().find(|b| b.id == "godrick").unwrap();
+        assert_eq!(margit.event_flag, 10000850);
+        assert_eq!(godrick.event_flag, 10000800);
+        assert!(!margit.remembrance);
+        assert!(godrick.remembrance);
+        let defeated = BTreeSet::from(["margit".into()]);
+        assert_eq!(c.capacities(&defeated), c.capacities(&BTreeSet::new()));
+        let both = BTreeSet::from(["margit".into(), "godrick".into()]);
+        assert!(c.capacities(&both).0 > c.capacities(&defeated).0);
+    }
+    #[test]
     fn proportional_capacity_and_fixed_units() {
         let c = config();
         c.validate().unwrap();
