@@ -85,6 +85,16 @@ pub struct RejectedTarget {
     pub position_havok: Option<[f32; 3]>,
     pub reason: &'static str,
     pub eligibility: Option<Eligibility>,
+    /// Copied collision dimensions when all shape sources were rejected.
+    pub rejected_shapes: Option<RejectedShapes>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RejectedShapes {
+    pub character: [f32; 2],
+    pub map: [f32; 2],
+    pub npc_character: Option<[f32; 2]>,
+    pub npc_map: Option<[f32; 2]>,
 }
 
 /// Read only on the existing authorized game task with a current ChrIns. No
@@ -323,8 +333,10 @@ fn valid_reach(reach: f32) -> bool {
 fn valid_shape(height: f32, radius: f32) -> bool {
     height.is_finite()
         && radius.is_finite()
-        && (0.05..=16.0).contains(&height)
-        && (0.025..=8.0).contains(&radius)
+        // Guest entity extents are bounded to 64m, including combat padding.
+        // Giant bosses exceed the old ordinary-enemy 16m/8m limits.
+        && (0.05..=63.8).contains(&height)
+        && (0.025..=31.25).contains(&radius)
 }
 fn shape(height: f32, radius: f32) -> Option<[f32; 2]> {
     valid_shape(height, radius).then_some([height, radius])
@@ -428,6 +440,10 @@ fn unavailable_ray() -> RayDiagnostic {
 }
 fn closest_point(origin: [f32; 3], min: [f32; 3], max: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|i| origin[i].clamp(min[i], max[i]))
+}
+fn distance_to_bounds(point: [f32; 3], min: [f32; 3], max: [f32; 3]) -> f32 {
+    let delta = sub(closest_point(point, min, max), point);
+    dot(delta, delta).sqrt()
 }
 fn contains(origin: [f32; 3], min: [f32; 3], max: [f32; 3]) -> bool {
     (0..3).all(|i| origin[i] >= min[i] && origin[i] <= max[i])
@@ -749,6 +765,7 @@ mod live {
             position_havok: None,
             reason,
             eligibility: None,
+            rejected_shapes: None,
         });
     }
 
@@ -882,8 +899,8 @@ mod live {
             let physics = &chr.modules.physics;
             let p = physics.position;
             let position = [p.0, p.1, p.2];
-            let distance = dot(sub(position, feet), sub(position, feet));
-            if !finite(position) || !distance.is_finite() || distance > nearby_m * nearby_m {
+            if !finite(position) {
+                reject_boss(&mut snapshot, chr, "target_position_invalid");
                 continue;
             }
             let eligibility = eligibility(chr, snapshot.player_team);
@@ -899,6 +916,7 @@ mod live {
                         position_havok: Some(position),
                         reason,
                         eligibility: Some(eligibility),
+                        rejected_shapes: None,
                     });
                 }
                 continue;
@@ -932,6 +950,13 @@ mod live {
                         position_havok: Some(position),
                         reason: "target_shape_invalid",
                         eligibility: Some(eligibility),
+                        rejected_shapes: Some(RejectedShapes {
+                            character: [physics.chr_hit_height, physics.chr_hit_radius],
+                            map: [physics.hit_height, physics.hit_radius],
+                            npc_character: authored
+                                .map(|row| [row.chr_hit_height(), row.chr_hit_radius()]),
+                            npc_map: authored.map(|row| [row.hit_height(), row.hit_radius()]),
+                        }),
                     });
                 }
                 continue;
@@ -943,6 +968,14 @@ mod live {
             // The debugger and Minecraft receive these exact bounds, no extra guest padding.
             let (proxy_min_havok, proxy_max_havok) =
                 combat_bounds(position, height, radius, hitbox_padding());
+            // An ankle/body can be in reach while a giant's physics origin is
+            // outside the nearby radius. Cull and prioritize by the published
+            // surface, using the same geometry as picking and damage receipts.
+            let distance = distance_to_bounds(feet, proxy_min_havok, proxy_max_havok);
+            if distance > nearby_m {
+                reject_boss(&mut snapshot, chr, "target_bounds_out_of_range");
+                continue;
+            }
             snapshot.candidates.push(Candidate {
                 handle: handle(chr),
                 instance_token: ptr as usize,
@@ -960,7 +993,7 @@ mod live {
                 proxy_max_havok,
                 hp: chr.modules.data.hp,
                 max_hp: chr.modules.data.max_hp,
-                player_distance_m: distance.sqrt(),
+                player_distance_m: distance,
                 ray_entry_m: None,
                 ray_obstructed: None,
                 los_clear: None,
@@ -1042,6 +1075,46 @@ pub use live::{target_snapshot, target_snapshot_with_radius};
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn giant_collision_is_admitted_by_body_surface_in_both_height_profiles() {
+        // A large upright boss and its lower second-phase profile both exceed
+        // the old ordinary-enemy limits. Its root is outside the 16m scan, but
+        // the camera ray and player reach intersect the nearby body surface.
+        for (height, radius) in [(28., 12.), (12., 12.)] {
+            let (_, dimensions) =
+                select_authored_shape(shape(height, radius), None, None, None).unwrap();
+            assert_eq!(dimensions, [height, radius]);
+            let position = [0., 0., 17.];
+            let (min, max) = combat_bounds(position, height, radius, HitboxPadding::default());
+            assert!(dot(position, position).sqrt() > MAX_NEARBY_M);
+            assert!(distance_to_bounds([0.; 3], min, max) < PLAYER_TEST_REACH);
+            assert!(ray_aabb([0., 1.6, 0.], [0., 0., 1.], min, max, PLAYER_TEST_REACH).is_some());
+            assert!(distance_to_bounds([0., 0., -20.], min, max) > MAX_NEARBY_M);
+        }
+    }
+    #[test]
+    fn large_authored_fallback_stays_inside_guest_extent_limits() {
+        assert_eq!(
+            select_authored_shape(None, None, shape(28., 12.), None),
+            Some((ShapeSource::NpcCharacterFallback, [28., 12.]))
+        );
+        let (min, max) = combat_bounds(
+            [0.; 3],
+            63.8,
+            31.25,
+            HitboxPadding {
+                horizontal: 0.75,
+                ..HitboxPadding::default()
+            },
+        );
+        assert!((0..3).all(|i| max[i] - min[i] <= 64.));
+        assert!(shape(63.81, 12.).is_none());
+        assert!(shape(28., 31.26).is_none());
+        assert!(shape(f32::INFINITY, 12.).is_none());
+        assert_eq!(distance_to_bounds([0., 1., 0.], min, max), 0.);
+    }
+    const PLAYER_TEST_REACH: f32 = 6.;
 
     #[test]
     fn queued_hits_recheck_scripted_phase_protection_before_native_damage() {
@@ -1256,7 +1329,7 @@ mod tests {
             select_authored_shape(None, None, shape(f32::NAN, 0.9), shape(5.0, 1.0)),
             Some((ShapeSource::NpcMapFallback, [5.0, 1.0]))
         );
-        assert!(select_authored_shape(None, None, shape(0.0, 0.0), shape(20.0, 9.0)).is_none());
+        assert!(select_authored_shape(None, None, shape(0.0, 0.0), shape(64.0, 32.0)).is_none());
     }
     #[test]
     fn lagging_camera_falls_back_to_eye_only_for_world_publication() {
@@ -1479,7 +1552,7 @@ mod tests {
             assert!(!valid_reach(reach));
         }
         assert!(valid_reach(10.0));
-        for (height, radius) in [(f32::NAN, 0.5), (2.0, -1.0), (17.0, 0.5), (2.0, 9.0)] {
+        for (height, radius) in [(f32::NAN, 0.5), (2.0, -1.0), (64.0, 0.5), (2.0, 32.0)] {
             assert!(
                 ray_capsule(
                     [0.0; 3],

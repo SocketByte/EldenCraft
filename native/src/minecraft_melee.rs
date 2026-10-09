@@ -90,6 +90,25 @@ fn handle(h: u64) -> FieldInsHandle {
 fn relative(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     std::array::from_fn(|i| a[i] - b[i])
 }
+fn relative_target_bounds(
+    min: [f32; 3],
+    max: [f32; 3],
+    origin: [f32; 3],
+) -> Option<([f32; 3], [f32; 3])> {
+    // A nearby giant can extend outside the melee transport's player-relative
+    // window. Intersect its box instead of failing the entire publication.
+    // Clipping only removes distant volume; it never adds an attackable point.
+    let min = relative(min, origin);
+    let max = relative(max, origin);
+    if !(0..3).all(|i| min[i].is_finite() && max[i].is_finite() && min[i] < max[i]) {
+        return None;
+    }
+    let min = min.map(|v| v.max(-64.));
+    let max = max.map(|v| v.min(64.));
+    (0..3)
+        .all(|i| min[i].is_finite() && max[i].is_finite() && min[i] < max[i])
+        .then_some((min, max))
+}
 /// Same axis-aligned proxy as Minecraft. Using a capsule here rejects legitimate
 /// corner hits which Minecraft's EntityHitResult accepted.
 fn entry(origin: [f32; 3], dir: [f32; 3], min: [f32; 3], max: [f32; 3], reach: f32) -> Option<f32> {
@@ -361,6 +380,11 @@ impl Driver {
         }
         let mut present = HashSet::new();
         for c in s.candidates.iter().take(wire::MAX_TARGETS) {
+            let Some((min, max)) =
+                relative_target_bounds(c.proxy_min_havok, c.proxy_max_havok, s.player_havok)
+            else {
+                continue;
+            };
             let id = packed(c.handle);
             present.insert(id);
             let generation = match self.instances.get(&id) {
@@ -375,8 +399,6 @@ impl Driver {
                     self.generation
                 }
             };
-            let min = relative(c.proxy_min_havok, s.player_havok);
-            let max = relative(c.proxy_max_havok, s.player_havok);
             let visible = c.los_clear == Some(true);
             out.targets.push(wire::Target {
                 handle: id,
@@ -481,6 +503,49 @@ impl Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn giant_bounds_clip_to_wire_window_without_dropping_other_targets() {
+        let (min, max) =
+            relative_target_bounds([-12., 10., 4.], [12., 73.8, 28.], [0.; 3]).unwrap();
+        assert_eq!(min, [-12., 10., 4.]);
+        assert_eq!(max, [12., 64., 28.]);
+        let mut publication = wire::Targets::default();
+        publication.targets.push(wire::Target {
+            handle: 7,
+            generation: 1,
+            min,
+            max,
+            hp: 42000.,
+            max_hp: 42000.,
+            flags: 3,
+            team: 6,
+        });
+        publication.targets.push(wire::Target {
+            handle: 8,
+            generation: 1,
+            min: [-1., 0., 2.],
+            max: [1., 2., 4.],
+            hp: 100.,
+            max_hp: 100.,
+            flags: 3,
+            team: 6,
+        });
+        assert!(wire::encode_targets(&publication, 2, 1, 1000, 20).is_ok());
+        assert!(entry([0., 11., 0.], [0., 0., 1.], min, max, 6.).is_some());
+        assert!(entry([20., 11., 0.], [0., 0., 1.], min, max, 6.).is_none());
+    }
+    #[test]
+    fn clipping_preserves_normal_boxes_and_rejects_invalid_or_distant_boxes() {
+        assert_eq!(
+            relative_target_bounds([10., 2., 20.], [12., 4., 22.], [10., 2., 20.]),
+            Some(([0.; 3], [2.; 3]))
+        );
+        assert!(relative_target_bounds([65., 0., 0.], [70., 2., 2.], [0.; 3]).is_none());
+        assert!(relative_target_bounds([-70., 0., 0.], [-65., 2., 2.], [0.; 3]).is_none());
+        assert!(relative_target_bounds([f32::NAN, 0., 0.], [2.; 3], [0.; 3]).is_none());
+        assert!(relative_target_bounds([0.; 3], [2., f32::INFINITY, 2.], [0.; 3]).is_none());
+        assert!(relative_target_bounds([2.; 3], [0.; 3], [0.; 3]).is_none());
+    }
     fn driver() -> Driver {
         // No process singleton lookup, mapping creation or native sink resolution.
         Driver {

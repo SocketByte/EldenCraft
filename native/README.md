@@ -54,6 +54,16 @@ vertical motion and collision remain active. Contacts expire after 150 ms and
 release on guest/session/world/control loss. Minecraft hazard damage uses the
 existing native enemy damage sink, with historical/current target checks.
 
+Combat proxies admit native or authored upright collision shapes up to 63.8 m
+high and 31.25 m radius, bounded by Minecraft's 64 m entity extents including
+padding. Nearby scans measure distance to the published body surface, so a
+giant's distant physics origin does not hide an otherwise reachable body.
+Melee publication intersects large boxes with its player-relative 64 m window;
+a distant edge cannot invalidate the entire target frame. These remain upright
+collision proxies, rather than per-bone weak-point hitboxes. Rejected shape
+diagnostics include the instance and authored dimensions. Native encounter,
+activity, phase protection, fresh identity, reach and cover checks still apply.
+
 ## Interaction menus
 
 `interaction_runtime` captures the pinned ESD talk events and environment queries.
