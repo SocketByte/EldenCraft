@@ -63,9 +63,14 @@ public final class CampaignLootConformance {
     near(early.drops, table.dropChance(), .01, "one roll succeeds at the configured chance");
     near(
         early.count("minecraft:golden_apple"),
-        table.dropChance() * .8 / weight,
-        .0008,
-        "golden apples stay a rare drop");
+        table.dropChance() * 4 / weight,
+        .0012,
+        "golden apples drop about once in 65 early kills");
+    near(
+        early.count("minecraft:enchanted_golden_apple"),
+        table.dropChance() / weight,
+        .0006,
+        "enchanted golden apples stay a rare early drop");
     check(
         early.count("minecraft:cooked_beef") == 0 && early.count("minecraft:golden_carrot") == 0,
         "better food waits for its material tier");

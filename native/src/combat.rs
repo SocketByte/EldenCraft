@@ -79,6 +79,7 @@ pub struct Status {
     pub attack_requested: bool,
     pub guard_requested: bool,
     pub movement_captured: bool,
+    pub interaction_movement_captured: bool,
     pub movement_error: Option<&'static str>,
     pub item: String,
     pub swing: u64,
@@ -107,6 +108,7 @@ pub struct Driver {
     last_swing: u64,
     melee: crate::minecraft_melee::Driver,
     movement_jump: Option<bool>,
+    interaction_movement: bool,
     shield_forward: Option<[f32; 3]>,
 }
 impl Default for Driver {
@@ -126,6 +128,7 @@ impl Driver {
             last_swing: 0,
             melee: crate::minecraft_melee::Driver::new(),
             movement_jump: None,
+            interaction_movement: false,
             shield_forward: None,
         }
     }
@@ -137,6 +140,9 @@ impl Driver {
     }
     pub fn set_movement_jump(&mut self, jump: Option<bool>) {
         self.movement_jump = jump;
+    }
+    pub fn set_interaction_movement(&mut self, locked: bool) {
+        self.interaction_movement = locked;
     }
     pub fn set_shield_forward(&mut self, forward: Option<[f32; 3]>) {
         self.shield_forward = forward;
@@ -232,7 +238,13 @@ impl Driver {
         if crate::minecraft_shield::available() {
             intent.guard = false;
         }
-        let applied = unsafe { self.pad.update_with_movement(intent, self.movement_jump)? };
+        let applied = unsafe {
+            self.pad.update_with_interaction_movement(
+                intent,
+                self.movement_jump,
+                self.interaction_movement,
+            )?
+        };
         let melee = self.status.melee.clone();
         let observation = if applied.active {
             Some(unsafe { observe()? })
@@ -293,6 +305,7 @@ impl Driver {
             attack_requested: applied.attack,
             guard_requested,
             movement_captured: applied.movement_captured,
+            interaction_movement_captured: applied.interaction_movement_captured,
             movement_error: applied.movement_error,
             item: snapshot.map_or_else(String::new, |s| s.item),
             swing,
@@ -315,6 +328,7 @@ impl Driver {
         self.pending = None;
         self.last_swing = 0;
         self.movement_jump = None;
+        self.interaction_movement = false;
         self.shield_forward = None;
         crate::minecraft_shield::revoke();
         self.melee.suspend();

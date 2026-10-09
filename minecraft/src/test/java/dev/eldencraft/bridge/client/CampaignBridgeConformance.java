@@ -20,6 +20,12 @@ public final class CampaignBridgeConformance {
 
   public static void main(String[] args) throws Exception {
     var s = decode(VALID);
+    check(s.saveLoad() == 0, "older hosts retain one welcome guide per campaign session");
+    check(
+        decode(VALID.replace("\"seq\":1", "\"seq\":1,\"save_load\":2")).saveLoad() == 2,
+        "same-save native reload has an independent presentation identity");
+    reject(VALID.replace("\"seq\":1", "\"seq\":1,\"save_load\":-1"));
+    reject(VALID.replace("\"seq\":1", "\"seq\":1,\"save_load\":1.5"));
     String boss =
         "{\"id\":\"slot-0-boss-1\",\"name\":\"Margit, the Fell Omen\",\"hp\":4000,\"max_hp\":6000}";
     String bossFrame =
@@ -66,6 +72,20 @@ public final class CampaignBridgeConformance {
                 .rawDamage()
             == 1e15,
         "valid extreme incoming-scale settings preserve transport authority");
+    check(
+        s.damageEvents().get(1).absorbed() == 0 && !s.damageEvents().get(1).totem(),
+        "older hosts spend neither absorption nor a totem");
+    var saved =
+        decode(
+                VALID.replace(
+                    "\"raw_damage\":8,", "\"raw_damage\":8,\"absorbed\":2.5,\"totem\":true,"))
+            .damageEvents()
+            .get(1);
+    check(saved.absorbed() == 2.5 && saved.totem(), "native absorption and totem spends arrive");
+    reject(VALID.replace("\"raw_damage\":6,", "\"raw_damage\":6,\"totem\":true,"));
+    reject(VALID.replace("\"raw_damage\":6,", "\"raw_damage\":6,\"absorbed\":1,"));
+    reject(VALID.replace("\"raw_damage\":8,", "\"raw_damage\":8,\"absorbed\":-1,"));
+    reject(VALID.replace("\"raw_damage\":8,", "\"raw_damage\":8,\"totem\":1,"));
     try {
       s.damageEvents().clear();
       throw new AssertionError("Mutable damage events");

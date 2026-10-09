@@ -17,6 +17,8 @@ try {
         & (Join-Path $PSScriptRoot 'setup-passthrough.ps1')
         & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'tests/windows-launcher.Tests.ps1')
         if ($LASTEXITCODE -ne 0) { throw 'Windows launcher checks failed.' }
+        & (Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'tests/diagnostics.Tests.ps1')
+        if ($LASTEXITCODE -ne 0) { throw 'Diagnostics checks failed.' }
     }
     & (Join-Path $PSScriptRoot 'eldencraft.ps1') check-source
     if ($LASTEXITCODE -ne 0) { throw 'Source checks failed.' }

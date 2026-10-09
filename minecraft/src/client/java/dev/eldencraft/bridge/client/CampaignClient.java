@@ -64,6 +64,7 @@ public final class CampaignClient {
       CampaignConfig.install(rules);
       CampaignBridge.initialize();
       CampaignShops.initialize();
+      CampaignTutorial.initialize();
       LOG.info(
           "Campaign rules loaded from {} ({} bosses)",
           configuration,

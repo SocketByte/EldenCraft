@@ -50,10 +50,16 @@ struct Renderer::Impl {
     std::uint64_t detail_report{};
     std::uint32_t detail_peak_cracks{},detail_peak_outlines{},detail_drawn_frames{};
     struct Mesh {Header header{};resource vertices{};std::vector<Vertex> cpu;std::uint64_t capacity{},completion{},order{};bool valid{};};
-    struct Atlas {Header header{};resource texture{},upload{};resource_view view{};std::uint64_t completion{},order{};bool valid{};};
+    // anim_tick: the animation tick whose sprite frames this texture currently holds.
+    struct Atlas {Header header{};resource texture{},upload{};resource_view view{};std::uint64_t completion{},order{},anim_tick{};bool valid{};};
     struct Sort {resource indices{};std::uint64_t completion{};};
-    Mesh *pending_mesh{};Atlas *pending_atlas{};Sort *pending_sort{};
-    std::array<Mesh,3> meshes{};std::array<Atlas,3> atlases{};std::array<Sort,3> sorts{};
+    struct AnimUpload {resource buffer{};std::uint64_t capacity{},completion{};};
+    Mesh *pending_mesh{};Atlas *pending_atlas{};Sort *pending_sort{};AnimUpload *pending_anim{};
+    std::array<Mesh,3> meshes{};std::array<Atlas,3> atlases{};std::array<Sort,3> sorts{};std::array<AnimUpload,3> anim_uploads{};
+    std::vector<Region> regions;
+    // Back-to-front order of the last translucent sort, reused while the view holds still.
+    struct SortKey {std::uint64_t revision{},session{};std::array<double,3> position{};std::array<float,3> forward{};bool valid{};};
+    SortKey sort_key{};std::vector<std::uint32_t> sorted;
     pipeline_layout layout{};std::array<pipeline,3> pipelines{};sampler point{};fence fence_{};
     std::array<resource,2> targets{};std::array<resource_view,2> srvs{},rtvs{};resource zbuffer{};resource_view dsv{};
     std::uint32_t width{},height{};std::uint64_t serial{},order{},target_generation{};bool initialized{},failed{},rendered{};
@@ -87,7 +93,11 @@ struct Renderer::Impl {
         descriptor_range texture{};texture.count=2;texture.type=descriptor_type::shader_resource_view;texture.visibility=shader_stage::pixel;
         descriptor_range samplers{};samplers.count=1;samplers.type=descriptor_type::sampler;samplers.visibility=shader_stage::pixel;
         pipeline_layout_param params[]={pipeline_layout_param(constants),pipeline_layout_param(texture),pipeline_layout_param(samplers)};
-        sampler_desc sd{};sd.filter=filter_mode::min_mag_mip_point;sd.min_lod=sd.max_lod=0;
+        // Vanilla block rendering: nearest texels, linear between mip levels, so distant
+        // blocks do not shimmer. Decorations use a single-level strip and stay point sampled.
+        sampler_desc sd{};
+        if(details){sd.filter=filter_mode::min_mag_mip_point;sd.min_lod=sd.max_lod=0;}
+        else{sd.filter=filter_mode::min_mag_point_mip_linear;sd.min_lod=0;}
         if(!d->create_pipeline_layout(3,params,&layout))return fatal("create pipeline layout/root signature");
         if(!d->create_sampler(sd,&point))return fatal("create point sampler");
         if(!d->create_fence(0,fence_flags::none,&fence_))return fatal("create submission fence");
@@ -154,6 +164,38 @@ struct Renderer::Impl {
             destroy_targets(d);return reject("create D32 depth-stencil view");}
         width=w;height=h;return true;
     }
+    // Copy this tick's animated sprite frames into the atlas about to be sampled. All
+    // atlas work is ordered on the same queue; the transition waits for earlier reads.
+    // A busy upload ring or a rejected payload keeps the previous frame (retried next frame).
+    void animate(effect_runtime *runtime,command_list *cmd,Atlas &a,const Header &anim,std::span<const std::uint8_t> payload){
+        if(anim.revision==a.anim_tick||!decode_regions(payload,anim,a.header,regions)||regions.empty())return;
+        auto *d=runtime->get_device();const auto completed=d->get_completed_fence_value(fence_);
+        const auto slot=std::find_if(anim_uploads.begin(),anim_uploads.end(),[&](const AnimUpload &u){return u.completion<=completed;});
+        if(slot==anim_uploads.end())return;
+        std::vector<std::uint64_t> at(regions.size());std::uint64_t total=0;
+        for(std::size_t i=0;i<regions.size();++i){
+            at[i]=total;const std::uint64_t pitch=(regions[i].width*4u+255u)&~255u;
+            total=(total+pitch*regions[i].height+511u)&~std::uint64_t(511);
+        }
+        if(!slot->buffer.handle||slot->capacity<total){
+            release(d,slot->buffer);slot->capacity=0;
+            const auto capacity=std::max<std::uint64_t>(total,256*1024);
+            if(!d->create_resource(resource_desc(capacity,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&slot->buffer))return;
+            slot->capacity=capacity;
+        }
+        void *mapped=nullptr;
+        if(!d->map_buffer_region(slot->buffer,0,total,map_access::write_only,&mapped))return;
+        for(std::size_t i=0;i<regions.size();++i){const auto &r=regions[i];const std::uint64_t pitch=(r.width*4u+255u)&~255u;
+            for(std::uint32_t y=0;y<r.height;++y)
+                std::memcpy(static_cast<std::uint8_t*>(mapped)+at[i]+pitch*y,payload.data()+r.offset+std::size_t(y)*r.width*4,std::size_t(r.width)*4);}
+        d->unmap_buffer_region(slot->buffer);
+        cmd->barrier(a.texture,resource_usage::shader_resource,resource_usage::copy_dest);
+        for(std::size_t i=0;i<regions.size();++i){const auto &r=regions[i];
+            const subresource_box box{r.x,r.y,0,r.x+r.width,r.y+r.height,1};
+            cmd->copy_buffer_to_texture(slot->buffer,at[i],((r.width*4u+255u)&~255u)/4,r.height,a.texture,r.mip,&box);}
+        cmd->barrier(a.texture,resource_usage::copy_dest,resource_usage::shader_resource);
+        a.anim_tick=anim.revision;pending_anim=&*slot;
+    }
 };
 Renderer::Renderer(bool details):impl_(std::make_unique<Impl>()){impl_->details=details;}
 Renderer::~Renderer()=default;
@@ -164,7 +206,8 @@ bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<
     if(!s.initialize(runtime))return false;
     if(atlas.magic!=atlas_magic||atlas.flags!=1||!compatible(mesh,atlas)||!valid_mesh(mesh,vertices)
         ||!atlas.count||!atlas.stride||atlas.count>max_atlas_dimension||atlas.stride>max_atlas_dimension
-        ||std::uint64_t(atlas.count)*atlas.stride*4!=pixels.size()||atlas.bytes!=pixels.size())return s.reject("mesh/atlas context or payload validation");
+        ||atlas.mips<1||atlas.mips>max_mips(atlas.count,atlas.stride)
+        ||mip_offset(atlas.count,atlas.stride,atlas.mips)!=pixels.size()||atlas.bytes!=pixels.size())return s.reject("mesh/atlas context or payload validation");
     const Header *acknowledged=latest_header();
     if(!s.details&&waits_for_captured_resident(mesh,acknowledged,displayed_scene,GetTickCount64(),s.newest_since))
         return s.reject("awaiting captured resident before next mesh revision");
@@ -192,21 +235,30 @@ bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<
             ai=s.atlases.begin()+*slot;
         }
         auto &a=*ai;
-        const auto pitch=(atlas.count*4u+255u)&~255u;
-        if(!a.texture.handle||a.header.count!=atlas.count||a.header.stride!=atlas.stride){
-            release(d,a.view);release(d,a.texture);release(d,a.upload);a.valid=false;
-            if(!d->create_resource(resource_desc(atlas.count,atlas.stride,1,1,format::r8g8b8a8_unorm,1,memory_heap::default_,resource_usage::copy_dest|resource_usage::shader_resource),nullptr,resource_usage::shader_resource,&a.texture))return s.reject("create atlas texture");
-            if(!d->create_resource_view(a.texture,resource_usage::shader_resource,resource_view_desc(format::r8g8b8a8_unorm),&a.view))return s.reject("create atlas SRV");
-            if(!d->create_resource(resource_desc(std::uint64_t(pitch)*atlas.stride,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&a.upload))return s.reject("create atlas upload buffer");
+        // Every mip level: 256-byte row pitch, 512-byte aligned placement per level.
+        const auto levels=atlas.mips;
+        std::array<std::uint64_t,max_atlas_mips> placed{};std::array<std::uint32_t,max_atlas_mips> pitches{};std::uint64_t total=0;
+        for(std::uint32_t m=0;m<levels;++m){
+            placed[m]=total;pitches[m]=(mip_extent(atlas.count,m)*4u+255u)&~255u;
+            total=(total+std::uint64_t(pitches[m])*mip_extent(atlas.stride,m)+511u)&~std::uint64_t(511);
         }
-        void *mapped=nullptr;if(!d->map_buffer_region(a.upload,0,std::uint64_t(pitch)*atlas.stride,map_access::write_only,&mapped))return s.reject("map atlas upload buffer");
-        for(std::uint32_t y=0;y<atlas.stride;++y)std::memcpy(static_cast<std::uint8_t*>(mapped)+std::size_t(y)*pitch,pixels.data()+std::size_t(y)*atlas.count*4,std::size_t(atlas.count)*4);
+        if(!a.texture.handle||a.header.count!=atlas.count||a.header.stride!=atlas.stride||a.header.mips!=levels){
+            release(d,a.view);release(d,a.texture);release(d,a.upload);a.valid=false;
+            if(!d->create_resource(resource_desc(atlas.count,atlas.stride,1,static_cast<std::uint16_t>(levels),format::r8g8b8a8_unorm,1,memory_heap::default_,resource_usage::copy_dest|resource_usage::shader_resource),nullptr,resource_usage::shader_resource,&a.texture))return s.reject("create atlas texture");
+            if(!d->create_resource_view(a.texture,resource_usage::shader_resource,resource_view_desc(format::r8g8b8a8_unorm,0,levels,0,1),&a.view))return s.reject("create atlas SRV");
+            if(!d->create_resource(resource_desc(total,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&a.upload))return s.reject("create atlas upload buffer");
+        }
+        void *mapped=nullptr;if(!d->map_buffer_region(a.upload,0,total,map_access::write_only,&mapped))return s.reject("map atlas upload buffer");
+        for(std::uint32_t m=0;m<levels;++m){
+            const auto w=mip_extent(atlas.count,m),h=mip_extent(atlas.stride,m);const auto source=mip_offset(atlas.count,atlas.stride,m);
+            for(std::uint32_t y=0;y<h;++y)std::memcpy(static_cast<std::uint8_t*>(mapped)+placed[m]+std::size_t(y)*pitches[m],pixels.data()+source+std::size_t(y)*w*4,std::size_t(w)*4);
+        }
         d->unmap_buffer_region(a.upload);auto *cmd=runtime->get_command_queue()->get_immediate_command_list();if(!cmd)return s.reject("atlas upload command list unavailable");
         cmd->barrier(a.texture,resource_usage::shader_resource,resource_usage::copy_dest);
-        cmd->copy_buffer_to_texture(a.upload,0,pitch/4,atlas.stride,a.texture,0);
+        for(std::uint32_t m=0;m<levels;++m)cmd->copy_buffer_to_texture(a.upload,placed[m],pitches[m]/4,mip_extent(atlas.stride,m),a.texture,m);
         cmd->barrier(a.texture,resource_usage::copy_dest,resource_usage::shader_resource);
         if(!s.signal(runtime,a.completion))return false;
-        a.header=atlas;a.valid=true;a.order=++s.order;
+        a.header=atlas;a.valid=true;a.order=++s.order;a.anim_tick=0;
     }
     if(mi==s.meshes.end()){
         std::array<Residency,3> candidates{};
@@ -237,7 +289,7 @@ bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<
     s.newest=mesh;s.have_newest=true;return true;
 }
 bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::HostCamera &camera,const frames::Scene &scene,const Header &current_producer,std::uint32_t w,std::uint32_t h,
-    resource_view host_depth,int depth_mode,Renderer *destination){
+    resource_view host_depth,int depth_mode,Renderer *destination,const Header *animation,std::span<const std::uint8_t> animation_payload){
     auto &s=*impl_;s.rendered=false;if(s.failed)return false;s.failure=nullptr;
     if(!runtime||!cmd||!s.initialized||!host_depth.handle||(depth_mode!=1&&depth_mode!=2)
         ||!w||!h||w>max_target_dimension||h>max_target_dimension
@@ -255,12 +307,22 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
         if(it==s.sorts.end())return s.reject("translucent index upload ring busy");sort=&*it;
         if(!sort->indices.handle&&!d->create_resource(resource_desc(std::uint64_t(max_vertices)*4,memory_heap::upload,resource_usage::index_buffer),nullptr,resource_usage::cpu_access,&sort->indices))return s.reject("create translucent index upload buffer");
         const std::uint32_t first=mi->header.solid+mi->header.cutout,n=mi->header.translucent/3;
-        std::vector<std::pair<double,std::uint32_t>> triangles;triangles.reserve(n);
-        for(std::uint32_t t=0;t<n;++t){double depth=0;for(unsigned v=0;v<3;++v)for(unsigned c=0;c<3;++c)
-            depth+=(double(mi->cpu[first+t*3+v].position[c])-camera.position[c])*camera.forward[c];triangles.emplace_back(depth,t);}
-        std::stable_sort(triangles.begin(),triangles.end(),[](const auto&a,const auto&b){return a.first>b.first;});
-        std::vector<std::uint32_t> indices;indices.reserve(n*3);for(const auto &[depth,t]:triangles)for(unsigned v=0;v<3;++v)indices.push_back(first+t*3+v);
-        if(!upload_bytes(d,sort->indices,{reinterpret_cast<const std::uint8_t*>(indices.data()),indices.size()*4}))return s.reject("map translucent index upload buffer");
+        // Re-sort only when the mesh or the view moved enough to change the order of
+        // overlapping water/glass faces; a still camera reuses the last order.
+        auto &key=s.sort_key;double moved=0,turned=0;
+        for(unsigned c=0;c<3;++c){moved+=(camera.position[c]-key.position[c])*(camera.position[c]-key.position[c]);
+            turned+=double(camera.forward[c])*key.forward[c];}
+        if(!key.valid||key.revision!=mi->header.revision||key.session!=mi->header.session||moved>.0025||turned<.99999
+            ||s.sorted.size()!=std::size_t(n)*3){
+            std::vector<std::pair<double,std::uint32_t>> triangles;triangles.reserve(n);
+            for(std::uint32_t t=0;t<n;++t){double depth=0;for(unsigned v=0;v<3;++v)for(unsigned c=0;c<3;++c)
+                depth+=(double(mi->cpu[first+t*3+v].position[c])-camera.position[c])*camera.forward[c];triangles.emplace_back(depth,t);}
+            std::stable_sort(triangles.begin(),triangles.end(),[](const auto&a,const auto&b){return a.first>b.first;});
+            s.sorted.clear();s.sorted.reserve(std::size_t(n)*3);
+            for(const auto &[depth,t]:triangles)for(unsigned v=0;v<3;++v)s.sorted.push_back(first+t*3+v);
+            key={mi->header.revision,mi->header.session,camera.position,camera.forward,true};
+        }
+        if(!upload_bytes(d,sort->indices,{reinterpret_cast<const std::uint8_t*>(s.sorted.data()),s.sorted.size()*4}))return s.reject("map translucent index upload buffer");
     }
     if(!destination&&!s.allocate_targets(runtime,w,h))return false;
     auto &surface=destination?*destination->impl_:s;
@@ -272,6 +334,9 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
     pc[7]=1/(tangent*camera.aspect);pc[11]=1/tangent;pc[15]=camera.far_plane/range;
     pc[16]=camera.near_plane;pc[17]=camera.far_plane;pc[18]=-camera.near_plane*camera.far_plane/range;
     pc[20]=1.f/w;pc[21]=1.f/h;pc[22]=static_cast<float>(depth_mode);pc[23]=s.details?1.f:0.f;
+    // Animated sprites (water, lava, fire, portals) advance in the resident atlas
+    // before it is sampled; they never leave the native mesh for the RGB-D scene.
+    if(!s.details&&animation)s.animate(runtime,cmd,*ai,*animation,animation_payload);
     if(!destination)for(auto r:s.targets)cmd->barrier(r,resource_usage::shader_resource,resource_usage::render_target);
     render_pass_render_target_desc rts[2]{};for(unsigned i=0;i<2;++i){rts[i].view=surface.rtvs[i];rts[i].load_op=destination?render_pass_load_op::load:render_pass_load_op::clear;}
     render_pass_depth_stencil_desc depth{};depth.view=surface.dsv;depth.depth_load_op=destination?render_pass_load_op::load:render_pass_load_op::clear;depth.clear_depth=1;
@@ -298,8 +363,8 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
     cmd->end_render_pass();
     if(!s.details){
         const auto now=GetTickCount64();
-        const bool mesh_ok=s.detail_mesh.poll(detail_mesh_name,mesh_capacity,mesh_magic,now,GetCurrentProcessId());
-        const bool atlas_ok=s.detail_atlas.poll(detail_atlas_name,atlas_capacity,atlas_magic,now,GetCurrentProcessId());
+        const bool mesh_ok=s.detail_mesh.poll(detail_mesh_name,detail_mesh_capacity,mesh_magic,now,GetCurrentProcessId());
+        const bool atlas_ok=s.detail_atlas.poll(detail_atlas_name,detail_atlas_capacity,atlas_magic,now,GetCurrentProcessId());
         if((mesh_ok||s.detail_mesh.retained(now,GetCurrentProcessId()))
             &&(atlas_ok||s.detail_atlas.retained(now,GetCurrentProcessId()))
             &&detail_ready(s.detail_mesh.header,s.detail_atlas.header,mi->header,GetTickCount64())){
@@ -335,16 +400,20 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
         if(detail.pending_sort)detail.pending_sort->completion=detail_completion;
         detail.pending_mesh=nullptr;detail.pending_atlas=nullptr;detail.pending_sort=nullptr;
     }}
-    mi->completion=ai->completion=completion;if(sort)sort->completion=completion;s.rendered=true;return true;
+    mi->completion=ai->completion=completion;if(sort)sort->completion=completion;
+    if(s.pending_anim){s.pending_anim->completion=completion;s.pending_anim=nullptr;}
+    s.rendered=true;return true;
 }
 void Renderer::destroy(effect_runtime *runtime){
     if(!runtime)return;auto &s=*impl_;auto *d=runtime->get_device();
     if(s.detail_renderer){s.detail_renderer->destroy(runtime);s.detail_renderer.reset();}s.detail_mesh.close();s.detail_atlas.close();
-    s.pending_mesh=nullptr;s.pending_atlas=nullptr;s.pending_sort=nullptr;
+    s.pending_mesh=nullptr;s.pending_atlas=nullptr;s.pending_sort=nullptr;s.pending_anim=nullptr;
     if(s.fence_.handle)runtime->get_command_queue()->wait_idle();s.destroy_targets(d);
     for(auto &m:s.meshes){release(d,m.vertices);m={};}
     for(auto &a:s.atlases){release(d,a.view);release(d,a.texture);release(d,a.upload);a={};}
     for(auto &a:s.sorts){release(d,a.indices);a={};}
+    for(auto &a:s.anim_uploads){release(d,a.buffer);a={};}
+    s.sort_key={};s.sorted.clear();
     for(auto &p:s.pipelines){if(p.handle)d->destroy_pipeline(p);p={};}
     if(s.layout.handle)d->destroy_pipeline_layout(s.layout);if(s.point.handle)d->destroy_sampler(s.point);if(s.fence_.handle)d->destroy_fence(s.fence_);
     s.layout={};s.point={};s.fence_={};s.initialized=s.failed=s.have_newest=false;s.serial=s.order=0;s.failure=nullptr;

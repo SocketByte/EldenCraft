@@ -6,6 +6,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.status.ChunkStatus;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -20,12 +21,16 @@ abstract class BlockMeshDirtyMixin {
 
   @Inject(method = "onChunkLoaded", at = @At("TAIL"))
   private void eldencraft$chunkLoaded(ChunkPos pos, CallbackInfo ci) {
-    BlockMeshClient.chunkChanged(pos);
+    BlockMeshClient.chunkChanged(
+        pos,
+        ((ClientLevel) (Object) this)
+            .getChunkSource()
+            .getChunk(pos.x(), pos.z(), ChunkStatus.FULL, false));
   }
 
   @Inject(method = "unload", at = @At("TAIL"))
   private void eldencraft$chunkUnloaded(LevelChunk chunk, CallbackInfo ci) {
-    BlockMeshClient.chunkChanged(chunk.getPos());
+    BlockMeshClient.chunkChanged(chunk.getPos(), chunk);
   }
 
   @Inject(method = "clearTintCaches", at = @At("HEAD"))

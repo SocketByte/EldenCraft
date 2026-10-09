@@ -112,7 +112,8 @@ public final class CampaignLoot {
             entry("minecraft:flint", 1, 1, 6),
             entry("minecraft:arrow", 2, 4, 8),
             entry("minecraft:leather", 1, 1, 4),
-            entry("minecraft:golden_apple", 1, 1, .8),
+            entry("minecraft:golden_apple", 1, 1, 4),
+            entry("minecraft:enchanted_golden_apple", 1, 1, 1),
             new Entry("minecraft:cooked_beef", 1, 2, 14, Set.copyOf(IRON_TIER), Set.of()),
             new Entry("minecraft:golden_carrot", 1, 2, 8, Set.copyOf(DIAMOND_TIER), Set.of())));
   }

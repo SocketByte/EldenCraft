@@ -13,8 +13,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.builders.UVPair;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.block.FluidRenderer;
+import net.minecraft.client.renderer.block.FluidStateModelSet;
 import net.minecraft.client.renderer.block.ModelBlockRenderer;
 import net.minecraft.client.renderer.block.MovingBlockRenderState;
+import net.minecraft.client.resources.model.sprite.Material;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.data.AtlasIds;
@@ -25,6 +28,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.Vec3;
 
 /** Vanilla baked model capture, bounded across render frames. Never waits for the GPU. */
@@ -41,6 +45,7 @@ public final class BlockMeshClient {
   private static final BlockMeshMailbox MAILBOX = new BlockMeshMailbox();
   private static final BlockMeshHandoff HANDOFF = new BlockMeshHandoff();
   private static final BlockMeshChanges CHANGES = new BlockMeshChanges();
+  private static final BlockMeshAnimation ANIMATION = new BlockMeshAnimation();
   private static final long PID = ProcessHandle.current().pid();
   private static final int[] QUAD_TRIANGLES = {0, 1, 2, 0, 2, 3};
 
@@ -72,7 +77,7 @@ public final class BlockMeshClient {
   private static volatile Identifier atlasLocation;
   private static GpuTexture reportedLightTexture;
   private static byte[] atlasPixels, lightPixels, publishedPayload;
-  private static int atlasWidth, atlasHeight;
+  private static int atlasWidth, atlasHeight, atlasMips = 1;
   private static boolean atlasPublished, relight, allLightSections;
   // Installed is the latest published candidate; displayed is the exact acknowledged snapshot.
   private static Build build, installed, displayed;
@@ -118,12 +123,17 @@ public final class BlockMeshClient {
     if (dirtySections.size() > 4096) dirty();
   }
 
-  /** Streaming one chunk must not discard every cached section in the render area. */
-  public static void chunkChanged(ChunkPos pos) {
+  /**
+   * Streaming one chunk must not discard every cached section in the render area. A chunk holding
+   * only air and hidden shadow terrain (which neither renders nor occludes) changes no face, so the
+   * edge of the render distance can stream freely while the player moves.
+   */
+  public static void chunkChanged(ChunkPos pos, LevelChunk chunk) {
     var owner = build != null ? build : installed;
     if (owner == null) return;
     var area = owner.window;
     if (!area.intersectsChunkNeighborhood(pos.x(), pos.z())) return;
+    if (!hasReal(chunk) && !owner.hasGeometryIn(pos.x(), pos.z())) return;
     CHANGES.geometryChanged();
     retryBuild = 0;
     // Neighbor sections can expose new faces when the adjacent chunk arrives/leaves.
@@ -199,11 +209,13 @@ public final class BlockMeshClient {
         return;
       }
       var target = client.gameRenderer.mainRenderTarget();
+      // The mesh is drawn by the host at its own resolution; only the RGB-D exclusion
+      // needs a captured frame, which GPU sharing carries up to 4K.
       if (!FrameExporter.exporting()
           || target.width < 1
           || target.height < 1
-          || target.width > 1920
-          || target.height > 1080) {
+          || target.width > GpuTransport.MAX_W
+          || target.height > GpuTransport.MAX_H) {
         reportFallback(
             "scene capture unavailable or oversized: " + target.width + "x" + target.height);
         pause();
@@ -244,6 +256,7 @@ public final class BlockMeshClient {
         models = nextModels;
         resourceGeneration++;
         atlasPixels = null;
+        ANIMATION.clear();
         resetLightContext();
         atlasPublished = false;
         installed = build = null;
@@ -282,9 +295,10 @@ public final class BlockMeshClient {
               area.maxSectionY());
       var window = visibleWindow.withStreamingMargin();
       boolean current = installed != null && installed.valid(window);
-      // An ordinary edit does not switch the entire world back to RGB-D. Retain only
-      // a complete snapshot for this same render window, never missing chunk coverage.
-      if (installed != null && !installed.coversWindow(client, visibleWindow)) invalidateHandoff();
+      // Edits, chunks streaming in and reloaded chunk objects rebuild in place while the
+      // displayed snapshot stays; only a lost context or a view beyond the prebuilt
+      // border (fast travel) switches the whole world back to RGB-D.
+      if (installed != null && !installed.containsWindow(visibleWindow)) invalidateHandoff();
       phase = "atlas publication";
       if (atlasPixels != null && !atlasPublished) {
         MAILBOX.atlas(
@@ -300,7 +314,8 @@ public final class BlockMeshClient {
                 0,
                 0,
                 0,
-                true),
+                true,
+                atlasMips),
             ByteBuffer.wrap(atlasPixels));
         atlasPublished = true;
       }
@@ -308,19 +323,13 @@ public final class BlockMeshClient {
       var resident = HANDOFF.select(MAILBOX.acknowledgement(identity));
       if (resident == null) displayed = null;
       else if (resident.mesh() == revision) displayed = installed;
-      var oldest = displayed != null ? displayed : installed;
-      // Light propagation/tint refreshes never make known faces incomplete. Only
-      // actual block/coverage changes consume the old-geometry deadline.
-      if (HANDOFF.hasLatest()
-          && oldest != null
-          && !HANDOFF.geometryWithinGrace(oldest.geometryCurrent(visibleWindow), now)) {
-        invalidateHandoff();
-        resident = null;
-      }
+      if (displayed != null) CHANGES.displayed(displayed.generation);
+      // Light propagation/tint refreshes never make known faces incomplete. Only an
+      // actual block change that stays undisplayed past the grace revokes the mesh.
       boolean retained =
           displayed != null
-              && displayed.coversWindow(client, visibleWindow)
-              && HANDOFF.geometryWithinGrace(displayed.geometryCurrent(visibleWindow), now);
+              && displayed.containsWindow(visibleWindow)
+              && CHANGES.withinGrace(displayed.generation, now);
       if (displayed != null && !retained) {
         invalidateHandoff();
         resident = null;
@@ -376,7 +385,7 @@ public final class BlockMeshClient {
             } else {
               // Propagated-light dirtiness can leave every actual shaded vertex unchanged.
               displayed = build;
-              HANDOFF.geometryWithinGrace(true, now);
+              CHANGES.displayed(build.generation);
             }
             installed = build;
             build = null;
@@ -425,19 +434,29 @@ public final class BlockMeshClient {
       retained =
           resident != null
               && displayed != null
-              && displayed.coversWindow(client, visibleWindow)
-              && HANDOFF.geometryWithinGrace(displayed.geometryCurrent(visibleWindow), now);
+              && displayed.containsWindow(visibleWindow)
+              && CHANGES.withinGrace(displayed.generation, now);
       // A pending upload can itself become dirty before its first ACK. Keep its
       // bounded heartbeat alive so the consumer can ACK it and unblock the newer
       // coalesced build; otherwise neither side could advance the single candidate.
       boolean publishedUsable =
           HANDOFF.hasLatest()
               && installed != null
-              && installed.coversWindow(client, visibleWindow)
-              && (current
-                  || retained
-                  || HANDOFF.geometryWithinGrace(installed.geometryCurrent(visibleWindow), now));
+              && installed.containsWindow(visibleWindow)
+              && (current || retained || CHANGES.withinGrace(installed.generation, now));
       MAILBOX.heartbeat(atlasPublished && publishedUsable);
+      // Water, lava, fire and portals advance with the game tick inside the native atlas.
+      if (atlasPublished && installed != null && !ANIMATION.isEmpty())
+        ANIMATION.publish(
+            MAILBOX,
+            identity,
+            atlasRevision,
+            atlasWidth,
+            atlasHeight,
+            atlasMips,
+            client.level.getGameTime(),
+            MAILBOX.now(),
+            publishedUsable);
       if (retained)
         exclusion = new Exclusion(resident.mesh(), resident.atlas(), resident.session());
       if (exclusion.active() != reportedExclusion) {
@@ -527,28 +546,42 @@ public final class BlockMeshClient {
                 + texture.getFormat()
                 + " layers="
                 + texture.getDepthOrLayers());
+      // The whole mip chain: distant native blocks sample filtered levels like vanilla.
+      int mips = Math.min(texture.getMipLevels(), BlockMeshProtocol.maxMips(width, height));
+      while (mips > 1
+          && BlockMeshProtocol.mipOffset(width, height, mips)
+              > BlockMeshProtocol.ATLAS_BYTES - BlockMeshProtocol.HEADER) mips--;
+      for (int m = 1; m < mips; m++)
+        if (texture.getWidth(m) != BlockMeshProtocol.mipExtent(width, m)
+            || texture.getHeight(m) != BlockMeshProtocol.mipExtent(height, m)) {
+          mips = m;
+          break;
+        }
+      final int levels = Math.max(1, mips);
       atlasPending = true;
       long generation = resourceGeneration;
       try {
-        readTexture(
+        readAtlasChain(
             texture,
-            width * height * 4,
+            width,
+            height,
+            levels,
             bytes -> {
               atlasPending = false;
               if (closed || generation != resourceGeneration) return;
               atlasPixels = bytes;
               atlasWidth = width;
               atlasHeight = height;
+              atlasMips = levels;
               atlasRevision++;
               atlasPublished = false;
               LOG.info(
-                  "Block mesh atlas readback ready: revision={}, bytes={}",
+                  "Block mesh atlas readback ready: revision={}, bytes={}, mips={}",
                   atlasRevision,
-                  bytes.length);
+                  bytes.length,
+                  levels);
             },
-            true,
-            generation,
-            0);
+            generation);
       } catch (Throwable failure) {
         atlasPending = false;
         throw failure;
@@ -658,6 +691,56 @@ public final class BlockMeshClient {
     }
   }
 
+  /** Every level of the atlas, tightly packed largest first, from one readback buffer. */
+  private static void readAtlasChain(
+      GpuTexture texture,
+      int width,
+      int height,
+      int levels,
+      java.util.function.Consumer<byte[]> complete,
+      long generation) {
+    long total = BlockMeshProtocol.mipOffset(width, height, levels);
+    var buffer =
+        RenderSystem.getDevice()
+            .createBuffer(
+                () -> "EldenCraft atlas readback",
+                GpuBuffer.USAGE_MAP_READ | GpuBuffer.USAGE_COPY_DST,
+                total);
+    int[] remaining = {levels};
+    try {
+      var encoder = RenderSystem.getDevice().createCommandEncoder();
+      for (int level = 0; level < levels; level++)
+        encoder.copyTextureToBuffer(
+            texture,
+            buffer,
+            BlockMeshProtocol.mipOffset(width, height, level),
+            () -> {
+              if (--remaining[0] > 0) return;
+              try {
+                if (closed || generation != resourceGeneration) return;
+                try (var mapped = buffer.map(true, false)) {
+                  byte[] bytes = new byte[(int) total];
+                  mapped.data().get(bytes);
+                  complete.accept(bytes);
+                }
+              } catch (Throwable failure) {
+                failed = true;
+                LOG.warn(
+                    "Block mesh atlas readback failed; keeping RGB-D chunks: {}",
+                    failure.toString());
+              } finally {
+                atlasPending = false;
+                buffer.close();
+              }
+            },
+            level);
+    } catch (Throwable failure) {
+      // Copies already submitted still complete; only the last callback closes the buffer.
+      remaining[0] = Integer.MAX_VALUE;
+      throw failure;
+    }
+  }
+
   private record Section(LevelChunkSection section, int x, int y, int z) {
     long key() {
       return SectionPos.asLong(x, y, z);
@@ -679,6 +762,9 @@ public final class BlockMeshClient {
     final long full = fullGeneration, resources = resourceGeneration;
     final SharedWorldClient.BlockMeshContext ctx = context;
     final ModelBlockRenderer renderer;
+    final FluidStateModelSet fluidModels;
+    final FluidRenderer fluidRenderer;
+    final BlockMeshFluids fluidCapture = new BlockMeshFluids();
     final Map<Long, LevelChunk> chunks = new HashMap<>();
     final Map<Long, Geometry> geometry = new TreeMap<>();
     final Set<Long> refreshSections = Set.copyOf(dirtySections);
@@ -701,6 +787,8 @@ public final class BlockMeshClient {
       renderer =
           new ModelBlockRenderer(
               client.options.ambientOcclusion().get(), true, client.getBlockColors());
+      fluidModels = client.getModelManager().getFluidStateModelSet();
+      fluidRenderer = new FluidRenderer(fluidModels);
       fallback = "covering complete render area";
       for (long key : refreshSections)
         refreshChunks.add(ChunkPos.pack(SectionPos.x(key), SectionPos.z(key)));
@@ -736,8 +824,15 @@ public final class BlockMeshClient {
       return CHANGES.current(generation) && sameBasis(now);
     }
 
-    boolean geometryCurrent(BlockMeshCoverage now) {
-      return CHANGES.geometryCurrent(generation) && sameContext() && window.contains(now);
+    boolean hasGeometryIn(int chunkX, int chunkZ) {
+      for (long key : geometry.keySet())
+        if (SectionPos.x(key) == chunkX && SectionPos.z(key) == chunkZ) return true;
+      return false;
+    }
+
+    /** Same producer context and a prebuilt window around the current vanilla view. */
+    boolean containsWindow(BlockMeshCoverage now) {
+      return sameContext() && window.contains(now);
     }
 
     private boolean sameContext() {
@@ -748,16 +843,14 @@ public final class BlockMeshClient {
       return resources == resourceGeneration && ctx.equals(context) && window.equals(now);
     }
 
-    boolean coversWindow(Minecraft client, BlockMeshCoverage now) {
-      return sameContext() && window.contains(now) && coversVisible(client);
-    }
-
     boolean step(Minecraft client) {
       long deadline = System.nanoTime() + 2_000_000L;
       int work = 0;
+      // Chunk visits are palette checks; the deadline, not a small count, bounds them so a
+      // whole 32-chunk render area is covered in a few frames.
       while (collecting
           && chunkCursor < width * width
-          && work < 32
+          && work < 2048
           && System.nanoTime() < deadline) {
         int x = window.centerX() - window.radius() + chunkCursor % width,
             z = window.centerZ() - window.radius() + chunkCursor / width;
@@ -795,12 +888,12 @@ public final class BlockMeshClient {
         var state = s.section.getBlockState(x, y, z);
         if (real(state)) {
           sectionBlocks++;
-          if (++blocks > 4096)
-            throw new UnsupportedOperationException("More than 4096 real blocks in render area");
-          if (!state.getFluidState().isEmpty())
-            throw new UnsupportedOperationException("Fluid geometry remains in RGB-D");
+          blocks++;
+          var pos = new BlockPos(s.x * 16 + x, s.y * 16 + y, s.z * 16 + z);
+          // Water, lava and waterlogged blocks: vanilla fluid geometry in the native mesh.
+          var fluid = state.getFluidState();
+          if (!fluid.isEmpty()) tesselateFluid(pos, state, fluid, s);
           if (state.getRenderShape() == RenderShape.MODEL) {
-            var pos = new BlockPos(s.x * 16 + x, s.y * 16 + y, s.z * 16 + z);
             var canonical = ctx.origin().toHost(pos.getX(), pos.getY(), pos.getZ());
             var model = client.getModelManager().getBlockStateModelSet().get(state);
             boolean opaque =
@@ -811,9 +904,10 @@ public final class BlockMeshClient {
             renderer.tesselateBlock(
                 (ox, oy, oz, quad, instance) -> {
                   var material = quad.materialInfo();
-                  // A snapshot atlas would freeze fire, magma and the portal: those blocks render
-                  // live instead.
-                  if (material.sprite().isAnimated()) {
+                  // Fire, magma and the portal advance through the native animation channel;
+                  // only a sprite that channel cannot read still renders live instead.
+                  if (material.sprite().isAnimated()
+                      && !ANIMATION.add(material.sprite(), atlasWidth)) {
                     animated = true;
                     return;
                   }
@@ -889,6 +983,30 @@ public final class BlockMeshClient {
       return sectionCursor == sections.size();
     }
 
+    /** One fluid block through vanilla's renderer, straight into the section's layers. */
+    private void tesselateFluid(BlockPos pos, BlockState state, FluidState fluid, Section s) {
+      var model = fluidModels.get(fluid);
+      for (var material :
+          new Material.Baked[] {
+            model.stillMaterial(), model.flowingMaterial(), model.overlayMaterial()
+          })
+        if (material != null) {
+          if (!material.sprite().atlasLocation().equals(atlasLocation))
+            throw new UnsupportedOperationException("Non-block atlas fluid material");
+          if (material.sprite().isAnimated()) ANIMATION.add(material.sprite(), atlasWidth);
+        }
+      var origin = ctx.origin().toHost(s.x * 16, s.y * 16, s.z * 16);
+      fluidCapture.begin((float) origin.x(), (float) origin.y(), (float) origin.z());
+      fluidRenderer.tesselate(level, pos, fluidCapture, state, fluid);
+      for (int layer = 0; layer < 3; layer++) {
+        byte[] triangles = fluidCapture.layer(layer);
+        if (vertices + triangles.length / 28 > BlockMeshProtocol.MAX_VERTICES)
+          throw new UnsupportedOperationException("Block mesh vertex budget");
+        output[layer].writeBytes(triangles);
+        vertices += triangles.length / 28;
+      }
+    }
+
     private void removeSection(long key) {
       var old = geometry.remove(key);
       if (old != null) {
@@ -948,6 +1066,13 @@ public final class BlockMeshClient {
 
   private static boolean real(BlockState state) {
     return !state.isAir() && !state.is(SharedWorldBlocks.TERRAIN);
+  }
+
+  private static boolean hasReal(LevelChunk chunk) {
+    if (chunk == null) return false;
+    for (var section : chunk.getSections())
+      if (!section.hasOnlyAir() && section.maybeHas(BlockMeshClient::real)) return true;
+    return false;
   }
 
   /**

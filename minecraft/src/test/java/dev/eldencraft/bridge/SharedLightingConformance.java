@@ -88,6 +88,21 @@ public final class SharedLightingConformance {
     check(
         Blocks.AIR.defaultBlockState().getLightDampening() == 0,
         "sky policy agrees with real empty space");
+    // The light repair routes the light thread's unsaved report through these.
+    check(
+        !java.lang.reflect.Modifier.isStatic(
+            net.minecraft.server.level.ChunkMap.class
+                .getDeclaredMethod("setChunkUnsaved", net.minecraft.world.level.ChunkPos.class)
+                .getModifiers()),
+        "pinned ChunkMap unsaved report for the server-thread light listener");
+    check(
+        java.lang.reflect.Modifier.isPublic(
+            net.minecraft.world.level.chunk.LevelChunk.class
+                .getMethod(
+                    "setUnsavedListener",
+                    net.minecraft.world.level.chunk.LevelChunk.UnsavedListener.class)
+                .getModifiers()),
+        "loaded chunks accept a replacement unsaved listener");
     System.out.println(
         "Shared lighting conformance: "
             + checks

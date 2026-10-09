@@ -1,6 +1,9 @@
-//! Latest genuine integrated-server elytra velocity. Never an accumulated command.
+//! Latest integrated-server glide, creative, fluid or climb velocity. Never an accumulated command.
 use serde::{Deserialize, Serialize};
-pub const FRESH_MS: u64 = 150;
+/// The pipeline (guest read, server tick, guest publish, native read) already
+/// spends up to ~130 ms of a sample's life before native sees it, and samples
+/// arrive every 50 ms. A tighter lease dropped glides on Minecraft frame jitter.
+pub const FRESH_MS: u64 = 250;
 pub const MAX_SPEED: f32 = 120.0;
 #[derive(Clone, Copy, Debug, Default)]
 #[allow(dead_code)] // Low-rate movement log emits the complete observation.
@@ -75,22 +78,40 @@ pub struct Sample {
     pub time_ms: u64,
     pub observed_frame: u64,
     pub gliding: bool,
+    #[serde(default)]
+    pub travel: Travel,
     pub velocity: [f32; 3],
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Travel {
+    #[default]
+    None,
+    Water,
+    Lava,
+    Climb,
+    Creative,
+}
 impl Sample {
+    pub fn active(self) -> bool {
+        self.gliding || self.travel != Travel::None
+    }
     pub fn valid(self) -> bool {
         self.sequence > 0
             && self.time_ms > 0
             && self.observed_frame > 0
             && self.velocity.iter().all(|v| v.is_finite())
             && self.velocity.iter().map(|v| v * v).sum::<f32>() <= MAX_SPEED * MAX_SPEED
-            && (self.gliding || self.velocity == [0.; 3])
+            && (!self.gliding || self.travel == Travel::None)
+            && (self.travel == Travel::None
+                || self.velocity.iter().map(|v| v * v).sum::<f32>() <= 30.0 * 30.0)
+            && (self.active() || self.velocity == [0.; 3])
     }
     pub fn fresh(self, now: u64) -> bool {
         self.valid() && self.time_ms <= now && now - self.time_ms <= FRESH_MS
     }
     pub fn displacement(self, now: u64, dt: f32) -> Option<[f32; 3]> {
-        if !self.gliding || !self.fresh(now) || !dt.is_finite() || !(0.00001..=0.1).contains(&dt) {
+        if !self.active() || !self.fresh(now) || !dt.is_finite() || !(0.00001..=0.1).contains(&dt) {
             return None;
         }
         let d = self.velocity.map(|v| v * dt);
@@ -144,7 +165,7 @@ impl Latest {
     // to1, so movement's release barrier cannot either replay or lock out it.
     pub fn get(&self, now: u64) -> Option<Sample> {
         self.sample
-            .filter(|s| s.gliding && s.fresh(now))
+            .filter(|s| s.active() && s.fresh(now))
             .map(|s| Sample {
                 sequence: self.ticket,
                 ..s
@@ -160,6 +181,7 @@ mod tests {
             time_ms: 1000,
             observed_frame: 3,
             gliding: true,
+            travel: Travel::None,
             velocity: [3., -2., 4.],
         }
     }
@@ -175,9 +197,9 @@ mod tests {
     fn stale_and_repeated_samples_cannot_extend_motion() {
         let mut l = Latest::default();
         l.observe(context(), Some(sample()), 1000, true);
-        assert!(l.get(1150).is_some());
-        l.observe(context(), Some(sample()), 1151, true);
-        assert!(l.get(1151).is_none());
+        assert!(l.get(1000 + FRESH_MS).is_some());
+        l.observe(context(), Some(sample()), 1001 + FRESH_MS, true);
+        assert!(l.get(1001 + FRESH_MS).is_none());
     }
     #[test]
     fn sequence_is_immutable_and_context_change_resets_highwater() {
@@ -264,6 +286,76 @@ mod tests {
             true,
         );
         assert!(l.get(1000).unwrap().sequence > first);
+    }
+    #[test]
+    fn non_gliding_modes_share_expiry_stop_and_frame_witness() {
+        for travel in [Travel::Water, Travel::Lava, Travel::Climb, Travel::Creative] {
+            let s = Sample {
+                gliding: false,
+                travel,
+                velocity: [1., 2., 0.],
+                ..sample()
+            };
+            assert!(s.valid());
+            assert_eq!(s.displacement(1000, 0.05), Some([0.05, 0.1, 0.]));
+            let mut latest = Latest::default();
+            latest.observe(context(), Some(s), 1000, true);
+            assert!(latest.get(1000 + FRESH_MS).is_some());
+            assert!(latest.get(1001 + FRESH_MS).is_none());
+            latest.observe(context(), Some(s), 1000, false);
+            assert!(latest.get(1000).is_none());
+            latest.observe(context(), Some(s), 1000, true);
+            latest.observe(
+                context(),
+                Some(Sample {
+                    sequence: 2,
+                    travel: Travel::None,
+                    velocity: [0.; 3],
+                    ..s
+                }),
+                1000,
+                true,
+            );
+            assert!(latest.get(1000).is_none());
+            assert!(!Sample { gliding: true, ..s }.valid());
+            assert!(
+                !Sample {
+                    velocity: [30., 1., 0.],
+                    ..s
+                }
+                .valid()
+            );
+        }
+    }
+    #[test]
+    fn creative_hover_remains_active_without_displacement() {
+        let s = Sample {
+            gliding: false,
+            travel: Travel::Creative,
+            velocity: [0.; 3],
+            ..sample()
+        };
+        assert!(s.active());
+        assert!(s.valid());
+        assert_eq!(s.displacement(1000, 0.05), Some([0.; 3]));
+        let mut latest = Latest::default();
+        latest.observe(context(), Some(s), 1000, true);
+        assert!(latest.get(1000).is_some());
+        assert!(latest.get(1001 + FRESH_MS).is_none());
+        assert_eq!(
+            serde_json::from_str::<Sample>(&serde_json::to_string(&s).unwrap()).unwrap(),
+            s
+        );
+    }
+    #[test]
+    fn old_glide_wire_defaults_to_no_fluid_or_climb() {
+        let s: Sample = serde_json::from_str(
+            r#"{"sequence":1,"time_ms":1000,"observed_frame":3,"gliding":true,"velocity":[1,2,0]}"#,
+        )
+        .unwrap();
+        assert_eq!(s.travel, Travel::None);
+        assert!(s.valid());
+        assert!(serde_json::from_str::<Sample>(r#"{"sequence":1,"time_ms":1000,"observed_frame":3,"gliding":false,"travel":"teleport","velocity":[0,0,0]}"#).is_err());
     }
     #[test]
     fn meter_uses_only_consecutive_glide_displacement_not_ordinary_walk() {

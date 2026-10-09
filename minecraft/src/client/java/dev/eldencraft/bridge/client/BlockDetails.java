@@ -17,7 +17,12 @@ import org.joml.Vector3f;
  */
 public final class BlockDetails {
   private static final int MAX_VERTICES = 16380;
-  private static final BlockMeshMailbox MAILBOX = new BlockMeshMailbox("EldenCraftBlockDetail");
+  private static final BlockMeshMailbox MAILBOX =
+      new BlockMeshMailbox(
+          "EldenCraftBlockDetail",
+          BlockMeshProtocol.DETAIL_MESH_BYTES,
+          BlockMeshProtocol.DETAIL_ATLAS_BYTES,
+          false);
   private static final ByteArrayOutputStream cracks = new ByteArrayOutputStream(),
       lines = new ByteArrayOutputStream();
   private static final ByteBuffer vertexBytes =

@@ -1,9 +1,10 @@
 package dev.eldencraft.bridge;
 
-/** Bounds and edge handling only: Minecraft itself owns the gliding equation. */
+/** Bounds and edge handling only: Minecraft itself owns the travel equations. */
 public final class FlightPolicy {
   public static final long FRESH_NANOS = 150_000_000L;
   public static final double MAX_SPEED = 120;
+  public static final long CREATIVE_TOGGLE_NANOS = 350_000_000L;
 
   private FlightPolicy() {}
 
@@ -45,6 +46,37 @@ public final class FlightPolicy {
     public void baseline(long presses) {
       consumed = presses;
     }
+  }
+
+  /** Vanilla's seven-tick double jump window, without buffering held or stale input. */
+  public static final class CreativeToggle {
+    private long consumed;
+    private long firstPress;
+
+    public boolean take(long presses, long nanos, boolean mayFly) {
+      if (presses <= consumed || !mayFly) {
+        if (presses < consumed || !mayFly) firstPress = 0;
+        consumed = presses;
+        return false;
+      }
+      consumed = presses;
+      if (firstPress > 0 && nanos >= firstPress && nanos - firstPress <= CREATIVE_TOGGLE_NANOS) {
+        firstPress = 0;
+        return true;
+      }
+      firstPress = nanos;
+      return false;
+    }
+
+    public void baseline(long presses) {
+      consumed = presses;
+      firstPress = 0;
+    }
+  }
+
+  /** LocalPlayer adds this impulse before Player.travel applies vertical flight drag. */
+  public static double creativeLift(boolean jump, boolean sneak, float flyingSpeed) {
+    return ((jump ? 1 : 0) - (sneak ? 1 : 0)) * flyingSpeed * 3;
   }
 
   /**

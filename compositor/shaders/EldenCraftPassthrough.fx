@@ -18,6 +18,8 @@ sampler EcAvatarDepthSampler { Texture=EcAvatarDepthTexture; AddressU=CLAMP; Add
 uniform int EcDepthMode < ui_type="combo"; ui_label="Scene depth calibration"; ui_items="Uncalibrated (scene hidden)\0Forward Z\0Reverse Z (Elden Ring)\0"; ui_tooltip="Elden Ring 2.7.1.0 renders reverse Z. Uses actual host camera near/far values. Uncalibrated hides the scene for depth debugging."; > = 2;
 // Elden Ring's own finished frame, blurred, is the local light around each
 // Minecraft pixel (dark interiors, torches, sky) and the scenery behind it.
+uniform bool EcCameraAutoPacing < ui_label="Match blocks to the presented frame"; ui_tooltip="Draws native Minecraft blocks with the Elden Ring camera of the image being presented, measured every frame, so they stay locked to the world while the view turns. Disable only to compare against the newest submitted camera."; > = true;
+uniform int EcCameraLatency < ui_type="slider"; ui_min=0; ui_max=2; ui_label="Block camera latency (frames)"; ui_tooltip="Elden Ring presents the image of the camera submitted one frame earlier, so 1 keeps native blocks locked to the world while the view turns. Added to the measured pacing."; > = 1;
 uniform bool EcRelight < ui_label="Relight Minecraft from Elden Ring"; ui_tooltip="Multiplies Minecraft world, blocks and avatar by the blurred host frame's local brightness. The hand/HUD overlay is never relit."; > = true;
 uniform float EcLightGain < ui_type="slider"; ui_min=0.0; ui_max=6.0; ui_label="Relight gain"; > = 2.6;
 uniform float EcLightMin < ui_type="slider"; ui_min=0.0; ui_max=1.0; ui_label="Relight minimum"; > = 0.18;
@@ -244,7 +246,8 @@ void EcOrder(inout float4 a,inout float da,inout float4 b,inout float db) {
     if(da>db){float4 c=a;a=b;b=c;float d=da;da=db;db=d;}
 }
 float4 EcScenePS(float4 position : SV_Position,float2 uv : TEXCOORD) : SV_Target {
-    if(!EcFrameActive||!EcDepthReady)return 0;
+    // The camera pacing settings are read by the add-on; keep them in the effect's uniform table.
+    if(!EcFrameActive||!EcDepthReady||EcCameraLatency<0||(EcCameraAutoPacing&&EcCameraLatency>2))return 0;
     float raw=tex2D(EcHostDepthSampler,uv).r;
     if(EcSceneDebug==1)return float4(raw,raw,raw,1);
     float hostDepth=EcHostMetres(raw);

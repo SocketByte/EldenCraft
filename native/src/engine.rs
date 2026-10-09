@@ -759,6 +759,7 @@ struct Snapshot {
     /// Live player instance address, only compared for identity.
     identity: usize,
     native_menu_blocked: bool,
+    native_ladder: bool,
 }
 
 fn snapshot(
@@ -921,6 +922,7 @@ fn snapshot(
             map: player.current_block_id.0 as u32,
             identity: player as *const _ as usize,
             native_menu_blocked: !menu_active,
+            native_ladder: player.chr_ins.modules.ladder.state != eldenring::cs::LadderState::None,
             player: block_position,
             camera: camera_position,
             forward,
@@ -1132,6 +1134,7 @@ impl Host {
         while let Some(event) = self.host_action.events.pop_front() {
             log(&self.io, event);
         }
+        let interaction_movement_locked = unsafe { self.host_action.movement_locked(now_ms) };
         LOOK_DEADLINE.store(
             if compositor_ready && guest_gui == Some(false) {
                 now_ms + 100
@@ -1236,6 +1239,8 @@ impl Host {
             }
         }
         let movement_wanted = compositor_ready
+            && !interaction_movement_locked
+            && !state.native_ladder
             && guest_gui == Some(false)
             && movement_look.is_some()
             && self.movement.is_some();
@@ -1243,6 +1248,7 @@ impl Host {
         let mut gliding = false;
         let mut mounted = false;
         if let Some(driver) = self.movement.as_mut() {
+            driver.set_fluids(self.shared_world.fluids(now_ms));
             driver.set_flight(self.shared_world.player_flight(now_ms));
             driver.set_torrent(self.shared_world.player_torrent(now_ms));
             let enabled = movement_wanted && movement_input_ready;
@@ -1261,6 +1267,15 @@ impl Host {
                 None
             };
             driver.set_ledges(drops);
+            // Step-up onto placed slabs/stairs runs in physics from this box list.
+            let steps = enabled
+                .then(|| {
+                    let feet =
+                        std::array::from_fn(|i| f64::from(state.player[i] - state.offset[i]));
+                    self.shared_world.step_boxes(feet)
+                })
+                .flatten();
+            driver.set_steps(steps);
             let (forward, right) = movement_look.unwrap_or(([0., 0., 1.], [1., 0., 0.]));
             match unsafe { driver.authorize(enabled, input, forward, right) } {
                 Ok(()) => {
@@ -1276,7 +1291,12 @@ impl Host {
             // The physics boundary owns the vanilla sprint latch (key, double tap, release rules).
             // Held through short authorization gaps so the sprint FOV never pumps.
             sprinting = enabled && driver.camera_sprinting();
-            gliding = driver.status().gliding || self.shared_world.player_flight(now_ms).is_some();
+            gliding = !state.native_ladder
+                && (driver.status().gliding
+                    || self
+                        .shared_world
+                        .player_flight(now_ms)
+                        .is_some_and(|s| s.gliding));
             // Presentation only: an open inventory must not drop the rider's view.
             mounted = self.shared_world.player_torrent(now_ms).is_some();
             if compositor_ready && self.last_movement_sample.elapsed() > Duration::from_secs(5) {
@@ -1340,10 +1360,19 @@ impl Host {
         if let Ok(mut combat) = self.combat.try_lock() {
             combat.set_shield_forward(movement_look.map(|(forward, _)| forward));
             combat.set_debug_bounds(self.debug_hitboxes);
+            combat.set_interaction_movement(
+                compositor_ready && interaction_movement_locked && !state.native_ladder,
+            );
             // Space is handled at the verified pre-collision velocity boundary.
             // Reserve both native Jump and Backstep without authorizing their
             // animation startup while the Minecraft controller owns movement.
-            combat.set_movement_jump(movement_wanted.then_some(false));
+            // Keep held WASD/Space captured during an interaction while the
+            // original native root-motion/collision stage completes its animation.
+            combat.set_movement_jump(
+                (movement_wanted
+                    || compositor_ready && interaction_movement_locked && !state.native_ladder)
+                    .then_some(false),
+            );
             if let Ok(Some(probe)) = unsafe { combat.probe() } {
                 let status = combat.status();
                 let signature = (
@@ -1460,9 +1489,18 @@ impl Host {
         while let Some(event) = self.shared_world.events.pop_front() {
             log(&self.io, event);
         }
-        let gliding = gliding || self.shared_world.player_flight(now_ms).is_some();
+        let motion = self
+            .shared_world
+            .player_flight(now_ms)
+            .filter(|_| compositor_ready && !state.native_ladder && guest_gui == Some(false));
+        let gliding = compositor_ready
+            && !state.native_ladder
+            && (gliding || motion.is_some_and(|s| s.gliding));
+        let protected_travel =
+            motion.is_some_and(|s| s.travel != crate::player_flight::Travel::None);
         unsafe {
-            self.glide_safety.tick(gliding, state.grounded, now_ms);
+            self.glide_safety
+                .tick(gliding, protected_travel, state.grounded, now_ms);
         }
         for event in self.glide_safety.events.drain(..) {
             log(&self.io, event);

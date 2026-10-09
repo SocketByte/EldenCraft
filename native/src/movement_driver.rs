@@ -222,6 +222,8 @@ pub struct Status {
     pub native_dt: f32,
     pub sprinting: bool,
     pub gliding: bool,
+    pub travel_mode: crate::player_flight::Travel,
+    pub capsule_profile: Option<[[f32; 2]; 2]>,
     /// Riding Torrent: the mounted gait drove this step.
     pub mounted: bool,
     pub flight_sequence: u64,
@@ -240,6 +242,8 @@ pub struct Status {
     pub collision_feedback: u64,
     /// Physics steps where crouching stopped movement at a ledge.
     pub ledge_stops: u64,
+    /// Owned step-up hops onto low placed Minecraft blocks (slabs, stairs).
+    pub step_hops: u64,
     pub motion_multiplier: f32,
     pub speed_multiplier: f32,
     /// Quarter-second path-length observation; not a straight-line speed proof.
@@ -295,6 +299,23 @@ struct HorizontalModel {
 impl HorizontalModel {
     fn reset(&mut self) {
         *self = Self::default();
+    }
+    /// Momentum of motion this model did not integrate (an elytra glide), in
+    /// m/s. Ordinary friction then decays it, as vanilla keeps deltaMovement when
+    /// a glide ends, instead of the body stopping dead. Bounded so one native step
+    /// stays inside the gait's step limit even at the slowest validated frame.
+    fn carry(&mut self, velocity: [f32; 2]) {
+        let tick = velocity.map(|v| if v.is_finite() { v * TICK } else { 0.0 });
+        let speed = tick[0].hypot(tick[1]);
+        let scale = if speed > GLIDE_CARRY_PER_TICK {
+            GLIDE_CARRY_PER_TICK / speed
+        } else {
+            1.0
+        };
+        *self = Self {
+            velocity: tick.map(|v| v * scale),
+            ..Self::default()
+        };
     }
     /// Torrent's air jump turns the whole horizontal momentum toward the input.
     fn redirect(&mut self, direction: [f32; 3]) {
@@ -472,6 +493,104 @@ fn blocked(expected: [f32; 2], actual: [f32; 2]) -> Option<([f32; 2], f32)> {
         normal,
         (normal[0] * expected[0] + normal[1] * expected[1]) / length,
     ))
+}
+
+/// Largest horizontal glide momentum (blocks/tick, 8 m/s) handed to the
+/// ordinary model when a glide ends. Two ticks of it plus sprint acceleration
+/// stay inside the 1 m foot step at the slowest validated (100 ms) frame.
+const GLIDE_CARRY_PER_TICK: f32 = 0.4;
+/// The server's first glide velocity was integrated from a pose a tick or more
+/// old, while the native jump kept falling. Blend into it over this long.
+const GLIDE_BLEND_S: f32 = 0.15;
+/// Contact lingering from the takeoff never counts as a landing.
+const GLIDE_TAKEOFF_S: f32 = 0.1;
+/// Grounded and descending this long ends the glide natively (about two
+/// frames), as vanilla stops it on the first grounded tick.
+const GLIDE_LAND_S: f32 = 0.03;
+/// After a native touchdown, the server's still-arriving glide is ignored until
+/// it stops gliding, or for at most this long if it never saw the contact.
+const GLIDE_LANDED_HOLD_MS: u64 = 400;
+
+/// Elytra glide entry and exit at the physics stage. The integrated server owns
+/// the glide, but its samples reach native movement a tick or more after the
+/// vanilla events: without this the takeoff jolted from the jump's fall to an
+/// older glide velocity, and a landing skidded along the ground at glide speed
+/// until the server noticed, then stopped dead.
+#[derive(Clone, Debug, Default)]
+struct GlideTransition {
+    /// World velocity (m/s) of the last owned step.
+    last_velocity: [f32; 3],
+    /// Takeoff blend: the velocity the glide started from, and time since.
+    blend: Option<([f32; 3], f32)>,
+    /// Time in the current native glide; zero when not gliding.
+    gliding_s: f32,
+    /// Consecutive grounded, descending glide time.
+    ground_s: f32,
+    /// Native touchdown time while the server's glide is still arriving.
+    landed_at: Option<u64>,
+}
+impl GlideTransition {
+    /// The sample this step follows. A glide ends natively on a confirmed
+    /// touchdown; its later samples are ignored until the server stops it.
+    /// Fluid and climb travel pass through unchanged.
+    fn admit(
+        &mut self,
+        sample: Option<crate::player_flight::Sample>,
+        grounded: bool,
+        dt: f32,
+        now: u64,
+    ) -> Option<crate::player_flight::Sample> {
+        let glide = sample.filter(|s| s.gliding);
+        if let Some(at) = self.landed_at {
+            if glide.is_some() && now.saturating_sub(at) <= GLIDE_LANDED_HOLD_MS {
+                return None;
+            }
+            self.landed_at = None;
+        }
+        let Some(glide) = glide else {
+            self.end();
+            return sample;
+        };
+        if self.gliding_s == 0.0 {
+            self.blend = Some((self.last_velocity, 0.0));
+        }
+        self.gliding_s += dt;
+        self.ground_s = if grounded && glide.velocity[1] <= 0.0 && self.gliding_s > GLIDE_TAKEOFF_S
+        {
+            self.ground_s + dt
+        } else {
+            0.0
+        };
+        if self.ground_s >= GLIDE_LAND_S {
+            self.end();
+            self.landed_at = Some(now);
+            return None;
+        }
+        Some(glide)
+    }
+    /// Velocity for this glide step: the takeoff blend, then the server's own.
+    fn velocity(&mut self, glide: [f32; 3], dt: f32) -> [f32; 3] {
+        let Some((from, elapsed)) = self.blend.as_mut() else {
+            return glide;
+        };
+        *elapsed += dt;
+        let t = (*elapsed / GLIDE_BLEND_S).min(1.0);
+        let from = *from;
+        if t >= 1.0 {
+            self.blend = None;
+        }
+        std::array::from_fn(|i| from[i] + (glide[i] - from[i]) * t)
+    }
+    fn record(&mut self, velocity: [f32; 3]) {
+        if velocity.iter().all(|v| v.is_finite()) {
+            self.last_velocity = velocity;
+        }
+    }
+    fn end(&mut self) {
+        self.gliding_s = 0.0;
+        self.ground_s = 0.0;
+        self.blend = None;
+    }
 }
 
 /// Native steps around takeoff, landing and contact changes are ignored for
@@ -737,7 +856,23 @@ impl VerticalModel {
     fn knock(&mut self) {
         self.knocked = true;
     }
+    /// An owned step-up launch onto a low placed block: gravity, landing and
+    /// ground adhesion behave as for a jump, but no press, sprint impulse or
+    /// jump count is consumed. Refused while already airborne.
+    fn hop(&mut self, velocity: f32) -> bool {
+        if self.flying || !velocity.is_finite() || !(0.05..=14.0).contains(&velocity) {
+            return false;
+        }
+        self.flying = true;
+        self.left_ground = false;
+        self.flight_time = 0.0;
+        self.velocity = velocity;
+        self.remaining = TICK;
+        true
+    }
 }
+/// A failed step hop (native geometry above the step) is not retried at once.
+const STEP_HOP_COOLDOWN_MS: u64 = 300;
 /// Ungrounded this long (one Minecraft tick) before a walk-off becomes a fall.
 const LEDGE_FALL_S: f32 = TICK;
 /// A crouch edge probe older than this is ignored (about six frames).
@@ -938,6 +1073,7 @@ struct VelocityContext {
     y: f32,
     flight: Option<[f32; 3]>,
     calls: u32,
+    horizontal_scale: Option<f32>,
 }
 thread_local! {static VELOCITY_CONTEXT:Cell<Option<VelocityContext>>=const{Cell::new(None)};}
 struct VelocityScope(Option<VelocityContext>);
@@ -965,6 +1101,14 @@ fn vertical_replacement(
         return None;
     }
     let mut output = input;
+    if let Some(scale) = context.horizontal_scale {
+        if !scale.is_finite() || !(0.25..=0.5).contains(&scale) {
+            return None;
+        }
+        output.0[0] *= scale;
+        output.0[2] *= scale;
+        return Some(output);
+    }
     if let Some(v) = context.flight {
         if !v.iter().all(|x| x.is_finite())
             || v.iter().map(|v| v * v).sum::<f32>() > crate::player_flight::MAX_SPEED.powi(2)
@@ -1061,7 +1205,7 @@ unsafe fn skip_ground_adhesion(shared: &Mutex<Shared>, physics: usize, timestamp
     let Ok(mut state) = shared.try_lock() else {
         return false;
     };
-    let glide = state.flight.filter(|s| s.gliding && s.fresh(timestamp));
+    let glide = state.flight.filter(|s| s.active() && s.fresh(timestamp));
     if !owns_upward_step(
         state.permit,
         physics,
@@ -1084,6 +1228,7 @@ unsafe fn skip_ground_adhesion(shared: &Mutex<Shared>, physics: usize, timestamp
     true
 }
 struct Shared {
+    capsule: crate::player_capsule::Driver,
     permit: Option<Permit>,
     model: HorizontalModel,
     vertical: VerticalModel,
@@ -1094,7 +1239,9 @@ struct Shared {
     flight: Option<crate::player_flight::Sample>,
     /// Latest server-owned mount; its own timestamp is checked at each stage.
     torrent: Option<crate::torrent::Sample>,
+    fluids: Vec<crate::world_fluids::Owned>,
     was_gliding: bool,
+    glide: GlideTransition,
     glide_meter: crate::player_flight::Meter,
     /// Position before the previous owned step and its expected horizontal travel.
     last_step: Option<([f32; 3], [f32; 2])>,
@@ -1108,6 +1255,9 @@ struct Shared {
     knockback: Option<[f32; 2]>,
     /// Drops around the feet (+X,-X,+Z,-Z) from the post-physics probe, with its time.
     ledges: Option<([bool; 4], u64)>,
+    /// Placed Minecraft collider boxes near the feet (Havok), with their time.
+    steps: Option<(Vec<crate::step_assist::Box6>, u64)>,
+    last_hop: u64,
     /// The body the models describe and the last time they were driven: a short
     /// revocation of the same body keeps momentum, jump and sprint (CARRY_MS).
     body: Option<Identity>,
@@ -1118,6 +1268,7 @@ struct Shared {
 impl Shared {
     fn new(speed: f32, orientation: Option<OrientationGetter>) -> Self {
         Self {
+            capsule: crate::player_capsule::Driver::default(),
             permit: None,
             model: HorizontalModel::default(),
             vertical: VerticalModel::default(),
@@ -1127,7 +1278,9 @@ impl Shared {
             orientation,
             flight: None,
             torrent: None,
+            fluids: Vec::new(),
             was_gliding: false,
+            glide: GlideTransition::default(),
             glide_meter: crate::player_flight::Meter::default(),
             last_step: None,
             sprint: SprintLatch::default(),
@@ -1136,6 +1289,8 @@ impl Shared {
             last_buttons: None,
             knockback: None,
             ledges: None,
+            steps: None,
+            last_hop: 0,
             body: None,
             active_at: 0,
             sprint_at: 0,
@@ -1145,6 +1300,7 @@ impl Shared {
         self.model.reset();
         self.vertical = VerticalModel::default();
         self.travel = TravelMeter::default();
+        self.glide = GlideTransition::default();
         self.glide_meter = crate::player_flight::Meter::default();
         self.last_step = None;
         self.sprint = SprintLatch::default();
@@ -1168,13 +1324,21 @@ impl Shared {
     /// Stops driving the body. The models stay for a quick reacquisition of the
     /// same body (`carry`); anything longer or another body starts from rest.
     fn revoke(&mut self) {
+        // All revocations run on the native game task/physics thread. Restore
+        // clearance before handing a ladder, menu or suspended body back.
+        unsafe { self.capsule.release() };
         self.permit = None;
         self.flight = None;
         self.torrent = None;
+        self.fluids.clear();
         self.was_gliding = false;
         self.last_step = None;
         self.knockback = None;
         self.status.authorized = false;
+        self.status.gliding = false;
+        self.status.travel_mode = crate::player_flight::Travel::None;
+        self.status.capsule_profile = None;
+        self.status.mounted = false;
     }
     fn carry(&self, identity: Identity, now: u64) -> bool {
         self.body.is_some_and(|b| b.same_body(identity))
@@ -1224,6 +1388,7 @@ impl Driver {
         {
             return Err("movement SDK layout mismatch".into());
         }
+        let capsule = crate::player_capsule::Driver::install(image)?;
         if INSTALLED.swap(true, Ordering::AcqRel) {
             return Err("movement detour already installed".into());
         }
@@ -1232,12 +1397,79 @@ impl Driver {
                 image.as_ptr() as usize + ORIENTATION_RVA,
             )
         };
-        let shared = Arc::new(Mutex::new(Shared::new(speed, Some(orientation))));
+        let mut initial = Shared::new(speed, Some(orientation));
+        initial.capsule = capsule;
+        let shared = Arc::new(Mutex::new(initial));
         let faulted = Arc::new(AtomicBool::new(false));
         let enabled = Arc::new(AtomicBool::new(false));
         let state = shared.clone();
         let failed = faulted.clone();
         let active = enabled.clone();
+        let resize_state = shared.clone();
+        let resize_active = enabled.clone();
+        let resize_failed = faulted.clone();
+        let resize_callback = move |registers: *mut Registers, original: usize| {
+            let regs = unsafe { &*registers };
+            let physics = regs.rcx as *mut CSChrPhysicsModule;
+            let main = regs.rdx as *const crate::player_capsule::Dimensions;
+            let secondary = regs.r8 as *const crate::player_capsule::Dimensions;
+            let original: crate::player_capsule::Resize = unsafe { std::mem::transmute(original) };
+            let replacement = if resize_active.load(Ordering::Acquire)
+                && !resize_failed.load(Ordering::Acquire)
+                && INPUT_READY.load(Ordering::Acquire)
+                && foreground()
+            {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut state = resize_state.try_lock().ok()?;
+                    let permit = state.permit?;
+                    let timestamp = now();
+                    if permit.identity.physics != physics as usize
+                        || timestamp < permit.issued
+                        || timestamp - permit.issued > PERMIT_MS
+                        || !unsafe { identity(false) }.is_ok_and(|i| i.same_body(permit.identity))
+                    {
+                        return None;
+                    }
+                    unsafe {
+                        state.capsule.intercept(
+                            permit.identity.player,
+                            physics as usize,
+                            main,
+                            secondary,
+                        )
+                    }
+                }))
+                .unwrap_or_else(|_| {
+                    resize_failed.store(true, Ordering::Release);
+                    None
+                })
+            } else {
+                None
+            };
+            unsafe {
+                original(
+                    physics,
+                    replacement.as_ref().map_or(main, |p| &p.main),
+                    replacement.as_ref().map_or(secondary, |p| &p.secondary),
+                );
+            }
+            0 // Native resize is void; no caller consumes RAX.
+        };
+        let base = image.as_ptr() as usize;
+        let resize_hook = unsafe {
+            crate::hosting::hook(base + crate::player_capsule::RESIZE, |option| {
+                hook_closure_retn(
+                    base + crate::player_capsule::RESIZE,
+                    resize_callback,
+                    option,
+                    HookFlags::empty(),
+                )
+            })
+        }
+        .map_err(|error| {
+            INSTALLED.store(false, Ordering::Release);
+            format!("movement capsule detour install failed: {error:?}")
+        })?;
         // Install the consumer before the outer stage. Without a scoped local
         // context every call retains the original pointer and arguments.
         let velocity_callback = |registers: *mut Registers, original: usize| {
@@ -1349,6 +1581,13 @@ impl Driver {
                     }
                 }
             };
+            // A missing permit, lost input capture or callback fault restores
+            // our capsule at this body's next stage even if PostPhysics stalls.
+            if replacement.is_none()
+                && let Ok(mut state) = state.try_lock()
+            {
+                unsafe { state.capsule.release_at_stage(physics as usize) };
+            }
             let _velocity =
                 VelocityScope::enter(replacement.as_ref().and_then(|value| value.velocity));
             let result = unsafe {
@@ -1366,6 +1605,9 @@ impl Driver {
                 .map_or(0, |value| value.calls);
             if replacement.is_some()
                 && let Ok(mut state) = state.try_lock()
+                && state
+                    .permit
+                    .is_some_and(|p| p.identity.physics == physics as usize)
             {
                 state.status.vertical_submissions = state
                     .status
@@ -1384,6 +1626,7 @@ impl Driver {
         };
         match hook {
             Ok(hook) => {
+                std::mem::forget(resize_hook);
                 std::mem::forget(velocity_hook);
                 std::mem::forget(adhesion_hook);
                 std::mem::forget(hook);
@@ -1407,6 +1650,12 @@ impl Driver {
     pub fn set_ledges(&mut self, drops: Option<[bool; 4]>) {
         if let Ok(mut state) = self.shared.try_lock() {
             state.ledges = drops.map(|d| (d, now()));
+        }
+    }
+    /// Placed Minecraft collider boxes near the feet, in Havok coordinates.
+    pub fn set_steps(&mut self, boxes: Option<Vec<crate::step_assist::Box6>>) {
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.steps = boxes.map(|b| (b, now()));
         }
     }
     /// Queue vanilla knockback away from an attacker for the next owned physics step.
@@ -1448,6 +1697,10 @@ impl Driver {
             }
         };
         let timestamp = now();
+        if let Err(error) = unsafe { state.capsule.apply(identity.player, identity.physics) } {
+            state.revoke();
+            return Err(error);
+        }
         if state
             .permit
             .is_some_and(|p| !p.identity.same_body(identity))
@@ -1515,6 +1768,11 @@ impl Driver {
             state.torrent = sample;
         }
     }
+    pub fn set_fluids(&mut self, contacts: Vec<crate::world_fluids::Owned>) {
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.fluids = contacts;
+        }
+    }
     /// Sprint for the camera FOV: the latched sprint, held through authorization
     /// gaps no longer than CARRY_MS so the FOV never pumps on a hitch.
     pub fn camera_sprinting(&self) -> bool {
@@ -1534,6 +1792,8 @@ impl Driver {
             .map_or_else(|_| self.last_status.get(), |s| s.status);
         self.last_status.set(status);
         status.authorized &= self.enabled.load(Ordering::Acquire);
+        status.gliding &= status.authorized;
+        status.mounted &= status.authorized;
         if self.faulted.load(Ordering::Acquire) {
             status.authorized = false;
             status.last_error = Some("movement detour panic; disabled until restart");
@@ -1579,6 +1839,9 @@ unsafe fn identity(require_activity: bool) -> Result<Identity, &'static str> {
         {
             return Err("movement mounted/ladder gate");
         }
+        if crate::host_action::movement_reserved() {
+            return Err("movement scripted animation gate");
+        }
         let physics = &*player.chr_ins.modules.physics;
         if !std::ptr::eq(physics.owner.as_ptr(), &player.chr_ins) {
             return Err("movement physics owner mismatch");
@@ -1594,6 +1857,99 @@ unsafe fn identity(require_activity: bool) -> Result<Identity, &'static str> {
     }
 }
 
+unsafe fn prepare_enemy_fluid(
+    state: &Shared,
+    permit: Permit,
+    physics: *mut CSChrPhysicsModule,
+    time: *const FD4Time,
+    transform: *const RootTransform,
+) -> Option<Replacement> {
+    let timestamp = now();
+    if state.fluids.is_empty()
+        || timestamp < permit.issued
+        || timestamp - permit.issued > PERMIT_MS
+        || !foreground()
+        || !unsafe { identity(false) }.is_ok_and(|i| i.same_body(permit.identity))
+        || physics.is_null()
+        || time.is_null()
+        || transform.is_null()
+        || transform as usize & 15 != 0
+    {
+        return None;
+    }
+    unsafe {
+        let p = &*physics;
+        let owner = p.owner.as_ptr();
+        if owner.is_null() {
+            return None;
+        }
+        // Compare the current stage's owner before reading its modules. A
+        // saved token never becomes an address from which we load memory.
+        let contact = state
+            .fluids
+            .iter()
+            .find(|c| c.instance == owner as usize && c.contact.fresh(timestamp))?;
+        let chr = &*owner;
+        if !chr.chr_flags1c8.is_active()
+            || !chr.chr_flags1c8.update_tasks_registered()
+            || chr.chr_flags1c5.death_flag()
+            || chr.modules.data.hp <= 0
+            || !std::ptr::eq(chr.modules.physics.as_ptr(), physics)
+        {
+            return None;
+        }
+        let h = chr.field_ins_handle;
+        let id = u64::from(h.selector.0) | ((h.block_id.0 as u32 as u64) << 32);
+        let scale = contact.scale(timestamp, id, owner as usize)?;
+        let dt = (*time).time;
+        if !dt.is_finite() || !(0.00001..=0.1).contains(&dt) {
+            return None;
+        }
+        let mut output = *transform;
+        if output
+            .translation
+            .iter()
+            .chain(output.rotation.iter())
+            .chain(output.scale.iter())
+            .any(|v| !v.is_finite() || v.abs() > 10000.)
+        {
+            return None;
+        }
+        let q = effective_orientation(physics, state.orientation?).ok()?;
+        let world = inverse_rotate(
+            [-q[0], -q[1], -q[2], q[3]],
+            [
+                output.translation[0],
+                output.translation[1],
+                output.translation[2],
+            ],
+        )
+        .ok()?;
+        output.translation = replace_world_translation(
+            q,
+            output.translation,
+            [world[0] * scale, world[1], world[2] * scale],
+            None,
+        )
+        .ok()?;
+        let address = physics as *const u8;
+        let proxies = [
+            *(address.add(0x98) as *const usize),
+            *(address.add(0xa0) as *const usize),
+        ];
+        Some(Replacement {
+            transform: output,
+            velocity: Some(VelocityContext {
+                proxies,
+                y: 0.,
+                flight: None,
+                calls: 0,
+                horizontal_scale: Some(scale),
+            }),
+        })
+    }
+}
+
 unsafe fn prepare(
     shared: &Mutex<Shared>,
     physics: *mut CSChrPhysicsModule,
@@ -1603,7 +1959,7 @@ unsafe fn prepare(
     let mut state = shared.try_lock().ok()?;
     let permit = state.permit?;
     if permit.identity.physics != physics as usize {
-        return None;
+        return unsafe { prepare_enemy_fluid(&state, permit, physics, time, transform) };
     }
     let timestamp = now();
     if timestamp < permit.issued || timestamp - permit.issued > PERMIT_MS || !foreground() {
@@ -1643,7 +1999,10 @@ unsafe fn prepare(
                 .buttons(timestamp, crate::overlay_input::peek_buttons(timestamp))
                 .ok_or("movement controls unavailable at physics boundary")?;
             let position = [physics.position.0, physics.position.1, physics.position.2];
-            let glide = state.flight.filter(|s| s.gliding && s.fresh(timestamp));
+            // The same bounded server lease carries vanilla fluid/climb travel;
+            // native ladders are excluded by identity() and never enter this path.
+            let fresh = state.flight.filter(|s| s.active() && s.fresh(timestamp));
+            let glide = state.glide.admit(fresh, grounded, dt, timestamp);
             let gait = if glide.is_none()
                 && state
                     .torrent
@@ -1697,13 +2056,27 @@ unsafe fn prepare(
                     state.vertical.knock();
                 }
             }
+            let mut glide_velocity = None;
             let (desired, vertical) = if let Some(glide) = glide {
-                let desired = glide
+                // The server's own vector must be fresh and bounded before any blend.
+                glide
                     .displacement(timestamp, dt)
                     .ok_or("glide displacement exceeded bounded step")?;
+                let velocity = if glide.gliding {
+                    state.glide.velocity(glide.velocity, dt)
+                } else {
+                    glide.velocity
+                };
+                let desired = velocity.map(|v| v * dt);
+                if !desired.iter().all(|v| v.is_finite())
+                    || desired.iter().map(|v| v * v).sum::<f32>() > 36.0
+                {
+                    return Err("glide displacement exceeded bounded step");
+                }
                 state.model.reset();
                 state.vertical = VerticalModel::default();
-                (desired, glide.velocity[1])
+                glide_velocity = Some(velocity);
+                (desired, velocity[1])
             } else {
                 if state.was_gliding {
                     // Exit into ordinary native-collision fall without replaying
@@ -1718,6 +2091,11 @@ unsafe fn prepare(
                     };
                     state.vertical.flying = !grounded;
                     state.vertical.left_ground = !grounded;
+                    // Keep the glide's horizontal momentum: a landing slides to a
+                    // stop under ground friction, a lapse in the stream coasts.
+                    let carried = state.glide.last_velocity;
+                    state.model.carry([carried[0], carried[2]]);
+                    state.wall.settle();
                 }
                 let (jumps, was_flying, air_jumps) = (
                     state.vertical.jumps,
@@ -1776,6 +2154,39 @@ unsafe fn prepare(
                         state.status.ledge_stops = state.status.ledge_stops.saturating_add(1);
                     }
                 }
+                // Vanilla step-up onto placed slabs and stair steps (Torrent: full
+                // blocks). Elden Ring terrain keeps its native stepping.
+                if grounded
+                    && !state.vertical.flying
+                    && timestamp.saturating_sub(state.last_hop) >= STEP_HOP_COOLDOWN_MS
+                {
+                    let max = match gait {
+                        Gait::Foot => crate::step_assist::FOOT_STEP_M,
+                        Gait::Torrent => crate::step_assist::TORRENT_STEP_M,
+                    };
+                    let height = state
+                        .steps
+                        .as_ref()
+                        .filter(|(_, at)| {
+                            timestamp >= *at && timestamp - at <= crate::step_assist::FRESH_MS
+                        })
+                        .and_then(|(boxes, _)| {
+                            crate::step_assist::rise(
+                                position,
+                                [desired[0], desired[2]],
+                                desired[0].hypot(desired[2]) / dt,
+                                boxes,
+                                max,
+                            )
+                        });
+                    if let Some(height) = height
+                        && state.vertical.hop(crate::step_assist::hop_velocity(height))
+                    {
+                        state.wall.settle();
+                        state.last_hop = timestamp;
+                        state.status.step_hops = state.status.step_hops.saturating_add(1);
+                    }
+                }
                 // Native scales the resolved delta by motion_multiplier; expect that much.
                 let scale = if physics.motion_multiplier.is_finite() {
                     physics.motion_multiplier.clamp(0.0, 4.0)
@@ -1786,6 +2197,11 @@ unsafe fn prepare(
                 (desired, vertical)
             };
             state.was_gliding = glide.is_some();
+            if dt > 0.0 {
+                state
+                    .glide
+                    .record([desired[0] / dt, vertical, desired[2] / dt]);
+            }
             state.active_at = timestamp;
             if gait.sprinting(current_input) {
                 state.sprint_at = timestamp;
@@ -1802,7 +2218,7 @@ unsafe fn prepare(
             // In an owned jump or fall the whole velocity is Minecraft's: Elden Ring's
             // airborne integration otherwise keeps its own horizontal inertia, so the
             // jump curved off the requested direction and lost or gained momentum.
-            let flight = glide.map(|s| s.velocity).or_else(|| {
+            let flight = glide_velocity.or_else(|| {
                 state
                     .vertical
                     .flying
@@ -1814,6 +2230,7 @@ unsafe fn prepare(
                 y: vertical,
                 flight,
                 calls: 0,
+                horizontal_scale: None,
             });
             let mut output = input;
             // The same vertical intent must enter the root-motion path: native
@@ -1836,7 +2253,9 @@ unsafe fn prepare(
                 requested_speed_mps: desired[0].hypot(desired[2]) / dt,
                 native_dt: dt,
                 sprinting: gait.sprinting(current_input),
-                gliding: glide.is_some(),
+                gliding: glide.is_some_and(|s| s.gliding),
+                travel_mode: glide.map_or(crate::player_flight::Travel::None, |s| s.travel),
+                capsule_profile: state.capsule.profile(),
                 mounted: gait == Gait::Torrent,
                 flight_sequence: glide.map_or(0, |s| s.sequence),
                 glide_observation,
@@ -1849,6 +2268,7 @@ unsafe fn prepare(
                 last_jump: state.vertical.observation,
                 collision_feedback: state.status.collision_feedback,
                 ledge_stops: state.status.ledge_stops,
+                step_hops: state.status.step_hops,
                 motion_multiplier: physics.motion_multiplier,
                 speed_multiplier: state.speed,
                 measured_speed_mps: measured_speed,
@@ -2373,6 +2793,7 @@ mod tests {
             y: 9.,
             flight: Some([12., 9., -3.]),
             calls: 0,
+            horizontal_scale: None,
         };
         assert_eq!(
             vertical_replacement(Some(c), 1, input).unwrap().0,
@@ -2383,6 +2804,47 @@ mod tests {
             vertical_replacement(
                 Some(VelocityContext {
                     flight: Some([120., 1., 0.]),
+                    ..c
+                }),
+                1,
+                input
+            )
+            .is_none()
+        );
+    }
+    #[test]
+    fn enemy_fluid_submission_slows_horizontal_motion_and_preserves_native_fall() {
+        let input = NativeVelocity([4., -8., 12., 7.]);
+        let c = VelocityContext {
+            proxies: [1, 2],
+            y: 0.,
+            flight: None,
+            calls: 0,
+            horizontal_scale: Some(0.5),
+        };
+        assert_eq!(
+            vertical_replacement(Some(c), 1, input).unwrap().0,
+            [2., -8., 6., 7.]
+        );
+        assert_eq!(
+            vertical_replacement(
+                Some(VelocityContext {
+                    horizontal_scale: Some(0.25),
+                    ..c
+                }),
+                2,
+                input
+            )
+            .unwrap()
+            .0,
+            [1., -8., 3., 7.]
+        );
+        assert!(vertical_replacement(Some(c), 3, input).is_none());
+        assert!(vertical_replacement(None, 1, input).is_none());
+        assert!(
+            vertical_replacement(
+                Some(VelocityContext {
+                    horizontal_scale: Some(f32::NAN),
                     ..c
                 }),
                 1,
@@ -2487,6 +2949,7 @@ mod tests {
             y: 4.0,
             flight: Some(flight),
             calls: 0,
+            horizontal_scale: None,
         };
         assert_eq!(
             vertical_replacement(Some(c), 6, input).unwrap().0,
@@ -2495,6 +2958,144 @@ mod tests {
         );
         assert!(airborne_velocity([f32::NAN, 0., 0.], 1., 0.01).is_none());
         assert!(airborne_velocity([0.1, 0., 0.], 1., 0.0).is_none());
+    }
+    fn glide_sample(vertical: f32) -> crate::player_flight::Sample {
+        crate::player_flight::Sample {
+            sequence: 1,
+            time_ms: 1000,
+            observed_frame: 1,
+            gliding: true,
+            travel: crate::player_flight::Travel::None,
+            velocity: [10.0, vertical, 0.0],
+        }
+    }
+    #[test]
+    fn glide_takeoff_blends_from_the_jump_instead_of_jolting() {
+        let dt = 1.0 / 60.0;
+        let mut g = GlideTransition::default();
+        g.record([4.0, -6.0, 0.0]);
+        assert!(
+            g.admit(Some(glide_sample(-2.0)), true, dt, 1000).is_some(),
+            "contact lingering from the takeoff is not a landing"
+        );
+        let first = g.velocity([10.0, -2.0, 0.0], dt);
+        assert!(first[0] > 4.0 && first[0] < 10.0, "{first:?}");
+        assert!(first[1] < -2.0 && first[1] > -6.0, "{first:?}");
+        for i in 1..12 {
+            assert!(
+                g.admit(Some(glide_sample(-2.0)), false, dt, 1000 + i)
+                    .is_some()
+            );
+            g.velocity([10.0, -2.0, 0.0], dt);
+        }
+        assert_eq!(
+            g.velocity([10.0, -2.0, 0.0], dt),
+            [10.0, -2.0, 0.0],
+            "after the blend the server's glide is followed exactly"
+        );
+        // A single contact frame (a bump) keeps gliding.
+        assert!(g.admit(Some(glide_sample(-2.0)), true, dt, 1200).is_some());
+        assert!(g.admit(Some(glide_sample(-2.0)), false, dt, 1216).is_some());
+        // Fluid/climb travel is never filtered.
+        let swim = crate::player_flight::Sample {
+            gliding: false,
+            travel: crate::player_flight::Travel::Water,
+            ..glide_sample(0.0)
+        };
+        assert_eq!(g.admit(Some(swim), true, dt, 1300), Some(swim));
+    }
+    #[test]
+    fn glide_touchdown_ends_natively_until_the_server_stops_it() {
+        let dt = 1.0 / 60.0;
+        let mut g = GlideTransition::default();
+        for i in 0..10 {
+            assert!(
+                g.admit(Some(glide_sample(-3.0)), false, dt, 1000 + i)
+                    .is_some()
+            );
+        }
+        assert!(g.admit(Some(glide_sample(-3.0)), true, dt, 2000).is_some());
+        assert!(
+            g.admit(Some(glide_sample(-3.0)), true, dt, 2016).is_none(),
+            "two grounded descending frames land"
+        );
+        assert!(
+            g.admit(Some(glide_sample(-3.0)), true, dt, 2100).is_none(),
+            "the server's late glide does not skid the landed player"
+        );
+        assert!(g.admit(None, true, dt, 2150).is_none());
+        assert!(
+            g.admit(Some(glide_sample(-3.0)), false, dt, 2200).is_some(),
+            "a glide opened after the server's stop is followed"
+        );
+        // A server that never saw the contact is followed again after the hold.
+        for i in 0..10 {
+            g.admit(Some(glide_sample(-3.0)), false, dt, 2300 + i);
+        }
+        g.admit(Some(glide_sample(-3.0)), true, dt, 3000);
+        assert!(g.admit(Some(glide_sample(-3.0)), true, dt, 3016).is_none());
+        assert!(
+            g.admit(
+                Some(glide_sample(-3.0)),
+                false,
+                dt,
+                3016 + GLIDE_LANDED_HOLD_MS
+            )
+            .is_none()
+        );
+        assert!(
+            g.admit(
+                Some(glide_sample(-3.0)),
+                false,
+                dt,
+                3017 + GLIDE_LANDED_HOLD_MS
+            )
+            .is_some()
+        );
+        // Climbing out of a dive is never a landing.
+        let mut climb = GlideTransition::default();
+        for i in 0..20 {
+            assert!(
+                climb
+                    .admit(Some(glide_sample(2.0)), i > 10, dt, 1000 + i)
+                    .is_some()
+            );
+        }
+    }
+    #[test]
+    fn carried_glide_momentum_slides_to_a_stop_inside_the_step_bound() {
+        let mut m = HorizontalModel::default();
+        m.carry([0.0, 30.0]);
+        assert!((m.velocity[1] - GLIDE_CARRY_PER_TICK).abs() < 1e-6);
+        let sprint = Input {
+            forward: 1.0,
+            sprint: true,
+            ..Input::default()
+        };
+        for grounded in [true, false] {
+            assert!(
+                m.clone()
+                    .travel(0.1, sprint, FORWARD, RIGHT, grounded, Gait::Foot)
+                    .is_ok(),
+                "the slowest validated frame stays inside the foot step"
+            );
+        }
+        let mut slide = 0.0;
+        for _ in 0..30 {
+            slide += m
+                .advance(TICK, Input::default(), FORWARD, RIGHT, true)
+                .unwrap()[2];
+        }
+        assert!(slide > 0.5 && slide < 1.0, "{slide}");
+        assert_eq!(m.velocity, [0.0; 2], "ground friction stops the landing");
+        let mut slow = HorizontalModel::default();
+        slow.carry([3.0, 0.0]);
+        assert!(
+            (slow.velocity[0] - 0.15).abs() < 1e-6,
+            "slow glides keep all of it"
+        );
+        slow.carry([f32::NAN, 1.0]);
+        assert!(slow.velocity[0] == 0.0 && slow.velocity[1] > 0.0);
     }
     #[test]
     fn walk_sprint_and_sneak_converge_to_mc_default_surface_speeds() {
@@ -2663,6 +3264,7 @@ mod tests {
                 y,
                 flight: None,
                 calls: 0,
+                horizontal_scale: None,
             })
         };
         let input = NativeVelocity([0.0; 4]);
@@ -2764,6 +3366,26 @@ mod tests {
         assert!((highest - 1.2522).abs() < 0.01, "apex={highest}");
         assert!(y < 0.0);
         assert_eq!(model.jumps, 1);
+    }
+    #[test]
+    fn step_hop_clears_a_slab_lands_and_never_counts_as_a_jump() {
+        let mut model = VerticalModel::default();
+        let mut y = 0.0f32;
+        model.advance(TICK, false, true, y).unwrap();
+        assert!(model.hop(crate::step_assist::hop_velocity(0.5)));
+        assert!(!model.hop(8.0), "no second hop while airborne");
+        let mut highest = 0.0f32;
+        for _ in 0..20 {
+            // Native collision lands the body on the 0.5 m slab top.
+            let grounded = model.left_ground && y <= 0.5;
+            let velocity = model.advance(TICK, false, grounded, y).unwrap();
+            y = (y + velocity * TICK).max(if model.left_ground { 0.5 } else { 0.0 });
+            highest = highest.max(y);
+        }
+        assert!(highest >= 0.57, "clears the slab edge: {highest}");
+        assert!(!model.flying, "landed on the step");
+        assert_eq!(model.jumps, 0, "a step-up is not a jump");
+        assert!(!model.hop(f32::NAN) && !model.hop(-1.0) && !model.hop(30.0));
     }
     #[test]
     fn ceiling_collision_stops_lift_and_landing_requires_a_new_space_edge() {
@@ -2980,6 +3602,7 @@ mod tests {
             y: 8.4,
             flight: None,
             calls: 0,
+            horizontal_scale: None,
         };
         assert!(vertical_replacement(Some(context), 789, input).is_none());
         assert_eq!(

@@ -125,11 +125,11 @@ public final class CampaignHud {
       Minecraft client, GuiGraphicsExtractor gui, CampaignHudConfig.StaminaBar settings) {
     return HudDamageTrail.staminaTop(
         gui.guiHeight(),
-        client.player.getMaxHealth(),
+        HostHealthDisplay.maximum(client.player, client.player.getMaxHealth()),
         Math.max(
-            client.player.getHealth(),
+            HostHealthDisplay.units(client.player, client.player.getHealth()),
             ((HudHeartLayoutAccessor) client.gui.hud).eldencraft$displayHealth()),
-        client.player.getAbsorptionAmount(),
+        HostHealthDisplay.units(client.player, client.player.getAbsorptionAmount()),
         settings.enabled() ? settings.height() : 0,
         settings.enabled() ? settings.offsetY() : 0);
   }

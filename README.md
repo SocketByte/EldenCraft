@@ -107,8 +107,8 @@ We also took a novel approach to modelling the world, which means no janky colli
 | | |
 | --- | --- |
 | **Progression** | From wood to netherite across **159** boss rewards. Every remembrance is a milestone. |
-| **Arsenal** | Swords, shields, bows, crossbows, ender pearls, elytra and golden apples: all real Minecraft items. |
-| **Enemy drops** | Ordinary enemies drop bread, arrows, crafting junk and the odd golden apple where they fall; better food joins as you climb the material tiers. Boss rewards go straight to your inventory. |
+| **Arsenal** | Swords, shields, bows, crossbows, TNT, ender pearls, elytra, golden and enchanted golden apples, and totems of undying: all real Minecraft items. A totem in either hand cheats death from an Elden Ring blow too, and its absorption hearts soak up the next hits. |
+| **Enemy drops** | Ordinary enemies drop bread, arrows, crafting junk and the occasional golden apple where they fall; better food joins as you climb the material tiers. Boss rewards go straight to your inventory. |
 | **Boss bars** | Native boss health in Minecraft boss bars, with the yellow damage trail. |
 | **Minecraftified menus** | Sites of Grace, NPC conversations and confirmations become Minecraft screens; the original quest scripts still decide the outcome. |
 | **Map and fast travel** | Elden Ring's own map on <kbd>M</kbd> or <kbd>G</kbd>, with the Minecraft overlay out of the way so it is fully clickable. |
@@ -195,7 +195,7 @@ file picker, or you can pass the path:
 | <kbd>Left mouse</kbd> | Attack; hold to mine |
 | <kbd>Right mouse</kbd> | Use an item, place a block, or charge a ranged weapon |
 | <kbd>Y</kbd> | Summon or dismiss **Torrent** |
-| <kbd>R</kbd> | Elden Ring interaction: doors, items, levers and Sites of Grace |
+| <kbd>R</kbd> | Elden Ring interaction: ladders, doors, items, levers and Sites of Grace |
 | <kbd>E</kbd> | Minecraft inventory |
 | <kbd>M</kbd> / <kbd>G</kbd> | Elden Ring map (Minecraft is hidden until it closes) |
 | <kbd>T</kbd> / <kbd>/</kbd> | Chat / command |
@@ -243,6 +243,22 @@ Ring's physics stage, so the controls feel like Minecraft but native collision
 still decides where you can go. Every channel is a bounded, versioned local
 mapping with session identity and freshness checks; no game pointers ever cross
 the process boundary. The full contract is in [PROTOCOL.md](PROTOCOL.md).
+
+Use **R** to enter an Elden Ring ladder, then **W/S** to climb up or down with
+the native ladder controls. Minecraft ladders use vanilla climbing: press into
+the ladder or hold **Space** to ascend, and **Shift** to hold your height.
+Water and lava use Minecraft's fluid travel, buoyancy and damage rules for the
+player. Water slows Elden Ring enemies to half speed and lava to quarter speed;
+their Minecraft proxies also receive lava/fire damage and drown when submerged.
+Ordinary Minecraft mobs retain vanilla fluid behavior. Native
+collision still resolves the resulting motion. While Minecraft movement is
+active, the native movement capsule is limited to Minecraft's 0.6-block width
+and 1.8-block standing height, so open doors and two-block doorways have normal
+clearance; closed doors retain their actual collision shape.
+
+In creative mode, double-tap **Space** to toggle flight. Hold **Space** to ascend
+or **Shift** to descend, use the movement keys to fly, and hold sprint to fly
+faster. Releasing the controls lets you hover; landing ends flight.
 
 ## Saves and configuration
 
@@ -324,22 +340,38 @@ does not establish the cause; check the later bridge status entries.
 </details>
 
 For help and bug reports, [join the EldenCraft Discord](https://discord.gg/7qDyAzAq9).
-Include the error text and logs from the same failed run:
+Reproduce the issue, then **double-click `Troubleshoot.cmd`** beside `EldenCraft.cmd`.
+It works even if setup or launch failed, and opens Explorer with a single
+`EldenCraft-support-*.zip` selected. Send that ZIP with the error text and a short
+description of what happened and how to reproduce it. Keep the games running
+while collecting if the problem happens during gameplay.
 
-- `%LOCALAPPDATA%\EldenCraft\logs\launcher-*.log` and the matching `me3-*.stdout.log` / `me3-*.stderr.log`.
-- `%LOCALAPPDATA%\EldenCraft\runtime\ReShade.log`.
-- `%LOCALAPPDATA%\EldenCraft\runtime\data\eldencraft-loader.log` and `eldencraft-native.log`.
-- `%LOCALAPPDATA%\EldenCraft\minecraft\instances\EldenCraft\.minecraft\logs\latest.log`.
+The ZIP includes `SUMMARY.txt` with findings and suggested next steps, a structured
+`report.json`, recent launcher/me3, ReShade, native and Minecraft logs, GPU/driver
+details, game version/hash, and checks for incomplete extraction, stale binaries,
+duplicate bridge mods and manual ReShade conflicts. Log timestamps help distinguish
+the failed run from older runs. It collects up to 1 MiB from the end of each log.
+It makes no game changes, downloads nothing and uploads nothing. Saves, account
+files, memory dumps and process arguments are excluded; common identifiers,
+tokens and chat content are redacted. Review the contents before posting publicly.
 
-Use your custom data directory if configured. Early launcher errors are logged
-before game verification. Missing native logs mean the native runtime has not
-started; include the launcher and me3 logs. Avoid sending Minecraft account
-files or entire save folders.
+If you use a custom data directory, run from the extracted release folder:
+
+```bat
+Troubleshoot.cmd -DataDirectory "D:\EldenCraftData"
+```
+
+`EldenCraft.cmd diagnose` also collects a bundle. Optional `-GamePath` selects an
+Elden Ring installation if discovery fails; `-OutputDirectory` chooses where to
+save the ZIP; `-NonInteractive` skips opening Explorer. The default output folder
+is `%TEMP%\EldenCraftDiagnostics`. Missing native logs are recorded in the summary
+so you can start with the launcher/me3 logs instead of hunting for empty folders.
 
 <details>
 <summary><b>Known limitations</b></summary>
 
 - HDR output isn't supported.
+- Placed blocks, water, lava and animated blocks are drawn natively in Elden Ring's frame. Block entities (chests, signs, beds), mobs, items and your avatar still come from the captured Minecraft frame and can trail slightly while the camera turns.
 - Native enemies don't pathfind around Minecraft walls.
 - Absorption hearts, potion effects on native enemies and crossbow fireworks are incomplete.
 - Picking Elden Ring terrain is approximate; native collision stays authoritative for movement and projectiles.

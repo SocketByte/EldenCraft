@@ -68,6 +68,10 @@ public final class WorldConformance {
     var h = host(base);
     check(h.active() && h.terrainReady() && h.targets().isEmpty(), "valid snapshot");
     check(h.damageScale() == 50 && h.sourceMap() == 100, "compatible defaults");
+    check(!h.nativeLadder(), "older hosts default to no native ladder handoff");
+    var ladder = fixture();
+    ladder.addProperty("native_ladder", true);
+    check(host(ladder).nativeLadder(), "native ladder stops guest travel ownership");
     var region = fixture();
     region.add("offset", JsonWire.vector(-500, 20, 700));
     region.add("source_to_region", JsonWire.vector(100, 0, -200));

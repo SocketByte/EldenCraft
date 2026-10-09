@@ -125,19 +125,45 @@ struct DamageEvent {
     seq: u64,
     raw_damage: f64,
     blocked: bool,
+    /// Minecraft absorption hearts this hit spent, in Minecraft health units.
+    #[serde(skip_serializing_if = "is_zero")]
+    absorbed: f64,
+    /// A held totem of undying saved the player from this hit.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    totem: bool,
 }
-fn record_damage(raw: f64, blocked: bool) {
+fn is_zero(value: &f64) -> bool {
+    *value == 0.
+}
+fn record_damage(raw: f64, blocked: bool, absorbed: f64, totem: bool) {
     if let Ok(mut events) = DAMAGE_EVENTS.lock() {
         let seq = DAMAGE_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
         events.push_back(DamageEvent {
             seq,
             raw_damage: raw,
             blocked,
+            absorbed,
+            totem,
         });
         while events.len() > 64 {
             events.pop_front();
         }
     }
+}
+/// Absorption and totems that hits after Minecraft's last applied event have
+/// already spent: Minecraft's published balance does not include them yet.
+fn unacknowledged(ack: u64) -> (f64, u64) {
+    DAMAGE_EVENTS
+        .lock()
+        .map(|events| {
+            events
+                .iter()
+                .filter(|e| e.seq > ack)
+                .fold((0., 0), |(absorbed, totems), e| {
+                    (absorbed + e.absorbed, totems + u64::from(e.totem))
+                })
+        })
+        .unwrap_or((f64::INFINITY, u64::MAX))
 }
 fn damage_events() -> Vec<DamageEvent> {
     DAMAGE_EVENTS
@@ -180,6 +206,15 @@ pub struct CombatState {
     pub guard_seq: u64,
     #[serde(default)]
     pub guard_damage: f64,
+    /// Last native damage event Minecraft applied (armor wear, absorption, totems).
+    #[serde(default)]
+    pub damage_ack: u64,
+    /// Minecraft absorption hearts, in Minecraft health units.
+    #[serde(default)]
+    pub absorption: f64,
+    /// Death-protection items (totems of undying) in the paired player's hands.
+    #[serde(default)]
+    pub totems: u32,
     /// Exact native boss instance IDs actually drawn by the Minecraft HUD.
     #[serde(default)]
     pub boss_hud_ids: Vec<String>,
@@ -241,12 +276,11 @@ struct HealingState {
     heal_seq: u64,
     heal_total: f64,
 }
-/// The fixed conversion prevents Vigor growth from reducing stamina pressure.
-pub fn filter_damage(damage: i32, frontal_block: bool) -> Option<i32> {
+/// The current paired guest's fresh combat publication.
+fn fresh_combat() -> Option<(&'static Arc<Config>, CombatState)> {
     let cfg = CONFIG.get().filter(|c| c.enabled)?;
     // These locks only copy scalar/bounded state, and the worker performs its
     // file reads before acquiring COMBAT. Release each before the next lock.
-    // A transient publication must not turn a raised shield into an open hit.
     let state = COMBAT.lock().ok()?.clone()?;
     if CURRENT
         .lock()
@@ -269,8 +303,17 @@ pub fn filter_damage(damage: i32, frontal_block: bool) -> Option<i32> {
         || !state.guest_max_hp.is_finite()
         || state.guest_max_hp <= 0.
         || !state.stamina.is_finite()
-        || damage <= 0
     {
+        return None;
+    }
+    Some((cfg, state))
+}
+/// The fixed conversion prevents Vigor growth from reducing stamina pressure.
+/// `hp`/`max_hp` are the player's native health before this hit.
+pub fn filter_damage(damage: i32, frontal_block: bool, hp: i32, max_hp: i32) -> Option<i32> {
+    // A transient publication must not turn a raised shield into an open hit.
+    let (cfg, state) = fresh_combat()?;
+    if damage <= 0 {
         return None;
     }
     let raw =
@@ -298,23 +341,94 @@ pub fn filter_damage(damage: i32, frontal_block: bool) -> Option<i32> {
             *sum += raw;
             GUARD_SEQ.fetch_add(1, Ordering::Release);
             if absorbed >= 1. {
-                record_damage(raw, true);
+                record_damage(raw, true, 0., false);
                 return Some(0);
             }
             GUARD_BREAKS.fetch_add(1, Ordering::Release);
             let through = raw * (1. - absorbed);
-            record_damage(raw * absorbed, true);
-            record_damage(through, false);
-            return Some(open_damage(through, &state, cfg));
+            record_damage(raw * absorbed, true, 0., false);
+            return Some(resolve_open(through, &state, cfg, hp, max_hp));
         }
     }
-    record_damage(raw, false);
-    Some(open_damage(raw, &state, cfg))
+    Some(resolve_open(raw, &state, cfg, hp, max_hp))
 }
-fn open_damage(raw: f64, state: &CombatState, cfg: &Config) -> i32 {
-    (damage_after_armor(raw, state.armor) * cfg.native_hp_per_minecraft_hp())
+/// Applies and records an open hit against Minecraft's current absorption and
+/// totems, less what earlier hits Minecraft has not applied yet already spent.
+fn resolve_open(raw: f64, state: &CombatState, cfg: &Config, hp: i32, max_hp: i32) -> i32 {
+    let (spent_absorption, spent_totems) = unacknowledged(state.damage_ack);
+    let absorption = if state.absorption.is_finite() {
+        state.absorption.clamp(0., 1_000_000.)
+    } else {
+        0.
+    };
+    let hit = open_hit(
+        damage_after_armor(raw, state.armor),
+        absorption - spent_absorption,
+        u64::from(state.totems.min(2)) > spent_totems,
+        cfg.native_hp_per_minecraft_hp(),
+        hp,
+        one_health(max_hp, state.guest_max_hp),
+    );
+    record_damage(raw, false, hit.absorbed, hit.totem);
+    hit.damage
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct OpenHit {
+    damage: i32,
+    absorbed: f64,
+    totem: bool,
+}
+/// Vanilla order after armor: absorption hearts take the hit first, the rest is
+/// health. A lethal remainder with a totem in hand instead leaves one Minecraft
+/// health point, as vanilla death protection sets health to 1.
+fn open_hit(
+    after_armor: f64,
+    absorption: f64,
+    totem: bool,
+    hp_per_minecraft_hp: f64,
+    hp: i32,
+    one_health: i32,
+) -> OpenHit {
+    let absorbed = after_armor.min(absorption).max(0.);
+    let damage = ((after_armor - absorbed) * hp_per_minecraft_hp)
         .round()
-        .max(0.) as i32
+        .max(0.) as i32;
+    if totem && hp > 0 && damage >= hp {
+        return OpenHit {
+            damage: (hp - one_health).max(0),
+            absorbed,
+            totem: true,
+        };
+    }
+    OpenHit {
+        damage,
+        absorbed,
+        totem: false,
+    }
+}
+/// One Minecraft health point in native HP, as the guest's health bar shows it.
+fn one_health(max_hp: i32, guest_max_hp: f64) -> i32 {
+    let value = max_hp as f64 / guest_max_hp;
+    if value.is_finite() {
+        (value.round() as i32).max(1)
+    } else {
+        1
+    }
+}
+/// Elden Ring's own hazards (falls, self-inflicted hits) keep their native
+/// damage and bypass armor; only a lethal one is caught by a held totem.
+/// Returns the reduced native damage when a totem was spent.
+pub fn death_protection(damage: i32, hp: i32, max_hp: i32) -> Option<i32> {
+    let (_, state) = fresh_combat()?;
+    if damage <= 0 || hp <= 0 || damage < hp {
+        return None;
+    }
+    let (_, spent_totems) = unacknowledged(state.damage_ack);
+    if u64::from(state.totems.min(2)) <= spent_totems {
+        return None;
+    }
+    record_damage(0., false, 0., true);
+    Some((hp - one_health(max_hp, state.guest_max_hp)).max(0))
 }
 /// Fraction of a raised-shield hit that the remaining stamina pays for. The
 /// rest of the hit goes through as ordinary damage after armor.
@@ -354,11 +468,83 @@ struct Captured {
     chr: usize,
     serial: u64,
 }
+
+/// Presentation-only load identity. Combat sessions and purchase journals keep
+/// their existing identity when the same character returns from the title menu.
+#[derive(Default)]
+struct SaveLoadState {
+    sequence: u64,
+    loaded: bool,
+}
+impl SaveLoadState {
+    fn observe_slot(&mut self, slot: i32, warping: bool, online: bool) {
+        // Only an explicitly unloaded offline save rearms the welcome guide.
+        // Missing objects, focus loss, death, grace and map loads do not.
+        if slot < 0 && !warping && !online {
+            self.loaded = false;
+        }
+    }
+
+    fn admit_loaded(&mut self) {
+        if !self.loaded {
+            self.sequence = self.sequence.saturating_add(1).min(i64::MAX as u64);
+            self.loaded = true;
+        }
+    }
+}
+
+#[cfg(test)]
+mod save_load_tests {
+    use super::SaveLoadState;
+
+    #[test]
+    fn same_save_returns_from_title_with_a_new_presentation_identity() {
+        let mut state = SaveLoadState::default();
+        state.observe_slot(-1, false, false);
+        assert_eq!(state.sequence, 0, "an unloaded title is not a save load");
+        state.observe_slot(0, false, false);
+        state.admit_loaded();
+        assert_eq!(state.sequence, 1);
+        state.observe_slot(-1, false, false);
+        state.observe_slot(-1, false, false);
+        assert_eq!(
+            state.sequence, 1,
+            "a title menu cannot publish another load"
+        );
+        state.observe_slot(0, false, false);
+        state.admit_loaded();
+        assert_eq!(state.sequence, 2);
+    }
+
+    #[test]
+    fn focus_death_grace_and_warp_do_not_rearm_the_guide() {
+        let mut state = SaveLoadState::default();
+        state.admit_loaded();
+        // Observation runs even when gameplay sampling is suspended. A loaded
+        // slot during focus loss, death or a grace menu retains the identity.
+        for _ in 0..3 {
+            state.observe_slot(0, false, false);
+            state.admit_loaded();
+        }
+        state.observe_slot(-1, true, false);
+        state.observe_slot(0, false, false);
+        state.admit_loaded();
+        assert_eq!(state.sequence, 1);
+        state.observe_slot(-1, false, true);
+        state.admit_loaded();
+        assert_eq!(
+            state.sequence, 1,
+            "online transitions grant no new guide load"
+        );
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct Snapshot {
     version: u32,
     pid: u32,
     session: u64,
+    save_load: u64,
     seq: u64,
     timestamp_ms: u64,
     active: bool,
@@ -411,6 +597,7 @@ pub struct Driver {
     rx: Receiver<Incoming>,
     ledger: Ledger,
     session: u64,
+    save_load: SaveLoadState,
     seq: u64,
     character: String,
     merchant: Option<Merchant>,
@@ -479,6 +666,17 @@ mod armor_damage_tests {
             "shield_ready": false, "stamina": 20., "using_item": false,
         }))
         .unwrap();
+        let open_damage = |raw: f64, state: &CombatState, cfg: &Config| {
+            open_hit(
+                damage_after_armor(raw, state.armor),
+                0.,
+                false,
+                cfg.native_hp_per_minecraft_hp(),
+                i32::MAX,
+                1,
+            )
+            .damage
+        };
         // Twenty fixed MC HP units are 414 native HP on the opening baseline.
         assert_eq!(open_damage(20., &state, &cfg), 352);
         state.toughness = 30.;
@@ -488,6 +686,62 @@ mod armor_damage_tests {
         assert_eq!(open_damage(10., &state, &cfg), 176);
         state.armor = 100.;
         assert_eq!(open_damage(20., &state, &cfg), 0);
+    }
+
+    #[test]
+    fn absorption_takes_the_hit_after_armor_before_native_health() {
+        let partly = open_hit(6., 4., false, 20., 1000, 50);
+        assert_eq!(partly.absorbed, 4.);
+        assert_eq!(partly.damage, 40, "only the 2 unabsorbed points reach HP");
+        let fully = open_hit(3., 4., false, 20., 1000, 50);
+        assert_eq!((fully.absorbed, fully.damage), (3., 0));
+        let spent = open_hit(3., -1., false, 20., 1000, 50);
+        assert_eq!(
+            (spent.absorbed, spent.damage),
+            (0., 60),
+            "absorption already spent by unapplied hits is not reused"
+        );
+    }
+
+    #[test]
+    fn a_held_totem_leaves_one_minecraft_health_point_on_a_lethal_hit_only() {
+        let lethal = open_hit(30., 0., true, 20., 400, 20);
+        assert_eq!(
+            lethal,
+            OpenHit {
+                damage: 380,
+                absorbed: 0.,
+                totem: true
+            }
+        );
+        let survivable = open_hit(10., 0., true, 20., 400, 20);
+        assert_eq!(
+            survivable,
+            OpenHit {
+                damage: 200,
+                absorbed: 0.,
+                totem: false
+            }
+        );
+        let exact = open_hit(20., 0., true, 20., 400, 20);
+        assert!(exact.totem, "reaching exactly zero is lethal");
+        let none = open_hit(30., 0., false, 20., 400, 20);
+        assert_eq!(none.damage, 600, "without a totem the hit kills");
+        let low = open_hit(30., 0., true, 20., 10, 20);
+        assert_eq!(
+            (low.damage, low.totem),
+            (0, true),
+            "never heals a lower health"
+        );
+        let absorbed = open_hit(30., 8., true, 20., 1000, 20);
+        assert_eq!(
+            (absorbed.damage, absorbed.totem),
+            (440, false),
+            "absorption first, then the remainder decides lethality"
+        );
+        assert_eq!(one_health(400, 20.), 20);
+        assert_eq!(one_health(5, 20.), 1);
+        assert_eq!(one_health(400, f64::NAN), 1);
     }
 }
 
@@ -523,6 +777,9 @@ mod combat_contention_tests {
             using_item: true,
             guard_seq: 0,
             guard_damage: 0.,
+            damage_ack: 0,
+            absorption: 0.,
+            totems: 0,
             boss_hud_ids: Vec::new(),
             boss_hud_timestamp_ms: 0,
         });
@@ -533,7 +790,9 @@ mod combat_contention_tests {
             let (result_tx, result_rx) = mpsc::channel();
             let reader = std::thread::spawn(move || {
                 ready_tx.send(()).unwrap();
-                result_tx.send(filter_damage(100, true)).unwrap();
+                result_tx
+                    .send(filter_damage(100, true, 1000, 1000))
+                    .unwrap();
             });
             ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             let early = result_rx.recv_timeout(Duration::from_millis(20));
@@ -551,7 +810,7 @@ mod combat_contention_tests {
         assert_eq!(GUARD_SEQ.load(Ordering::Acquire), 3);
         assert_eq!(DAMAGE_EVENTS.lock().unwrap().len(), 3);
         COMBAT.lock().unwrap().as_mut().unwrap().timestamp_ms = epoch().saturating_sub(251);
-        assert_eq!(filter_damage(100, true), None);
+        assert_eq!(filter_damage(100, true, 1000, 1000), None);
         *COMBAT.lock().unwrap() = old_combat;
         *CURRENT.lock().unwrap() = old_current;
         *GUARD_DAMAGE.lock().unwrap() = old_sum;
@@ -894,6 +1153,7 @@ impl Driver {
             rx,
             ledger,
             session,
+            save_load: SaveLoadState::default(),
             seq: 0,
             character: String::new(),
             merchant: None,
@@ -910,6 +1170,15 @@ impl Driver {
     /// Runs on the verified offline game task, including while Minecraft GUI is open.
     /// Grace resets revoke gameplay while retaining read-only identity admission.
     pub unsafe fn tick(&mut self, enabled: bool, identity_allowed: bool) {
+        // This read precedes the gameplay gate: title transitions must still
+        // be observed while focus or compositor ownership is suspended.
+        if let Ok(game) = unsafe { GameMan::instance() } {
+            self.save_load.observe_slot(
+                game.save_slot,
+                game.warp_requested,
+                game.is_in_online_mode,
+            );
+        }
         let result = unsafe { self.sample(enabled) };
         if let Some(state) = result {
             if self.last_publish.elapsed() >= Duration::from_millis(40) {
@@ -928,6 +1197,7 @@ impl Driver {
                     version: 1,
                     pid: std::process::id(),
                     session: self.session,
+                    save_load: self.save_load.sequence,
                     seq: self.seq,
                     timestamp_ms: epoch(),
                     active: false,
@@ -992,6 +1262,7 @@ impl Driver {
         }
         let pg = &mut data.main_player_game_data;
         let character = character_identity(game.save_slot, pg);
+        self.save_load.admit_loaded();
         if self.character != character {
             if let Some(p) = self.pending.take() {
                 let ack = Ack {
@@ -1279,6 +1550,7 @@ impl Driver {
             version: 1,
             pid: std::process::id(),
             session: self.session,
+            save_load: self.save_load.sequence,
             seq: self.seq,
             timestamp_ms: epoch(),
             active: true,

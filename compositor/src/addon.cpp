@@ -41,10 +41,14 @@ struct __declspec(uuid("3d398506-a6ea-4f25-88ea-d14f721efb7c")) State {
     eldencraft::frames::MappingReader reader;
     eldencraft::frames::Frame frame;
     eldencraft::blocks::Reader blocks_reader;
+    eldencraft::blocks::Mailbox blocks_animation;
     eldencraft::blocks::Renderer blocks_renderer;
     eldencraft::blocks::AckWriter blocks_ack;
     eldencraft::gpu::Host gpu;
     eldencraft::nether::Reader nether;
+    // Which host camera submission each Present shows; how often each lead was chosen.
+    eldencraft::frames::CameraPacer pacer;
+    std::array<std::uint64_t,4> pacing{};
     float hell_amount{},hell_warp{};std::uint64_t hell_frame{};bool hell_reported{};
     bool blocks_reported{},gpu_reported{};
     std::uint64_t gpu_frames{};
@@ -424,7 +428,26 @@ void set_active(effect_runtime *runtime,State &s,bool active,bool bottom_up) {
     boolean_uniform(runtime,s,"EcFrameActive",active);
     boolean_uniform(runtime,s,"EcBottomUp",bottom_up);
 }
-void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool active,std::uint64_t now) {
+// The host camera this Present's image was rendered with: Elden Ring's one-frame
+// render latency (EcCameraLatency, default render_latency) plus the pacer's measured
+// lead over the newest submission. Called once per Present.
+bool frame_camera(effect_runtime *runtime,State &s,eldencraft::frames::HostCamera &out) {
+    const auto read=native().scene_camera;
+    if(!read)return false;
+    std::array<eldencraft::frames::HostCamera,eldencraft::frames::camera_history> cameras;
+    const auto count=eldencraft::frames::read_camera_history(
+        [&](void *data,std::uint32_t size){return read(data,size);},[]{return GetTickCount64();},cameras);
+    if(!count)return false;
+    std::uint32_t behind=s.pacer.observe(cameras[0].frame);
+    bool automatic=true;std::int32_t extra=static_cast<std::int32_t>(eldencraft::frames::render_latency);
+    if(const auto variable=uniform_variable(runtime,s,"EcCameraAutoPacing");variable.handle)runtime->get_uniform_value_bool(variable,&automatic,1);
+    if(const auto variable=uniform_variable(runtime,s,"EcCameraLatency");variable.handle)runtime->get_uniform_value_int(variable,&extra,1);
+    behind=(automatic?behind:0)+static_cast<std::uint32_t>(std::clamp(extra,0,2));
+    out=eldencraft::frames::pick_camera(cameras,count,behind);
+    ++s.pacing[std::min<std::uint64_t>(cameras[0].frame-out.frame,3)];
+    return true;
+}
+void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool active,std::uint64_t now,const eldencraft::frames::HostCamera *frame) {
     // ready: captured RGB-D may be reprojected. blocks_context: the newest
     // uploaded scene still names the native host camera/identity and a usable
     // depth convention, which is all the current-camera block pass needs.
@@ -436,10 +459,8 @@ void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool a
     do {
         if(!active||!s.scene_uploaded||now<s.last_upload||now-s.last_upload>block_scene_age_ms)break;
         reason="native camera unavailable";
-        const auto read_camera=native().scene_camera;
-        if(!read_camera||!eldencraft::frames::read_camera(
-            [&](void *data,std::uint32_t size){return read_camera(data,size)==1;},
-            []{return GetTickCount64();},camera))break;
+        if(!frame)break;
+        camera=*frame;
         now=GetTickCount64();
         const auto &scene=s.uploaded_scene;
         reason="scene/native identity mismatch";
@@ -487,8 +508,12 @@ void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool a
     // Poll even while the scene is gated off so a dead guest's named mapping
     // is released and cannot obstruct the next producer session.
     s.blocks_reader.poll(now,GetCurrentProcessId());
+    const bool animation_polled=s.blocks_animation.poll(eldencraft::blocks::anim_name,eldencraft::blocks::anim_capacity,
+        eldencraft::blocks::anim_magic,now,GetCurrentProcessId());
     now=GetTickCount64(); // Observe producer deadlines after both mailbox reads.
     const bool mesh_available=s.blocks_reader.retained(now,GetCurrentProcessId());
+    const auto *animation=(animation_polled||s.blocks_animation.retained(now,GetCurrentProcessId()))
+        ?&s.blocks_animation.header:nullptr;
     const bool mesh_effect=texture_variable(runtime,s,"EcBlockColorTexture").handle
         &&texture_variable(runtime,s,"EcBlockDepthTexture").handle
         &&uniform_variable(runtime,s,"EcBlocksReady").handle;
@@ -504,7 +529,8 @@ void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool a
             // A busy candidate upload must not hide the exact older revision
             // named by the captured scene. Session changes still fail closed.
             if(mesh.session==scene.mesh_session)
-                blocks_ready=s.blocks_renderer.render(runtime,commands,camera,scene,mesh,w,h,bound_host_depth,host_depth_mode);
+                blocks_ready=s.blocks_renderer.render(runtime,commands,camera,scene,mesh,w,h,bound_host_depth,host_depth_mode,
+                    nullptr,animation,s.blocks_animation.payload);
             block_reason=blocks_ready?(prepared_candidate?"rendered":"rendered retained resident; candidate pending")
                 :"waiting for captured exclusion or retained GPU revision";
             if(!blocks_ready)if(const auto failure=s.blocks_renderer.failure_reason())block_reason=failure;
@@ -548,28 +574,28 @@ void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool a
             "EldenCraft scene: coherent camera, depth binding and selected depth convention ready; live occlusion verification required.");
         else{char message[256]{};std::snprintf(message,sizeof(message),
             "EldenCraft scene hidden: %s; HUD remains independent.",reason);log_message(reshade::log::level::info,message);}}
-    if(active&&now-s.scene_diagnostic>=5000){s.scene_diagnostic=now;char message[768]{};
-        std::snprintf(message,sizeof(message),"EldenCraft scene: %s; map=%08x/%08x epoch=%llu/%llu frame=%llu flags=%u translationM=%.3f cameraAgeMs=%llu; blocks=%s vertices=%u mesh=%llu capturedMesh=%llu atlas=%llu",reason,
+    if(active&&now-s.scene_diagnostic>=5000){s.scene_diagnostic=now;char message[1024]{};
+        std::snprintf(message,sizeof(message),"EldenCraft scene: %s; map=%08x/%08x epoch=%llu/%llu frame=%llu flags=%u translationM=%.3f cameraAgeMs=%llu; blocks=%s vertices=%u mesh=%llu capturedMesh=%llu atlas=%llu animTick=%llu; cameraLead0/1/2/3+=%llu/%llu/%llu/%llu submissionsPerPresent=%.2f",reason,
             s.uploaded_scene.map,camera.map,static_cast<unsigned long long>(s.uploaded_scene.epoch),static_cast<unsigned long long>(camera.epoch),
             static_cast<unsigned long long>(camera.frame),s.uploaded_flags,translation_metres,
             static_cast<unsigned long long>(camera.millis&&now>=camera.millis?now-camera.millis:0),block_reason,
             s.blocks_reader.mesh.header.count,static_cast<unsigned long long>(s.blocks_reader.mesh.header.revision),
             static_cast<unsigned long long>(s.uploaded_scene.mesh_revision),
-            static_cast<unsigned long long>(s.blocks_reader.atlas.header.revision));log_message(reshade::log::level::info,message);}
+            static_cast<unsigned long long>(s.blocks_reader.atlas.header.revision),
+            static_cast<unsigned long long>(s.blocks_animation.header.revision),
+            static_cast<unsigned long long>(s.pacing[0]),static_cast<unsigned long long>(s.pacing[1]),
+            static_cast<unsigned long long>(s.pacing[2]),static_cast<unsigned long long>(s.pacing[3]),s.pacer.rate());
+        s.pacing.fill(0);log_message(reshade::log::level::info,message);}
 }
 // The Nether (ECNH): Minecraft's page says how much hell, where its blocks are and when the
 // lightning, heartbeat and fireballs happened. Positions become camera-relative here, in
 // double precision, so the effect never sees large canonical coordinates.
-void update_hell(effect_runtime *runtime,State &s,bool active,std::uint64_t now) {
+void update_hell(effect_runtime *runtime,State &s,bool active,std::uint64_t now,const eldencraft::frames::HostCamera *frame) {
     if(!uniform_variable(runtime,s,"EcHellReady").handle)return; // An effect without the Nether.
     const bool fresh=s.nether.poll(now,GetCurrentProcessId());
     const auto &n=s.nether.state;
     eldencraft::frames::HostCamera camera;bool camera_ready=false;
-    if(fresh&&active){
-        const auto read_camera=native().scene_camera;
-        camera_ready=read_camera&&eldencraft::frames::read_camera(
-            [&](void *data,std::uint32_t size){return read_camera(data,size)==1;},[]{return GetTickCount64();},camera);
-    }
+    if(fresh&&active&&frame){camera=*frame;camera_ready=true;}
     // Painting needs the page and the camera to describe the same map; sky, fog and grade do not.
     const bool grid_ready=camera_ready&&camera.epoch==n.epoch&&camera.map==n.map;
     const float dt=s.hell_frame&&now>s.hell_frame?std::min(.1f,static_cast<float>(now-s.hell_frame)/1000.0f):0;s.hell_frame=now;
@@ -653,8 +679,11 @@ void begin_effects(effect_runtime *runtime,command_list *commands,resource_view,
             && display_now-s->last_upload<=2000 && s->reader.fresh(display_now);
         s->input_deadline=active?display_now+250:0;
         set_active(runtime,*s,active,s->bottom_up);
-        update_scene(runtime,commands,*s,active,display_now);
-        update_hell(runtime,*s,active,display_now);
+        // One paced camera per Present for the block pass, the RGB-D reprojection and the Nether.
+        eldencraft::frames::HostCamera camera;
+        const bool camera_ready=active&&frame_camera(runtime,*s,camera);
+        update_scene(runtime,commands,*s,active,display_now,camera_ready?&camera:nullptr);
+        update_hell(runtime,*s,active,display_now,camera_ready?&camera:nullptr);
         capture_gui_input(runtime,active);
         report(*s,display_now);
     } catch(...) {

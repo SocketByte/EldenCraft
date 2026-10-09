@@ -30,7 +30,7 @@ Invalid configuration is rejected. Keep the JSON below 128 KiB, use vanilla `min
 
 ## Balance
 
-`weapons` maps item IDs to fully charged base damage and attack speed. Damage includes the player's base attack point. These become Minecraft item attributes before ordinary attack cooldown and critical-hit calculations. Durability and other vanilla item properties remain in use.
+`weapons` maps item IDs to fully charged base damage and attack speed. Damage includes the player's base attack point. These become Minecraft item attributes before ordinary attack cooldown and critical-hit calculations. Wooden swords, axes and spears, and shields, are unbreakable while the campaign is enabled. Other equipment retains vanilla durability.
 
 | Material | Sword damage | Axe damage | Sword speed | Axe speed |
 | --- | ---: | ---: | ---: | ---: |
@@ -41,16 +41,18 @@ Invalid configuration is rejected. Keep the JSON below 128 KiB, use vanilla `min
 | Diamond | 13 | 21 | 1.6 | 1.0 |
 | Netherite | 18 | 29 | 1.6 | 1.0 |
 
-`combat.nativeDamageScale` converts the resolved Minecraft hit into native HP damage. The supplied value is 20: a full wooden sword hit becomes 80 native HP and a netherite sword 360, before any existing native damage-path behavior. `combat.bowBaseDamage` (vanilla 2) and `combat.crossbowBaseDamage` (vanilla 4) are supplied at 1 and 2, so ranged play stays a safe but slow option. Both retain ordinary arrow velocity and critical calculations. These are tuning values, still requiring live boss playtests before claiming equivalence to a specific level-100 Elden Ring build.
+`combat.nativeDamageScale` converts the resolved Minecraft hit into native HP damage. The supplied value is 36: a full wooden sword hit becomes 144 native HP and a netherite sword 648, before any existing native damage-path behavior. The same scale converts Minecraft hazards that reach native enemies, after the hazard scales below. `combat.bowBaseDamage` (vanilla 2) and `combat.crossbowBaseDamage` (vanilla 4) are supplied at 1 and 2, so ranged play stays a safe but slow option. Both retain ordinary arrow velocity and critical calculations. These are tuning values, still requiring live boss playtests before claiming equivalence to a specific level-100 Elden Ring build.
 
 The scale was chosen from native receipts recorded in Limgrave. Ordinary enemies there have 143–657 maximum HP and the Tree Sentinel 2,889:
 
 | Enemy max HP | 143 | 219 | 423 | 555 | 657 | 2,889 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Wooden sword hits at scale 15 | 3 | 4 | 8 | 10 | 11 | 49 |
-| Wooden sword hits at scale 20 | 2 | 3 | 6 | 7 | 9 | 37 |
+| Wooden sword hits at scale 30 | 2 | 2 | 4 | 5 | 6 | 25 |
+| Wooden sword hits at scale 36 | 1 | 2 | 3 | 4 | 5 | 21 |
 
-At 15, wooden-sword fights took roughly twice as many hits as a starting Elden Ring weapon, while the character also starts with Vigor-10 health and no flasks. At 20, Margit (about 4,200 HP) takes about 53 wooden-sword hits, Morgott about 40 diamond hits and Maliketh about 30 netherite hits. Minecraft's faster swing cadence brings the total attack time close to an on-level Elden Ring build. The material ladder grows 4.5 times from wood to netherite, similar to Elden Ring's area HP scaling, so hit counts stay roughly constant when the player is on the intended tier.
+The character fights without flasks, so the supplied scale keeps fights shorter than an on-level Elden Ring build would need. At 36, Margit (about 4,200 HP) takes about 30 wooden-sword hits, Morgott about 22 diamond hits and Maliketh about 17 netherite hits. Minecraft's faster swing cadence brings the total attack time close to an on-level Elden Ring build. The material ladder grows 4.5 times from wood to netherite, similar to Elden Ring's area HP scaling, so hit counts stay roughly constant when the player is on the intended tier.
+
+`combat.explosionDamageScale` and `combat.lavaDamageScale` (0–1000) multiply Minecraft hazard damage on native enemies before vanilla damage resolution. Explosions use 0.125, a two-thirds increase over 0.075; lava and fire remain at 0.075. Explosions cover TNT lit by the player and exploding creepers, which also catch nearby enemies; TNT ignited without a player hurts no native enemy. The lava scale also covers fire blocks, campfires and burning, so a lava-lit fire cannot replace the reduced lava hit. The resulting damage still depends on distance, exposure and native defenses. Damage to the player from the same hazards is unchanged. Campaign files without these fields use the respective defaults; set 1 for vanilla strength.
 
 Optional `combat.nativeEnemyDamageMultipliers` maps verified native NPC parameter IDs, as JSON keys, to incoming Minecraft damage multipliers from 0.01 to 1000. For example, `{ "123456": 2 }` doubles damage received by that NPC parameter row; this example ID is illustrative. Find actual IDs in native melee/target diagnostics for the supported game. The default map is empty. This supports tuning encounters such as Rykard, whose original HP budget assumes a special native weapon, without introducing a custom Minecraft item. The native sink bounds the final hit to its safe damage range.
 
@@ -60,7 +62,7 @@ The default values retain their existing numbers with the new percentage meaning
 
 This is a remaining combat limitation: native armor and stat defenses are not neutralized, so native class/loadout can add mitigation before Minecraft armor. The supported SDK has no verified authoritative defense override. `nativeIncomingDamageScale` can adjust overall pressure but cannot make differing native loadouts equivalent. A fresh Wretch with native armor kept unequipped provides a consistent starting baseline for campaign testing. Pure Minecraft-only incoming mitigation requires further verified native integration.
 
-Guard expenditure uses raw incoming damage in fixed Minecraft HP units, before armor. Vigor growth therefore does not reduce the stamina cost of blocking the same attack. Individual native hits also wear Minecraft armor or the raised shield using vanilla durability rules. Ordinary food regeneration is forwarded to native HP; the existing golden-apple regeneration path remains separate.
+Guard expenditure uses raw incoming damage in fixed Minecraft HP units, before armor. Vigor growth therefore does not reduce the stamina cost of blocking the same attack. Individual native hits wear Minecraft armor using vanilla durability rules; shields remain unbreakable and can still suffer a stamina guard break. Ordinary food regeneration is forwarded to native HP; the existing golden-apple regeneration path remains separate. An enchanted golden apple's Regeneration II is forwarded like food for its full 20 seconds (16 Minecraft HP), and its 16 absorption hearts absorb native hits like a totem's. Its Resistance and Fire Resistance only affect Minecraft hazards, because native hits use the campaign armor percentage alone.
 
 ## Stamina
 
@@ -133,17 +135,17 @@ Minecraft maximum HP = baseMinecraftHealth * HP(vigor) / HP(startVigor)
 maximum stamina = Stamina(endurance)
 ```
 
-`healthCurve` and `staminaCurve` are editable ordered arrays of `{ "level": ..., "value": ... }` anchors. Values interpolate between anchors. The default starts at equivalent Vigor 10 / Endurance 10 and ends at Vigor 60 / Endurance 30: 1900 native HP, approximately 91.79 Minecraft HP and 90 stamina. The supplied stamina curve is campaign tuning, starting at 50 and ending at 90; its values can be changed independently of the Endurance labels. Native attribute levels, damage stats and equip load are not awarded. Capacity growth preserves current HP rather than healing it.
+`healthCurve` and `staminaCurve` are editable ordered arrays of `{ "level": ..., "value": ... }` anchors. Values interpolate between anchors. The default starts at equivalent Vigor 10 / Endurance 10 and ends at Vigor 60 / Endurance 30. The supplied health curve is Elden Ring's Vigor curve plus a flat 414 HP: 828 native HP and 40 internal Minecraft HP at the start, 2314 native HP and approximately 111.79 internal Minecraft HP at the end, with 90 stamina. The HUD presents this as 10 full hearts initially and at most 30 full hearts (three rows), mapping capacity growth between these endpoints and preserving the current health fraction. Absorption and the stamina bar's layout use the same display scale. This affects HUD reads only: maximum-health attributes, native HP, damage, guard costs, food, apples, absorption pools and totems keep their existing arithmetic. Each remembrance still adds the same native HP as the unmodified curve. One internal Minecraft HP remains 20.7 native HP. The supplied stamina curve is campaign tuning, starting at 50 and ending at 90; its values can be changed independently of the Endurance labels. Native attribute levels, damage stats and equip load are not awarded. Capacity growth preserves current HP rather than healing it.
 
 Boss state comes from native completion event flags, not remembrance inventory items. The native journal retains unique victories across sessions and NG+ so neither duplicated remembrances nor repeated clears award more capacity. Optional bosses increase capacity; completing the main route does not require every optional remembrance.
 
-The HP anchors are corroborated by [Bandai Namco's attribute explanation](https://www.bandainamcoent.com/news/elden-ring-introduction-part-2-advanced-stats). Native event flags were checked against the [authored modding flag reference](https://soulsmodding.com/doku.php?id=er-refmat:event-flag-list) and [ER Documentation](https://github.com/vawser/ER-Documentation/blob/main/Info%20-%20Event%20Flags%20-%20Gameplay.txt).
+The unmodified HP anchors (414 at Vigor 10, 1900 at Vigor 60) are corroborated by [Bandai Namco's attribute explanation](https://www.bandainamcoent.com/news/elden-ring-introduction-part-2-advanced-stats). Native event flags were checked against the [authored modding flag reference](https://soulsmodding.com/doku.php?id=er-refmat:event-flag-list) and [ER Documentation](https://github.com/vawser/ER-Documentation/blob/main/Info%20-%20Event%20Flags%20-%20Gameplay.txt).
 
 ## Rewards and gathering
 
-`starterItems` and each boss's `rewards` are arrays of `{ "item": "minecraft:iron_sword", "count": 1 }`. Set a boss's `eventFlag` to its final native completion flag and `remembrance` to whether it contributes a capacity share. Optional `experience` awards Minecraft XP once with that boss's first-clear receipt (0–1,000,000). The defaults include 159 encounters; ordinary and alternate variants do not count as remembrances.
+`starterItems` and each boss's `rewards` are arrays of `{ "item": "minecraft:iron_sword", "count": 1 }`. Set a boss's `eventFlag` to its final native completion flag and `remembrance` to whether it contributes a capacity share. Optional `experience` awards Minecraft XP once with that boss's first-clear receipt (0–1,000,000). The defaults include 159 encounters; ordinary and alternate variants do not count as remembrances. The starter kit includes three golden apples. Every minor boss adds a golden apple to its reward, while Margit, Golden Godfrey, the Godskin Duo, Gideon and every remembrance boss add an enchanted golden apple.
 
-The main route grants copper after Margit, iron after Godrick, diamond through the middle campaign and netherite from Fire Giant onward. Optional bosses supply region-appropriate equipment and maintenance materials. Wooden equipment is available before Margit. Crafting access and raw logs are gated so ordinary stone gathering does not immediately bypass the opening gear tier.
+Margit grants a stone sword and copper chestplate; Godrick grants an iron sword and iron armor. The main route unlocks copper merchants after Margit, iron after Godrick, diamond through the middle campaign and netherite from Fire Giant onward. Optional bosses supply region-appropriate equipment and maintenance materials. Wooden equipment is available before Margit. Crafting access and raw logs are gated so ordinary stone gathering does not immediately bypass the opening gear tier.
 
 The ten hardest optional Limgrave and Weeping Peninsula field bosses (Tree Sentinel, Crucible Knight, Bell Bearing Hunter, both Night's Cavalry, Flying Dragon Agheel, both Deathbirds, Bloodhound Knight Darriwil and the Ancient Hero of Zamor) grant chainmail pieces instead of further leather. Chainmail (12% reduction for a full set) cannot be crafted or bought. It sits between copper (10%) and iron (15%), so optional early fights pay off without skipping the iron tier.
 
@@ -187,11 +189,12 @@ Each successful roll picks one unlocked entry by weight, then a count from `min`
 | Flint | 1 | 6 | |
 | Arrow | 2–4 | 8 | |
 | Leather | 1 | 4 | |
-| Golden apple | 1 | 0.8 | |
+| Golden apple | 1 | 4 | |
+| Enchanted golden apple | 1 | 1 | |
 | Cooked beef | 1–2 | 14 | Any iron-tier victory (as the shop) |
 | Golden carrot | 1–2 | 8 | Any diamond-tier victory (as the shop) |
 
-An ordinary Limgrave enemy drops something on 40% of kills; about one in 300 kills drops a golden apple. Late-game enemies have enough HP for two or three rolls and the better food, matching the larger health pool that food has to refill. String, sticks, feathers and flint become bows and arrows once Margit grants a crafting table. The table deliberately excludes logs, metal nuggets and ingots, gunpowder and paper, so drops never bypass a material tier, the crafting gate or the deferred enchanting economy. Drops supplement merchants; buying food remains the dependable way to prepare for a boss.
+An ordinary Limgrave enemy drops something on 40% of kills; about one in 65 kills drops a golden apple and one in 260 an enchanted golden apple. Late-game enemies have enough HP for two or three rolls and the better food, matching the larger health pool that food has to refill. String, sticks, feathers and flint become bows and arrows once Margit grants a crafting table. The table deliberately excludes logs, metal nuggets and ingots, gunpowder and paper, so drops never bypass a material tier, the crafting gate or the deferred enchanting economy. Drops supplement merchants; buying food remains the dependable way to prepare for a boss.
 
 Each native session numbers ordinary kills. Minecraft saves its loot cursor in the same world save as the delivered or dropped items, so a reload cannot replay a kill. Each roll is seeded by the character, session and kill, so a Minecraft crash before the save delivers the same items again rather than a reroll. Native keeps the latest 64 kills; kills older than that before Minecraft observes them are forfeited, as are kills from before a new native session's baseline.
 
@@ -220,7 +223,7 @@ The catalog and selected-item details have separate panels, with purchase feedba
 }
 ```
 
-Put these entries in top-level `shops`. `merchant_ids` contains native shop-range IDs, as strings. Exact merchant matches take priority over the `"*"` fallback. The supplied fallback gives all recognized merchants the same 65-offer campaign catalog; replace or supplement it with regional catalogs. `count` is the number of items in a bundle, `price` the rune cost per bundle, and `stock` the number of bundles available per native character (`-1` means unlimited). `unlock_any` requires at least one listed victory; `unlock_all` requires all listed victories. Empty arrays impose no condition.
+Put these entries in top-level `shops`. `merchant_ids` contains native shop-range IDs, as strings. Exact merchant matches take priority over the `"*"` fallback. The supplied fallback gives all recognized merchants the same 73-offer campaign catalog; replace or supplement it with regional catalogs. `count` is the number of items in a bundle, `price` the rune cost per bundle, and `stock` the number of bundles available per native character (`-1` means unlimited). `unlock_any` requires at least one listed victory; `unlock_all` requires all listed victories. Empty arrays impose no condition.
 
 The native host independently validates merchant context, prerequisites, configured price, stock and wallet balance. It writes a durable purchase intent, debits the real wallet and requests a native save. Minecraft delivers only after the confirmed debit. The inventory save records a purchase UUID before shop stock commits, allowing safe retries after a disconnect or crash. An ambiguous native save quarantines the purchase instead of debiting again or delivering free items. Keep journals when restoring paired saves; manually mixing different save generations cannot be reconciled automatically.
 
@@ -228,9 +231,11 @@ Native save discovery uses the dedicated `EldenCraft.sl2`. If it cannot be found
 
 An offer can optionally specify `native_item_lot` for an existing native **map item lot** containing Goods/key rewards, and `native_name` for its display name. Its vanilla `item` is only the GUI icon in this case, and `count` must be 1. Native validates the lot and grants it through the native dialogue award command; Minecraft does not create a substitute quest item. Weapon and armor lots are not supported. Use verified lot IDs appropriate to the supported game, including their award flags. The default catalog contains Minecraft goods only and leaves native quest-key acquisition in the world intact.
 
+Golden apples (500 runes) and enchanted golden apples (3,000) are sold from the start with unlimited stock, next to bread, so a boss attempt can always be restocked. Totems of undying (5,000) are sold from the start with unlimited stock; one must be held in a hand to cheat a lethal hit, so it competes with the shield or weapon slot. TNT (800 each) and flint and steel (200) are also available from the start.
+
 Selling is not enabled in this baseline. Repeat purchases of food, ammunition, replacements and repair/crafting materials provide ongoing rune sinks without creating profits from renewable mined blocks. Special finite stock and price/gate changes are configurable.
 
-Ingredients set the real price of equipment: copper and iron ingots and diamonds craft the same gear the shop sells once a crafting table is available. Ready-made weapons, tools and armor therefore cost 1.25 times their cheapest legal ingredients, a convenience premium rather than a trap. Netherite gear is priced against its upgrade route: the diamond piece plus one netherite ingot (90,000) and one upgrade template (60,000). The template price sits just above the vanilla duplication recipe (seven diamonds, 49,000, plus netherrack from a Nether event). One upgrade costs about half of a late remembrance payout. Conformance checks that no ready-made piece undercuts its ingredients.
+Ingredients set the real price of equipment: copper and iron ingots and diamonds craft the same gear the shop sells once a crafting table is available. Ready-made weapons, tools and armor therefore cost 1.25 times their cheapest legal ingredients, a convenience premium rather than a trap. Netherite gear is priced against its upgrade route: the diamond piece plus one netherite ingot (45,000) and one upgrade template (30,000). The template price sits just above the vanilla duplication recipe (seven diamonds, 24,500, plus netherrack from a Nether event). One upgrade costs about a third of a late remembrance payout such as Maliketh's. Conformance checks that no ready-made piece undercuts its ingredients.
 
 ## Development and verification
 

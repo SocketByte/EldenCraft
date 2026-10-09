@@ -91,19 +91,26 @@ struct Permit {
     issued: u64,
     generation: u64,
 }
+/// Recent main-camera submissions kept for the compositor's present-time pacing.
+const HISTORY: usize = 8;
 #[derive(Default)]
 struct State {
     world: Option<Transform>,
     permit: Option<Permit>,
     camera: Option<[u8; 256]>,
     generation: u64,
+    /// Every main-camera submission, encodable or not; exported as the packet frame.
     frame: u64,
+    /// Encoded submissions, oldest first. The game thread can run a frame ahead of
+    /// Present, so the newest one is not always the camera of the presented image.
+    history: std::collections::VecDeque<[u8; 256]>,
 }
 impl State {
     fn invalidate(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.permit = None;
         self.camera = None;
+        self.history.clear();
     }
     fn set_world(&mut self, world: Transform) {
         if !self.world.is_some_and(|old| old.same_context(world)) {
@@ -124,6 +131,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     camera: None,
     generation: 0,
     frame: 0,
+    history: std::collections::VecDeque::new(),
 });
 fn fresh(timestamp: u64, now: u64) -> bool {
     now >= timestamp && now - timestamp <= MAX_AGE_MS
@@ -282,6 +290,10 @@ unsafe fn latch(base: usize, owner: usize) {
     if main_owner != owner {
         return;
     }
+    // Count every main submission so the compositor can tell how many frames the
+    // game thread has submitted since the previous Present.
+    let frame = state.frame.saturating_add(1);
+    state.frame = frame;
     let camera = unsafe { std::ptr::read_unaligned((owner + 0x28) as *const usize) };
     let graphics = unsafe { std::ptr::read_unaligned((owner + 0x18) as *const usize) };
     if camera == 0 || camera & 7 != 0 || graphics == 0 || graphics & 15 != 0 {
@@ -293,10 +305,27 @@ unsafe fn latch(base: usize, owner: usize) {
         return;
     }
     let description = unsafe { std::ptr::read_unaligned(graphics as *const GraphicsCamera) };
-    let frame = state.frame.saturating_add(1);
     state.camera = encode(description, world, now, frame);
-    if state.camera.is_some() {
-        state.frame = frame;
+    state.remember();
+}
+impl State {
+    fn remember(&mut self) {
+        if let Some(camera) = self.camera {
+            if self.history.len() >= HISTORY {
+                self.history.pop_front();
+            }
+            self.history.push_back(camera);
+        }
+    }
+    /// Fresh encoded submissions, newest first, at most `limit`.
+    fn recent(&self, now: u64, limit: usize) -> Vec<[u8; 256]> {
+        self.history
+            .iter()
+            .rev()
+            .filter(|c| fresh(u64::from_le_bytes(c[8..16].try_into().unwrap()), now))
+            .take(limit)
+            .copied()
+            .collect()
     }
 }
 fn encode(c: GraphicsCamera, t: Transform, now: u64, frame: u64) -> Option<[u8; 256]> {
@@ -359,6 +388,11 @@ fn encode(c: GraphicsCamera, t: Transform, now: u64, frame: u64) -> Option<[u8; 
 #[unsafe(no_mangle)]
 /// # Safety
 /// The compositor supplies writable storage of at least `bytes` bytes.
+///
+/// With room for one 256-byte packet this returns the newest submission (1) or
+/// nothing (0). With room for more it writes up to eight fresh submissions,
+/// newest first, and returns how many; each packet's frame is its submission
+/// sequence, so gaps and the game thread's lead over Present are visible.
 pub unsafe extern "C" fn eldencraft_scene_camera(output: *mut c_void, bytes: u32) -> u32 {
     if output.is_null()
         || bytes < 256
@@ -375,6 +409,19 @@ pub unsafe extern "C" fn eldencraft_scene_camera(output: *mut c_void, bytes: u32
     let now = crate::world_transport::now();
     if state.authorized(now).is_none() {
         return 0;
+    }
+    if bytes >= 512 {
+        let recent = state.recent(now, (bytes / 256) as usize);
+        for (i, packet) in recent.iter().enumerate() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    packet.as_ptr(),
+                    output.cast::<u8>().add(i * 256),
+                    256,
+                );
+            }
+        }
+        return recent.len() as u32;
     }
     let Some(value) = state.camera.as_ref() else {
         return 0;
@@ -480,6 +527,29 @@ mod tests {
         w.issued = 1121;
         s.set_world(w);
         assert!(s.authorized(1121).is_none());
+    }
+    #[test]
+    fn submission_history_is_bounded_newest_first_and_expires() {
+        let mut s = State::default();
+        for frame in 1..=12u64 {
+            s.camera = encode(camera(), world(), 1000 + frame, frame);
+            s.remember();
+        }
+        let frame = |b: &[u8; 256]| u64::from_le_bytes(b[16..24].try_into().unwrap());
+        let recent = s.recent(1012, 8);
+        assert_eq!(recent.len(), HISTORY);
+        assert_eq!(
+            recent.iter().map(frame).collect::<Vec<_>>(),
+            (5..=12).rev().collect::<Vec<_>>()
+        );
+        assert_eq!(s.recent(1012, 3).len(), 3);
+        // A rejected submission does not enter the history; old packets expire.
+        s.camera = None;
+        s.remember();
+        assert_eq!(frame(&s.recent(1012, 1)[0]), 12);
+        assert_eq!(s.recent(1012 + MAX_AGE_MS - 1, 8).len(), 2);
+        s.invalidate();
+        assert!(s.recent(1012, 8).is_empty());
     }
     #[test]
     fn context_change_and_suspend_discard_submission_and_permit() {

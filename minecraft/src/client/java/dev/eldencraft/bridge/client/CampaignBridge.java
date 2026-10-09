@@ -28,7 +28,16 @@ public final class CampaignBridge {
 
   public record Ack(String id, String status, long amount) {}
 
-  public record DamageEvent(long seq, double rawDamage, boolean blocked) {}
+  /**
+   * One native hit. {@code absorbed} is the absorption it spent (Minecraft health units); {@code
+   * totem} means a held totem of undying saved the player from it.
+   */
+  public record DamageEvent(
+      long seq, double rawDamage, boolean blocked, double absorbed, boolean totem) {
+    public DamageEvent(long seq, double rawDamage, boolean blocked) {
+      this(seq, rawDamage, blocked, 0, false);
+    }
+  }
 
   public record Boss(String id, String name, double hp, double maxHp) {}
 
@@ -60,7 +69,8 @@ public final class CampaignBridge {
       long lootSeq,
       List<CampaignLoot.Kill> lootEvents,
       List<Boss> activeBosses,
-      boolean identityReady) {
+      boolean identityReady,
+      long saveLoad) {
     public Snapshot {
       defeated = Set.copyOf(defeated);
       damageEvents = List.copyOf(damageEvents);
@@ -304,8 +314,14 @@ public final class CampaignBridge {
         var e = event.getAsJsonObject();
         long eventSeq = integer(e, "seq", 1, Long.MAX_VALUE);
         if (eventSeq <= previous) throw new IOException("Damage sequence must increase");
+        boolean blocked = bool(e, "blocked");
+        double absorbed = e.has("absorbed") ? number(e, "absorbed", 0, 1_000_000) : 0;
+        boolean totem = e.has("totem") && bool(e, "totem");
+        if (blocked && (absorbed > 0 || totem))
+          throw new IOException("Blocked damage cannot spend absorption or a totem");
         damageEvents.add(
-            new DamageEvent(eventSeq, number(e, "raw_damage", 0, 1.0e16), bool(e, "blocked")));
+            new DamageEvent(
+                eventSeq, number(e, "raw_damage", 0, 1.0e16), blocked, absorbed, totem));
         previous = eventSeq;
       }
     }
@@ -335,7 +351,8 @@ public final class CampaignBridge {
         lootSeq,
         lootEvents,
         activeBosses,
-        j.has("identity_ready") ? bool(j, "identity_ready") : bool(j, "active") && hp > 0 && !dead);
+        j.has("identity_ready") ? bool(j, "identity_ready") : bool(j, "active") && hp > 0 && !dead,
+        j.has("save_load") ? integer(j, "save_load", 0, Long.MAX_VALUE) : 0);
   }
 
   public static synchronized boolean requestPurchase(
@@ -388,11 +405,16 @@ public final class CampaignBridge {
       double guestMaxHp,
       boolean shieldReady,
       double stamina,
-      boolean usingItem) {
+      boolean usingItem,
+      double absorption,
+      int totems) {
     var s = snapshot();
     if (s == null) return;
     var j = envelope(s);
     j.addProperty("armor", armorReductionPercent);
+    // Native spends these on its own hits; damage_ack tells it which spends are applied here.
+    j.addProperty("absorption", absorption);
+    j.addProperty("totems", totems);
     j.addProperty("toughness", toughness);
     j.addProperty("guest_max_hp", guestMaxHp);
     j.addProperty("shield_ready", shieldReady);

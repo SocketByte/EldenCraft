@@ -1,6 +1,7 @@
 package dev.eldencraft.bridge.client;
 
 import dev.eldencraft.bridge.SharedWorldBlocks;
+import dev.eldencraft.bridge.client.mixin.WorldTerrainLightingInvoker;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
@@ -67,6 +68,17 @@ final class WorldTerrainLighting {
     // properties. lightChunk(false) queues vanilla propagation asynchronously;
     // no .join(), synthetic light values, clock changes, or block mutations.
     try {
+      // lightChunk ends with setLightCorrect(true) on the light thread. For a loaded
+      // chunk that an autosave marked saved meanwhile, markUnsaved then adds to
+      // ChunkMap's unsynchronized save set concurrently with the server thread,
+      // corrupting it (a crash in setChunkUnsaved). Report it on the server thread.
+      var server = level.getServer();
+      var map = (WorldTerrainLightingInvoker) level.getChunkSource().chunkMap;
+      chunk.setUnsavedListener(
+          unsaved -> {
+            if (server.isSameThread()) map.eldencraft$setChunkUnsaved(unsaved);
+            else server.execute(() -> map.eldencraft$setChunkUnsaved(unsaved));
+          });
       chunk.initializeLightSources();
       inFlight = level.getChunkSource().getLightEngine().lightChunk(chunk, false);
       inFlightChunk = chunk;

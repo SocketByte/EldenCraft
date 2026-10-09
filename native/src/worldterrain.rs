@@ -8,7 +8,10 @@ use std::collections::{BTreeMap, VecDeque};
 pub const CELL_METRES: f64 = 1.0;
 pub const MAX_BOXES: usize = 4096;
 pub const RAYS_PER_CELL: usize = 6;
-pub const MAX_RAYS_PER_TICK: usize = 192;
+/// Hard bound on native rays per sampling tick; [`RayBudget`] picks the
+/// actual count from measured query cost. Whole cells: a multiple of six rays.
+pub const MAX_RAYS_PER_TICK: usize = 170 * RAYS_PER_CELL;
+pub const MIN_RAYS_PER_TICK: usize = 96;
 const GRID_SIZE: [i32; 3] = [32, 12, 32];
 const GRID_BELOW: i32 = 4;
 const THICKNESS: f64 = 0.0625;
@@ -20,8 +23,40 @@ const REFRESH_MS: u64 = 15_000;
 /// a floor are refined, within DETAIL_RADIUS columns of the player.
 pub const DETAIL: usize = 4;
 pub const DETAIL_RAYS: usize = DETAIL * DETAIL;
-const DETAIL_RAYS_PER_TICK: usize = DETAIL_RAYS * 2;
-const DETAIL_RADIUS: i32 = 1;
+const DETAIL_RAYS_PER_TICK: usize = DETAIL_RAYS * 12;
+/// Refined floor columns cover a 7x7 m square around the feet: placed blocks,
+/// items and mobs meet 25 cm ground steps instead of 1 m stairs.
+const DETAIL_RADIUS: i32 = 3;
+
+/// Rays per sampling tick sized from the measured native query cost, so the
+/// cache keeps up with sprinting and Torrent without exceeding a fixed slice of
+/// the game task. Starts at the former fixed budget until it has measured.
+#[derive(Clone, Copy, Debug)]
+pub struct RayBudget {
+    per_ray_ns: f64,
+}
+impl Default for RayBudget {
+    fn default() -> Self {
+        Self {
+            per_ray_ns: Self::TARGET_NS / 192.0,
+        }
+    }
+}
+impl RayBudget {
+    /// Native query time allowed per sampling tick.
+    pub const TARGET_NS: f64 = 1_250_000.0;
+    pub fn rays(&self) -> usize {
+        ((Self::TARGET_NS / self.per_ray_ns) as usize).clamp(MIN_RAYS_PER_TICK, MAX_RAYS_PER_TICK)
+    }
+    /// Fold one tick's measurement in; tiny or failed batches carry no cost signal.
+    pub fn observe(&mut self, rays: usize, elapsed_ns: u64) {
+        if rays < 16 {
+            return;
+        }
+        let sample = (elapsed_ns as f64 / rays as f64).clamp(200.0, 200_000.0);
+        self.per_ray_ns = self.per_ray_ns * 0.8 + sample * 0.2;
+    }
+}
 
 pub type Cell = [i32; 3];
 pub type Box6 = [f64; 6];
@@ -128,6 +163,10 @@ impl Cache {
     }
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+    /// Native rays cast by the last tick.
+    pub fn last_rays(&self) -> usize {
+        self.last_rays
     }
     /// A fully sampled replacement window must invalidate downstream caches
     /// even when its own local revision happens to equal the prior window.
@@ -400,8 +439,9 @@ impl Cache {
         self.last_rays = 0;
         self.failed_cells = 0;
         let budget = ray_budget.min(MAX_RAYS_PER_TICK);
+        // Refinement never takes more than half: unknown coarse cells come first.
         let (detail_rays, mut changed) =
-            self.tick_detail(budget.min(DETAIL_RAYS_PER_TICK), &mut cast);
+            self.tick_detail((budget / 2).min(DETAIL_RAYS_PER_TICK), &mut cast);
         self.last_rays += detail_rays;
         let count = ((budget - detail_rays) / RAYS_PER_CELL).min(self.pending.len());
         for _ in 0..count {
@@ -918,6 +958,34 @@ mod tests {
         );
     }
     #[test]
+    fn ray_budget_follows_measured_cost_within_hard_bounds() {
+        let mut b = RayBudget::default();
+        assert_eq!(b.rays(), 192, "starts at the former fixed budget");
+        for _ in 0..40 {
+            b.observe(400, 400 * 2_000); // 2 us per ray
+        }
+        assert!((600..=630).contains(&b.rays()), "{}", b.rays());
+        for _ in 0..40 {
+            b.observe(400, 400 * 1_000_000); // a pathological 1 ms ray
+        }
+        assert_eq!(
+            b.rays(),
+            MIN_RAYS_PER_TICK,
+            "slow queries keep a useful floor"
+        );
+        for _ in 0..80 {
+            b.observe(1000, 1000 * 100);
+        }
+        assert_eq!(
+            b.rays(),
+            MAX_RAYS_PER_TICK,
+            "cheap queries stop at the hard cap"
+        );
+        let before = b.rays();
+        b.observe(3, 999_999_999);
+        assert_eq!(b.rays(), before, "a tiny batch carries no cost signal");
+    }
+    #[test]
     fn negative_positions_keep_floor_cell_identity() {
         assert_eq!(cell_at([-0.01, -1.0, 1.99]), Some([-1, -1, 1]));
         assert!(cell_at([f64::NAN, 0.0, 0.0]).is_none());
@@ -953,11 +1021,25 @@ mod tests {
             Ok(None)
         });
         assert_eq!(calls, MAX_RAYS_PER_TICK);
-        assert_eq!(c.snapshot().scanned_cells, 32);
-        let before = c.snapshot().scanned_cells;
+        assert_eq!(
+            c.snapshot().scanned_cells,
+            MAX_RAYS_PER_TICK / RAYS_PER_CELL
+        );
+        let before = c.snapshot();
         c.tick(3, 6, |_| Err("native unavailable"));
-        assert_eq!(c.snapshot().scanned_cells, before);
-        assert!(!c.snapshot().ready);
+        assert_eq!(c.snapshot().scanned_cells, before.scanned_cells);
+        assert_eq!(
+            c.snapshot().ready,
+            before.ready,
+            "a failed query changes nothing"
+        );
+        // A cold window is never ready before its local neighbourhood is sampled.
+        let mut cold = Cache::new();
+        cold.recenter([0.0; 3], 1).unwrap();
+        cold.tick(2, RAYS_PER_CELL * 4, |_| Ok(None));
+        assert!(!cold.snapshot().ready);
+        cold.tick(3, 6, |_| Err("native unavailable"));
+        assert!(!cold.snapshot().ready);
     }
     #[test]
     fn full_empty_sampling_is_ready_but_explicitly_not_exact_mesh() {

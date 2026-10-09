@@ -24,14 +24,24 @@ Bytes fixture(std::uint32_t magic){
         put(b,84,3u);put(b,88,3u);put(b,92,3u);
     }else if(magic==atlas_magic){
         put(b,56,std::uint64_t(5));put(b,72,2u);put(b,76,3u);put(b,80,24u);
+    }else if(magic==anim_magic){
+        // Two regions of the 2x3 fixture atlas at revision 5, animation tick 7.
+        put(b,64,std::uint64_t(5));put(b,72,2u);put(b,80,32u+4u+8u);
     }
     return b;
+}
+std::vector<std::uint8_t> anim_payload(){
+    std::vector<std::uint8_t> p(44,0x7f);
+    auto region=[&](std::size_t at,std::uint16_t x,std::uint16_t y,std::uint16_t w,std::uint16_t h,std::uint8_t mip,std::uint32_t offset){
+        put(p,at,x);put(p,at+2,y);put(p,at+4,w);put(p,at+6,h);p[at+8]=mip;p[at+9]=p[at+10]=p[at+11]=0;put(p,at+12,offset);};
+    region(0,1,2,1,1,0,32);region(16,0,0,1,2,0,36);
+    return p;
 }
 Header decode(const Bytes &b,std::uint32_t magic){
     Header h;check(decode_header(b,magic,h),"valid fixture must decode");return h;
 }
 void header_rejections(){
-    for(auto magic:{mesh_magic,atlas_magic,ack_magic}){
+    for(auto magic:{mesh_magic,atlas_magic,ack_magic,anim_magic}){
         const auto good=fixture(magic);Header h;
         for(auto size:{std::size_t(0),std::size_t(64),header_bytes-1})
             check(!decode_header({good.data(),size},magic,h),"truncated header rejected before reads");
@@ -43,9 +53,10 @@ void header_rejections(){
         }
         {auto bad=good;put(bad,8,std::uint64_t(3));check(!decode_header(bad,magic,h),"in-progress seqlock publication rejected");}
         {auto bad=good;put(bad,36,2u);check(!decode_header(bad,magic,h),"unknown active flag rejected");}
-        for(std::size_t offset=104;offset<header_bytes;++offset){
+        for(std::size_t offset=magic==atlas_magic?108:104;offset<header_bytes;++offset){
             auto bad=good;bad[offset]=1;check(!decode_header(bad,magic,h),"all reserved bytes are checked");
         }
+        if(magic!=atlas_magic){auto bad=good;put(bad,104,1u);check(!decode_header(bad,magic,h),"only an atlas carries a mip count");}
         {auto inactive=good;put(inactive,36,0u);check(decode_header(inactive,magic,h),"explicit inactive header is structurally valid");
             check(!h.fresh(1000,200),"inactive header cannot authorize rendering or ack");}
     }
@@ -101,6 +112,52 @@ void atlas_and_ack_bounds(){
         auto bad=fixture(ack_magic);put(bad,offset,1u);check(!decode_header(bad,ack_magic,h),"ack cannot masquerade as a payload");
     }
     check(decode_header(fixture(ack_magic),ack_magic,h),"identity-only ack accepted");
+}
+void atlas_mips(){
+    Header h;
+    check(max_mips(2048,2048)==12&&max_mips(2,3)==2&&max_mips(1,1)==1&&max_mips(4096,16)==13,"full level count, clamped");
+    check(mip_extent(3,1)==1&&mip_extent(16,4)==1&&mip_extent(16,9)==1&&mip_extent(2048,4)==128,"levels clamp to one texel");
+    check(mip_offset(2,3,2)==28&&mip_offset(2048,2048,1)==2048u*2048*4,"tightly packed level offsets");
+    {auto two=fixture(atlas_magic);put(two,104,2u);put(two,80,28u);
+        check(decode_header(two,atlas_magic,h)&&h.mips==2,"two-level atlas accepted with exact chain size");}
+    {auto legacy=fixture(atlas_magic);check(decode_header(legacy,atlas_magic,h)&&h.mips==1,"zero level count means one level");}
+    {auto bad=fixture(atlas_magic);put(bad,104,2u);check(!decode_header(bad,atlas_magic,h),"chain size must include every level");}
+    {auto bad=fixture(atlas_magic);put(bad,104,3u);put(bad,80,32u);check(!decode_header(bad,atlas_magic,h),"more levels than the size allows rejected");}
+    {auto real=fixture(atlas_magic);put(real,72,2048u);put(real,76,2048u);put(real,104,5u);
+        put(real,80,static_cast<std::uint32_t>(mip_offset(2048,2048,5)));
+        check(decode_header(real,atlas_magic,h)&&h.mips==5,"vanilla 2048x2048 atlas with four mip levels fits");}
+    {auto full=fixture(atlas_magic);put(full,72,max_atlas_dimension);put(full,76,max_atlas_dimension);put(full,104,max_atlas_mips);
+        put(full,80,static_cast<std::uint32_t>(mip_offset(max_atlas_dimension,max_atlas_dimension,max_atlas_mips)));
+        check(decode_header(full,atlas_magic,h),"largest atlas with its complete chain fits the mapping");}
+    auto a=decode(fixture(atlas_magic),atlas_magic),b=a;b.mips=2;
+    check(!a.same_content(b),"a new level count requires a fresh texture");
+}
+void animation(){
+    Header h;const auto atlas=decode(fixture(atlas_magic),atlas_magic);
+    const auto anim=decode(fixture(anim_magic),anim_magic);
+    check(anim.count==2&&anim.revision==7&&anim.atlas_revision==5,"animation names its tick and atlas");
+    auto payload=anim_payload();std::vector<Region> regions;
+    check(decode_regions(payload,anim,atlas,regions)&&regions.size()==2,"in-bounds regions accepted");
+    check(regions[0].x==1&&regions[0].y==2&&regions[1].height==2&&regions[1].offset==36,"region table decoded");
+    {auto bad=fixture(anim_magic);put(bad,76,1u);check(!decode_header(bad,anim_magic,h),"animation has no stride");}
+    {auto bad=fixture(anim_magic);put(bad,80,31u);check(!decode_header(bad,anim_magic,h),"region table must fit the payload");}
+    {auto bad=fixture(anim_magic);put(bad,72,max_anim_regions+1);put(bad,80,(max_anim_regions+1)*16u);
+        check(!decode_header(bad,anim_magic,h),"region count bounded");}
+    {auto bad=fixture(anim_magic);put(bad,80,static_cast<std::uint32_t>(anim_capacity));check(!decode_header(bad,anim_magic,h),"payload bounded by mapping");}
+    auto reject=[&](auto mutate,const char *message){auto p=anim_payload();mutate(p);check(!decode_regions(p,anim,atlas,regions),message);};
+    reject([](auto &p){put(p,0,std::uint16_t(2));},"region beyond the atlas width");
+    reject([](auto &p){put(p,18,std::uint16_t(2));},"region beyond the atlas height");
+    reject([](auto &p){p[8]=1;put(p,0,std::uint16_t(0));put(p,2,std::uint16_t(0));},"mip beyond the atlas chain");
+    reject([](auto &p){put(p,12,std::uint32_t(16));},"pixels cannot alias the region table");
+    reject([](auto &p){put(p,12,std::uint32_t(34));},"pixel offsets are aligned");
+    reject([](auto &p){put(p,28,std::uint32_t(40));},"pixels cannot run past the payload");
+    reject([](auto &p){p[9]=1;},"padding is checked");
+    reject([](auto &p){put(p,4,std::uint16_t(0));},"empty region rejected");
+    {auto p=anim_payload();p.pop_back();check(!decode_regions(p,anim,atlas,regions),"truncated payload rejected");}
+    {auto other=atlas;++other.revision;check(!decode_regions(payload,anim,other,regions),"frames for another atlas revision rejected");}
+    {auto other=atlas;++other.session;check(!decode_regions(payload,anim,other,regions),"frames from another session rejected");}
+    {auto two=atlas;two.mips=2;auto p=anim_payload();p[8]=1;put(p,0,std::uint16_t(0));put(p,2,std::uint16_t(0));
+        check(decode_regions(p,anim,two,regions),"lower mip level of a chained atlas accepted");}
 }
 void vertex_validation(){
     const auto h=decode(fixture(mesh_magic),mesh_magic);
@@ -159,7 +216,7 @@ void context_and_freshness(){
     {auto old=mesh;old.stamp=1;check(!old.fresh(std::numeric_limits<std::uint64_t>::max(),200),"very old frame remains stale without overflow");}
 }
 int main(){
-    header_rejections();mesh_bounds();atlas_and_ack_bounds();vertex_validation();context_and_freshness();
+    header_rejections();mesh_bounds();atlas_and_ack_bounds();atlas_mips();animation();vertex_validation();context_and_freshness();
     auto mesh=decode(fixture(mesh_magic),mesh_magic),atlas=decode(fixture(atlas_magic),atlas_magic);
     mesh.cutout=0;mesh.count=6;mesh.bytes=144;atlas.count=16;atlas.stride=161;atlas.bytes=16*161*4;
     auto resident=mesh;

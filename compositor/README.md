@@ -31,6 +31,23 @@ Shared textures require compatible OpenGL extensions and the same GPU adapter fo
 both games. `EldenCraft.cmd -CpuFrames` selects CPU frame transport. Initial color
 handling supports SDR RGBA8; HDR conversion is not implemented.
 
+## Native blocks
+
+Placed blocks, fluids and animated sprites are drawn from the baked mesh with
+the host camera, so they stay locked to Elden Ring instead of following the
+lagging RGB-D capture. The atlas carries its full mip chain and is sampled like
+vanilla (nearest texels, linear between levels). Animated sprite frames arrive
+each game tick and are copied into the resident atlas. Translucent faces are
+re-sorted only when the camera moves or the mesh changes.
+
+Each Present uses the host camera of the image being presented. Elden Ring
+submits the next frame's camera before Present, so blocks are drawn with the
+previous submission (**Block camera latency**, default 1 frame) plus any extra
+lead the add-on measures from the native submission history. **Match blocks to
+the presented frame** disables the measured part. The `EldenCraft scene` log line
+every five seconds reports the offsets it chose (`cameraLead0/1/2/3+`, newest =
+0) and the submission rate.
+
 ## Inspecting frames
 
 `frame_inspect.exe --metadata 10` observes frame timing for ten seconds without

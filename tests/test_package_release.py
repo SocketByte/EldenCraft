@@ -16,7 +16,9 @@ def source(tmp_path):
     root = tmp_path / "source"
     originals = (
         "EldenCraft.cmd",
+        "Troubleshoot.cmd",
         "scripts/windows.ps1",
+        "scripts/diagnostics.ps1",
         "config/windows-release.json",
         "config/campaign.json",
         "minecraft/gradle.properties",
@@ -90,6 +92,8 @@ def test_release_contains_only_public_files_and_valid_hashes(source, tmp_path):
         assert not names & {"config/local.json", ".env"}
         assert not any("saves" in name or name.endswith(".sl2") for name in names)
         assert "EldenCraft.cmd" in names
+        assert "Troubleshoot.cmd" in names
+        assert "scripts/diagnostics.ps1" in names
         assert "payload/eldencraft-bridge.jar" in names
         manifest = json.loads(zipped.read("release-manifest.json"))
         assert {entry["path"] for entry in manifest["files"]} == names - {

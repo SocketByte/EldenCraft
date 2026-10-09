@@ -10,17 +10,25 @@ import java.nio.charset.StandardCharsets;
 /** Render-thread writer. The consumer sees complete snapshots under one aligned seqlock. */
 final class BlockMeshMailbox implements AutoCloseable {
   private final String prefix;
+  private final int meshBytes, atlasBytes;
+  private final boolean animated;
 
+  /** The static block mesh, its mipmapped atlas and the animated sprite channel. */
   BlockMeshMailbox() {
-    this("EldenCraftBlock");
+    this("EldenCraftBlock", BlockMeshProtocol.MESH_BYTES, BlockMeshProtocol.ATLAS_BYTES, true);
   }
 
-  BlockMeshMailbox(String prefix) {
+  BlockMeshMailbox(String prefix, int meshBytes, int atlasBytes, boolean animated) {
     this.prefix = prefix;
+    this.meshBytes = meshBytes;
+    this.atlasBytes = atlasBytes;
+    this.animated = animated;
   }
 
   private static final VarHandle SEQ = ValueLayout.JAVA_LONG.varHandle();
-  private SharedMemory mesh, atlas;
+  private SharedMemory mesh, atlas, anim;
+  private long animSeq;
+  private byte[] animHeader;
   private MemorySegment guard = MemorySegment.NULL,
       ackHandle = MemorySegment.NULL,
       ack = MemorySegment.NULL;
@@ -88,8 +96,27 @@ final class BlockMeshMailbox implements AutoCloseable {
       if (guard.address() == 0 || status == 183)
         throw new IllegalStateException("Block mesh writer already exists");
     }
-    mesh = SharedMemory.create("Local\\" + prefix + "Mesh", BlockMeshProtocol.MESH_BYTES);
-    atlas = SharedMemory.create("Local\\" + prefix + "Atlas", BlockMeshProtocol.ATLAS_BYTES);
+    mesh = SharedMemory.create("Local\\" + prefix + "Mesh", meshBytes);
+    atlas = SharedMemory.create("Local\\" + prefix + "Atlas", atlasBytes);
+    if (animated)
+      anim = SharedMemory.create("Local\\" + prefix + "Anim", BlockMeshProtocol.ANIM_BYTES);
+  }
+
+  /** Current frames of every animated sprite in the resident atlas. */
+  void animation(byte[] header, byte[] data) {
+    if (anim == null) return;
+    animHeader = header.clone();
+    long seq = animSeq;
+    var dst = anim.segment;
+    SEQ.setVolatile(dst, 8L, seq + 1);
+    VarHandle.fullFence();
+    var src = MemorySegment.ofArray(header);
+    MemorySegment.copy(src, 0, dst, 0, 8);
+    MemorySegment.copy(src, 16, dst, 16, 112);
+    MemorySegment.copy(MemorySegment.ofArray(data), 0, dst, 128, data.length);
+    VarHandle.fullFence();
+    SEQ.setVolatile(dst, 8L, seq + 2);
+    animSeq = seq + 2;
   }
 
   long now() throws Throwable {
@@ -117,6 +144,17 @@ final class BlockMeshMailbox implements AutoCloseable {
       var b = ByteBuffer.wrap(atlasHeader).order(ByteOrder.LITTLE_ENDIAN);
       b.putLong(48, now).putInt(36, active ? 1 : 0);
       write(atlas, atlasHeader, null, true);
+    }
+    if (animHeader != null && anim != null && !closed) {
+      var b = ByteBuffer.wrap(animHeader).order(ByteOrder.LITTLE_ENDIAN);
+      b.putLong(48, now).putInt(36, active ? 1 : 0);
+      long seq = animSeq;
+      SEQ.setVolatile(anim.segment, 8L, seq + 1);
+      VarHandle.fullFence();
+      MemorySegment.copy(MemorySegment.ofArray(animHeader), 16, anim.segment, 16, 112);
+      VarHandle.fullFence();
+      SEQ.setVolatile(anim.segment, 8L, seq + 2);
+      animSeq = seq + 2;
     }
   }
 
@@ -207,6 +245,7 @@ final class BlockMeshMailbox implements AutoCloseable {
     closeAck();
     if (mesh != null) mesh.close();
     if (atlas != null) atlas.close();
+    if (anim != null) anim.close();
     try {
       if (guard.address() != 0) {
         int ignored = (int) close.invokeExact(guard);

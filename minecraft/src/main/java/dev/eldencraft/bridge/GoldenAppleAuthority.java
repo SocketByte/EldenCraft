@@ -99,6 +99,12 @@ public final class GoldenAppleAuthority {
             c.stack.getCount());
   }
 
+  /** This regeneration's healing is already reported through this authority's receipts. */
+  public static boolean owns(ServerPlayer player, MobEffectInstance effect) {
+    var g = GRANT.get();
+    return g != null && g.player == player && g.effect == effect;
+  }
+
   public static void regeneration(ServerPlayer player, MobEffectInstance effect) {
     var g = GRANT.get();
     var a = adapter;

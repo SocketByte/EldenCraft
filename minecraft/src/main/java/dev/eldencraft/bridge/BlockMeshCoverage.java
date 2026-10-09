@@ -2,13 +2,22 @@ package dev.eldencraft.bridge;
 
 /** A mesh must cover the entire vanilla render-area window before any chunk pass is suppressed. */
 public record BlockMeshCoverage(int centerX, int centerZ, int radius, int minY, int maxY) {
+  /** Vanilla's 32-chunk render distance plus the streaming margin. */
+  public static final int MAX_RADIUS = 32 + 2;
+
+  /** Prebuilt chunks beyond the vanilla view: crossing this many borders keeps the mesh. */
+  public static final int STREAMING_MARGIN = 2;
+
+  /** Palette checks per complete build (a 69x69-chunk, 24-section overworld fits). */
+  public static final long MAX_SECTIONS = 131072;
+
   public BlockMeshCoverage {
     long width = 2L * radius + 1, height = (long) maxY - minY + 1;
     if (radius < 0
-        || radius > 16
+        || radius > MAX_RADIUS
         || height < 1
         || height > 64
-        || width * width * height > 65536
+        || width * width * height > MAX_SECTIONS
         || Math.abs((long) centerX) > 1875000
         || Math.abs((long) centerZ) > 1875000)
       throw new IllegalArgumentException("Render-area coverage exceeds mesh budget");
@@ -30,11 +39,18 @@ public record BlockMeshCoverage(int centerX, int centerZ, int radius, int minY, 
         && z <= (long) centerZ + radius + 1;
   }
 
-  /** A prebuilt border gives streaming time without suppressing any uncovered section. */
+  /**
+   * A prebuilt border gives streaming time without suppressing any uncovered section. Every render
+   * distance keeps the full margin while the section budget allows it.
+   */
   public BlockMeshCoverage withStreamingMargin() {
-    if (radius == 16 || (2L * radius + 3) * (2L * radius + 3) * ((long) maxY - minY + 1) > 65536)
-      return this;
-    return new BlockMeshCoverage(centerX, centerZ, radius + 1, minY, maxY);
+    long height = (long) maxY - minY + 1;
+    for (int margin = STREAMING_MARGIN; margin > 0; margin--) {
+      long width = 2L * (radius + margin) + 1;
+      if (radius + margin <= MAX_RADIUS && width * width * height <= MAX_SECTIONS)
+        return new BlockMeshCoverage(centerX, centerZ, radius + margin, minY, maxY);
+    }
+    return this;
   }
 
   public boolean contains(BlockMeshCoverage other) {

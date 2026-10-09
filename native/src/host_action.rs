@@ -12,6 +12,16 @@
 //! which reverse engineered the same build. Any mismatch disables only this
 //! feature.
 use std::collections::VecDeque;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(windows)]
+static MOVEMENT_RESERVED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(windows)]
+pub fn movement_reserved() -> bool {
+    MOVEMENT_RESERVED.load(Ordering::Acquire)
+}
 
 const SELECTED: usize = 0x20; // entry* of the prompt on offer, null = none
 const CAN_EXECUTE: usize = 0x29; // 0 while talk, menus or item popups block actions
@@ -21,9 +31,53 @@ const CONSUMED: usize = 0x80; // set by the handler that took the press
 const PRESSED: usize = 0x81; // the latch; the game clears it once used
 const ENTRY_PARAM: usize = 0x08; // entry: ActionButtonParam row id
 const MANAGER_BYTES: usize = 0xC0;
-/// ActionButtonParam rows for ladders ("Climb", "Descend"): they need native up/down input.
-const LADDER_PARAMS: [i32; 2] = [5000, 5010];
 const PRESS_TIMEOUT_MS: u64 = 500;
+const ANIMATION_START_MS: u64 = 750;
+const MOVEMENT_SETTLE_MS: u64 = 150;
+
+/// Hand scripted root motion back to Elden Ring before it consumes the R latch.
+/// The startup window covers the event/behavior delay; release requires stable
+/// native movement permission, rather than guessing a door/fog animation length.
+#[derive(Default)]
+struct MovementGate {
+    started: Option<u64>,
+    ready_since: Option<u64>,
+}
+
+impl MovementGate {
+    fn start(&mut self, now: u64) {
+        self.started = Some(now);
+        self.ready_since = None;
+    }
+    fn observe(&mut self, now: u64, native_locked: bool) -> bool {
+        let Some(started) = self.started else {
+            return false;
+        };
+        if native_locked || now.saturating_sub(started) < ANIMATION_START_MS {
+            self.ready_since = None;
+            return true;
+        }
+        let ready = *self.ready_since.get_or_insert(now);
+        if now.saturating_sub(ready) < MOVEMENT_SETTLE_MS {
+            return true;
+        }
+        *self = Self::default();
+        false
+    }
+}
+
+/// Read-only animation permission, shared by the action gate and physics hook.
+#[cfg(windows)]
+pub fn scripted_movement(player: &eldenring::cs::PlayerIns) -> bool {
+    let chr = &player.chr_ins;
+    let action = &chr.modules.action_request;
+    let flags = &chr.modules.action_flag.action_modifiers_flags;
+    let can_cancel =
+        action.tae_cancels.movement_cancel() && action.tae_cancels.movement_cancel_prev();
+    chr.chr_ctrl.disable_move
+        || action.tae_cancels.cancel_disable()
+        || (!can_cancel && (flags.disable_turning() || flags.root_motion_multiplier_enabled()))
+}
 
 /// Code that reads and writes the fields above, by RVA.
 const FINGERPRINTS: [(usize, &[u8]); 4] = [
@@ -75,7 +129,6 @@ pub enum Decision {
     Press,
     Nothing,
     Blocked,
-    Ladder,
 }
 
 pub fn decide(offer: Offer) -> Decision {
@@ -84,12 +137,6 @@ pub fn decide(offer: Offer) -> Decision {
     }
     if !offer.can_execute || offer.grayed {
         return Decision::Blocked;
-    }
-    if offer
-        .param
-        .is_some_and(|param| LADDER_PARAMS.contains(&param))
-    {
-        return Decision::Ladder;
     }
     Decision::Press
 }
@@ -117,11 +164,27 @@ pub fn pending(consumed: bool, latched: bool, pressed_at: u64, now: u64) -> Pend
 pub struct Driver {
     verified: Option<Result<(), String>>,
     press: Option<(u64, i32, usize)>,
+    movement: MovementGate,
+    movement_player: usize,
     pub events: VecDeque<String>,
 }
 
 #[cfg(windows)]
 impl Driver {
+    pub unsafe fn movement_locked(&mut self, now: u64) -> bool {
+        let player = unsafe { eldenring::cs::PlayerIns::local_player() };
+        if player
+            .as_ref()
+            .is_ok_and(|p| *p as *const _ as usize != self.movement_player)
+        {
+            self.movement = MovementGate::default();
+        }
+        let locked = self
+            .movement
+            .observe(now, player.map_or(true, scripted_movement));
+        MOVEMENT_RESERVED.store(locked, Ordering::Release);
+        locked
+    }
     /// Read the currently selected action using the same exact code guard as R.
     /// This is read-only and remains available while a Minecraft menu is open.
     pub unsafe fn offer(&mut self) -> Option<Offer> {
@@ -166,7 +229,7 @@ impl Driver {
             let result = Self::verify();
             self.events.push_back(match &result {
                 Ok(()) => {
-                    "Elden Ring interaction on R ready (doors, levers, items, Sites of Grace)."
+                    "Elden Ring interaction on R ready (ladders, doors, levers, items, Sites of Grace)."
                         .into()
                 }
                 Err(error) => format!("Elden Ring interaction on R unavailable: {error}"),
@@ -178,6 +241,8 @@ impl Driver {
         }
         let Some(manager) = Self::manager() else {
             self.press = None;
+            self.movement = MovementGate::default();
+            MOVEMENT_RESERVED.store(false, Ordering::Release);
             return;
         };
         let read = |offset: usize| unsafe { std::ptr::read_volatile(manager.add(offset)) };
@@ -202,6 +267,8 @@ impl Driver {
                         "Interaction not taken within 0.5 s (prompt {text}); withdrawn."
                     ));
                     self.press = None;
+                    self.movement = MovementGate::default();
+                    MOVEMENT_RESERVED.store(false, Ordering::Release);
                 }
                 Pending::Waiting => {}
             }
@@ -222,6 +289,10 @@ impl Driver {
         };
         match decide(offer) {
             Decision::Press => {
+                self.movement.start(now);
+                self.movement_player = unsafe { eldenring::cs::PlayerIns::local_player() }
+                    .map_or(0, |p| p as *const _ as usize);
+                MOVEMENT_RESERVED.store(true, Ordering::Release);
                 unsafe { std::ptr::write_volatile(manager.add(PRESSED), 1) };
                 self.press = Some((now, offer.text, offer.selection));
                 self.events.push_back(format!(
@@ -229,9 +300,6 @@ impl Driver {
                     offer.text, offer.param
                 ));
             }
-            Decision::Ladder => self
-                .events
-                .push_back("Ladders need Elden Ring's own interact key and up/down input.".into()),
             Decision::Blocked | Decision::Nothing => {}
         }
     }
@@ -242,7 +310,11 @@ impl Driver {
             && unsafe { std::ptr::read_volatile(manager.add(CONSUMED)) } == 0
         {
             unsafe { std::ptr::write_volatile(manager.add(PRESSED), 0) };
+            self.movement = MovementGate::default();
+            MOVEMENT_RESERVED.store(false, Ordering::Release);
         }
+        // A consumed action still owns native root motion during focus/menu
+        // suspension. Keep its gate until permission settles or the body changes.
     }
 }
 
@@ -305,14 +377,14 @@ mod tests {
                 param: Some(5000),
                 ..offer()
             }),
-            Decision::Ladder
+            Decision::Press
         );
         assert_eq!(
             decide(Offer {
                 param: Some(5010),
                 ..offer()
             }),
-            Decision::Ladder
+            Decision::Press
         );
     }
     #[test]
@@ -323,10 +395,82 @@ mod tests {
         assert_eq!(pending(false, true, 100, 601), Pending::Expired);
     }
     #[test]
+    fn native_ladder_entry_and_exit_do_not_bypass_prompt_gates() {
+        for param in [5000, 5010] {
+            let ladder = Offer {
+                param: Some(param),
+                ..offer()
+            };
+            assert_eq!(decide(ladder), Decision::Press);
+            assert_eq!(
+                decide(Offer {
+                    can_execute: false,
+                    ..ladder
+                }),
+                Decision::Blocked
+            );
+            assert_eq!(
+                decide(Offer {
+                    grayed: true,
+                    ..ladder
+                }),
+                Decision::Blocked
+            );
+            assert_eq!(
+                decide(Offer {
+                    selected: false,
+                    ..ladder
+                }),
+                Decision::Nothing
+            );
+        }
+    }
+    #[test]
     fn fingerprints_are_bounded_and_distinct() {
         let mut seen = std::collections::HashSet::new();
         for (at, bytes) in FINGERPRINTS {
             assert!(!bytes.is_empty() && seen.insert(at));
         }
+    }
+    #[test]
+    fn movement_hands_off_before_the_latch_and_waits_for_scripted_motion() {
+        let mut gate = MovementGate::default();
+        assert!(!gate.observe(0, false));
+        gate.start(100);
+        assert!(
+            gate.observe(100, false),
+            "same frame as R, before behavior starts"
+        );
+        assert!(gate.observe(849, false), "delayed animation startup");
+        assert!(gate.observe(850, true), "fog/door owns movement");
+        assert!(
+            gate.observe(5000, true),
+            "long door animation has no guessed timeout"
+        );
+        assert!(gate.observe(5100, false));
+        assert!(
+            gate.observe(5200, true),
+            "one free frame does not release a cutscene"
+        );
+        assert!(gate.observe(5300, false));
+        assert!(gate.observe(5449, false));
+        assert!(!gate.observe(5450, false));
+        assert!(!gate.observe(5600, false));
+    }
+    #[test]
+    fn immediate_actions_release_and_cancelled_latch_discards_old_gate() {
+        let mut gate = MovementGate::default();
+        gate.start(0);
+        assert!(gate.observe(750, false));
+        assert!(
+            !gate.observe(900, false),
+            "an item pickup cannot strand movement"
+        );
+        gate.start(1000);
+        gate = MovementGate::default();
+        assert!(
+            !gate.observe(1001, true),
+            "an unconsumed withdrawn latch cannot retain movement"
+        );
     }
 }

@@ -58,7 +58,9 @@ def collect(
             raise ValueError(f"Dependency manifest differs from Gradle: {key}")
     inputs = {
         "EldenCraft.cmd": "EldenCraft.cmd",
+        "Troubleshoot.cmd": "Troubleshoot.cmd",
         "scripts/windows.ps1": "scripts/windows.ps1",
+        "scripts/diagnostics.ps1": "scripts/diagnostics.ps1",
         "config/windows-release.json": "config/windows-release.json",
         "config/campaign.json": "config/campaign.json",
         "README.md": "README.md",

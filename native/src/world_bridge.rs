@@ -38,6 +38,39 @@ fn distance_to_box(p: [f64; 3], min: [f64; 3], max: [f64; 3]) -> f64 {
         .sum::<f64>()
         .sqrt()
 }
+fn validate_environment(
+    e: &wire::Event,
+    historical: &[wire::Target],
+    current: &[wire::Target],
+    player: u64,
+    epoch: u64,
+    feet: [f64; 3],
+    owner: bool,
+) -> Result<(), &'static str> {
+    if !owner {
+        return Err("world environment damage session owner mismatch");
+    }
+    if e.target == player {
+        if e.generation != epoch || distance(e.position, feet) > 3. {
+            return Err("world environment player identity or position mismatch");
+        }
+    } else {
+        let before = historical
+            .iter()
+            .find(|t| t.id == e.target && t.generation == e.generation)
+            .ok_or("world historical environment target missing")?;
+        let target = current
+            .iter()
+            .find(|t| t.id == e.target && t.generation == e.generation && t.hp > 0)
+            .ok_or("world current environment target missing")?;
+        if distance(before.min, target.min) > 16.
+            || distance_to_box(e.position, target.min, target.max) > 3.
+        {
+            return Err("world environment damage away from target");
+        }
+    }
+    Ok(())
+}
 fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
     (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f64>().sqrt()
 }
@@ -193,6 +226,7 @@ pub struct Driver {
     flight_context: Option<flight::Context>,
     player_flight: crate::player_flight::Latest,
     player_torrent: crate::torrent::Latest,
+    fluids: Vec<crate::world_fluids::Owned>,
     view: Option<(wire::ViewSettings, u64)>,
 }
 impl Driver {
@@ -238,15 +272,30 @@ impl Driver {
             flight_context: None,
             player_flight: crate::player_flight::Latest::default(),
             player_torrent: crate::torrent::Latest::default(),
+            fluids: Vec::new(),
             view: None,
         }
     }
     pub fn player_flight(&self, now: u64) -> Option<crate::player_flight::Sample> {
         self.player_flight.get(now)
     }
+    pub fn fluids(&self, now: u64) -> Vec<crate::world_fluids::Owned> {
+        self.fluids
+            .iter()
+            .copied()
+            .filter(|c| c.contact.fresh(now))
+            .collect()
+    }
     /// A fresh mount published for the current pid/session/epoch/map only.
     pub fn player_torrent(&self, now: u64) -> Option<crate::torrent::Sample> {
         self.player_torrent.get(now)
+    }
+    /// Installed placed-block colliders near the Havok feet, for step-up.
+    pub fn step_boxes(&self, feet_havok: [f64; 3]) -> Option<Vec<crate::step_assist::Box6>> {
+        if !self.active {
+            return None;
+        }
+        self.native.step_boxes(feet_havok, transport::now())
     }
     /// The guest's mouse/bobbing options from a matching publication of the last 2 s.
     pub fn view_settings(&self, now: u64) -> Option<wire::ViewSettings> {
@@ -292,6 +341,7 @@ impl Driver {
         self.flight_context = None;
         self.player_flight.reset();
         self.player_torrent.reset();
+        self.fluids.clear();
     }
     fn fail(&mut self, error: &'static str) {
         self.suspend();
@@ -339,6 +389,7 @@ impl Driver {
             self.flight_context = None;
             self.player_flight.reset();
             self.player_torrent.reset();
+            self.fluids.clear();
             self.events.push_back(format!(
                 "Shared world epoch={} region={} source_map={} mode={:?}",
                 scene.epoch, scene.map, scene.source_map, scene.coordinate_mode
@@ -439,6 +490,28 @@ impl Driver {
                     self.mobs.insert(mob.uuid.clone(), (mob.clone(), now));
                 }
                 self.native.accept_guest_at(guest, envelope.timestamp)?;
+                self.fluids.clear();
+                if scene.terrain_ready && guest.kinematics_active && guest.player_uuid.is_some() {
+                    for contact in &guest.fluids {
+                        let witnessed = self.history.iter().any(|h| {
+                            h.frame == contact.observed_frame
+                                && h.time <= now
+                                && now - h.time <= crate::world_fluids::FRESH_MS
+                                && h.targets.iter().any(|t| contact.matches(t))
+                        });
+                        if contact.fresh(now)
+                            && witnessed
+                            && published.iter().any(|t| contact.matches(t))
+                            && let Some(&(instance, generation)) = self.instances.get(&contact.id)
+                            && generation == contact.generation
+                        {
+                            self.fluids.push(crate::world_fluids::Owned {
+                                contact: *contact,
+                                instance,
+                            });
+                        }
+                    }
+                }
                 self.cached_mobs = Some(CachedMobs {
                     context: mob_proxy::Context {
                         epoch: scene.epoch,
@@ -649,6 +722,7 @@ impl Driver {
                 // Explicit inactivity or a changed peer is revocation, unlike
                 // one unavailable/torn read of a still-fresh prior publication.
                 self.cached_mobs = None;
+                self.fluids.clear();
                 self.native.revoke_guest();
                 self.player_source = None;
                 self.landing = None;
@@ -1008,16 +1082,15 @@ impl Driver {
                 self.ledger.identity == Some((*pid, *session)) && *uuid == e.source
             });
         if e.kind == "environment" {
-            // Minecraft lava, fire, drowning, starvation and similar hurt only the
-            // bridged player itself, where it stands. Elden Ring HP stays the one
-            // health pool, so a lethal Minecraft hazard ends in Elden Ring's death.
-            if !player_source || e.target != player || e.generation != scene.epoch {
-                return Err("world environment damage must target the bridged player");
-            }
-            if distance(e.position, scene.feet) > 3.0 {
-                return Err("world environment damage away from the player");
-            }
-            return Ok(());
+            return validate_environment(
+                e,
+                &old.targets,
+                current,
+                player,
+                scene.epoch,
+                scene.feet,
+                player_source,
+            );
         }
         if player_source {
             if !["projectile", "explosion", "ender_pearl"].contains(&e.kind.as_str()) {
@@ -1315,6 +1388,50 @@ unsafe fn damage_player(expected: u64, amount: i32, map: u32) -> Result<i32, &'s
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn environment_receipts_match_player_or_live_observed_enemy() {
+        let t = wire::Target {
+            id: 10,
+            generation: 2,
+            min: [1., 0., 1.],
+            max: [2., 2., 2.],
+            hp: 100,
+            ..Default::default()
+        };
+        let targets = vec![t.clone()];
+        let e = wire::Event {
+            kind: "environment".into(),
+            target: 10,
+            generation: 2,
+            position: [1.5, 0., 1.5],
+            ..Default::default()
+        };
+        assert!(validate_environment(&e, &targets, &targets, 1, 9, [0.; 3], true).is_ok());
+        assert!(validate_environment(&e, &targets, &targets, 1, 9, [0.; 3], false).is_err());
+        assert!(validate_environment(&e, &[], &targets, 1, 9, [0.; 3], true).is_err());
+        for target in [
+            wire::Target { hp: 0, ..t.clone() },
+            wire::Target {
+                generation: 3,
+                ..t.clone()
+            },
+        ] {
+            assert!(validate_environment(&e, &targets, &[target], 1, 9, [0.; 3], true).is_err());
+        }
+        let distant = wire::Event {
+            position: [8., 0., 8.],
+            ..e.clone()
+        };
+        assert!(validate_environment(&distant, &targets, &targets, 1, 9, [0.; 3], true).is_err());
+        let player = wire::Event {
+            target: 1,
+            generation: 9,
+            position: [0.; 3],
+            ..e
+        };
+        assert!(validate_environment(&player, &[], &[], 1, 9, [0.; 3], true).is_ok());
+        assert!(validate_environment(&player, &[], &[], 1, 10, [0.; 3], true).is_err());
+    }
     #[test]
     fn staged_pearl_pins_exact_validated_frame_without_extending_receipt_deadline() {
         let h = History {

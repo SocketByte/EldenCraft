@@ -36,13 +36,17 @@ public final class CampaignConformance {
     check(
         rules.bosses.stream().filter(CampaignConfig.Boss::remembrance).count() == 15,
         "all fifteen distinct remembrance encounters");
-    near(rules.progression.health(0), 20, "starting Minecraft HP");
-    near(rules.progression.health(15), 20 * 1900d / 414, "exact 60 Vigor endpoint");
+    near(rules.progression.health(0), 40, "starting Minecraft HP");
+    near(rules.progression.health(15), 40 * 2314d / 828, "exact 60 Vigor endpoint");
     near(rules.progression.stamina(0), 50, "configured opening stamina endpoint");
     near(rules.progression.stamina(15), 90, "configured final remembrance stamina endpoint");
     near(rules.progression.health(99), rules.progression.health(15), "NG+ has no extra capacity");
-    near(rules.progression.health(-1), 20, "lower cap");
-    near(rules.progression.health(3), 20 * 652d / 414, "fractional shares avoid rounding loss");
+    near(rules.progression.health(-1), 40, "lower cap");
+    near(rules.progression.health(3), 40 * 1066d / 828, "fractional shares avoid rounding loss");
+    near(
+        828 / rules.progression.health(0),
+        414 / 20d,
+        "the opening HP bonus keeps native HP per Minecraft HP fixed");
     double last = 0;
     for (int count = 0; count <= 15; count++) {
       double health = rules.progression.health(count);
@@ -95,6 +99,28 @@ public final class CampaignConformance {
         offers.values().stream().noneMatch(o -> o.item().startsWith("minecraft:chainmail_")),
         "chainmail remains an optional-boss reward");
     near(rules.weapons.get("minecraft:netherite_sword").damage(), 18, "material damage default");
+    near(rules.explosionDamageScale, .125, "TNT and creepers receive the increased explosion share");
+    near(rules.lavaDamageScale, .075, "lava and fire keep a small share against native enemies");
+    var older = rules.raw();
+    older.getAsJsonObject("combat").remove("explosionDamageScale");
+    older.getAsJsonObject("combat").remove("lavaDamageScale");
+    var olderRules = CampaignConfig.parse(older);
+    check(
+        olderRules.explosionDamageScale == CampaignConfig.DEFAULT_EXPLOSION_SCALE
+            && olderRules.lavaDamageScale == CampaignConfig.DEFAULT_LAVA_SCALE,
+        "older campaign files receive the reduced hazard defaults");
+    for (var bossId : List.of("margit", "godrick")) {
+      String sword = bossId.equals("margit") ? "minecraft:stone_sword" : "minecraft:iron_sword";
+      var boss = rules.bosses.stream().filter(b -> b.id().equals(bossId)).findFirst().orElseThrow();
+      check(
+          boss.rewards().stream().anyMatch(r -> r.item().equals(sword) && r.count() == 1)
+              && boss.rewards().stream().filter(r -> r.item().endsWith("_sword")).count() == 1,
+          bossId + " grants exactly its intended sword tier");
+    }
+    check(
+        offers.get("totem_of_undying").unlockAny().isEmpty()
+            && offers.get("totem_of_undying").stock() == -1,
+        "totems of undying are sold from the start");
     check(
         rules.weapons.get("minecraft:copper_sword").damage()
             > rules.weapons.get("minecraft:stone_sword").damage(),
@@ -151,6 +177,12 @@ public final class CampaignConformance {
         .getAsJsonObject("minecraft:wooden_sword")
         .addProperty("damage", -1);
     rejects(invalid, "negative damage rejected");
+    invalid = rules.raw();
+    invalid.getAsJsonObject("combat").addProperty("explosionDamageScale", -.1);
+    rejects(invalid, "negative explosion scale rejected");
+    invalid = rules.raw();
+    invalid.getAsJsonObject("combat").addProperty("lavaDamageScale", "low");
+    rejects(invalid, "non-numeric lava scale rejected");
     invalid = rules.raw();
     invalid.getAsJsonObject("progression").addProperty("shares", 14);
     rejects(invalid, "missing/remapped remembrance budget rejected");
@@ -273,6 +305,7 @@ public final class CampaignConformance {
     checks += CampaignGuardConformance.verify();
     CampaignConfig.install(rules);
     checks += CampaignArmorConformance.verify(rules);
+    checks += CampaignDurabilityConformance.verify(rules);
     check(rules.armors.size() >= 24, "shipped armor ladder is configurable");
     for (var row : rules.armors.entrySet()) {
       var item =

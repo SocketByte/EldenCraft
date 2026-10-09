@@ -8,11 +8,39 @@ public final class BlockMeshProtocol {
   public static final int HEADER = 128,
       MESH_MAGIC = 0x424d4345,
       ATLAS_MAGIC = 0x41424345,
-      ACK_MAGIC = 0x414d4345;
-  public static final int MESH_BYTES = 8 * 1024 * 1024,
-      ATLAS_BYTES = HEADER + 4096 * 4096 * 4,
+      ACK_MAGIC = 0x414d4345,
+      ANIM_MAGIC = 0x4e414345;
+  public static final int MESH_BYTES = 64 * 1024 * 1024,
+      ATLAS_BYTES = HEADER + 90 * 1024 * 1024,
       STRIDE = 24,
-      MAX_VERTICES = 262144;
+      MAX_VERTICES = 2097152,
+      MAX_MIPS = 13;
+
+  /** Mining cracks and outlines keep their original, smaller mappings. */
+  public static final int DETAIL_MESH_BYTES = 8 * 1024 * 1024,
+      DETAIL_ATLAS_BYTES = HEADER + 4096 * 4096 * 4;
+
+  /** Animated sprite frames for the resident atlas: a region table, then RGBA8 pixels. */
+  public static final int ANIM_BYTES = 4 * 1024 * 1024, ANIM_REGION = 16, MAX_ANIM_REGIONS = 4096;
+
+  /** One mip level dimension, clamped to a texel. */
+  public static int mipExtent(int size, int level) {
+    return Math.max(1, size >> level);
+  }
+
+  /** Levels a {@code width x height} texture can have, capped at {@link #MAX_MIPS}. */
+  public static int maxMips(int width, int height) {
+    int levels = 1;
+    for (int size = Math.max(width, height); size > 1; size >>= 1) levels++;
+    return Math.min(levels, MAX_MIPS);
+  }
+
+  /** Byte offset of a level in the tightly packed RGBA8 chain (largest level first). */
+  public static long mipOffset(int width, int height, int level) {
+    long at = 0;
+    for (int m = 0; m < level; m++) at += (long) mipExtent(width, m) * mipExtent(height, m) * 4;
+    return at;
+  }
 
   public record Identity(
       long producer, long host, long epoch, long map, long session, long anchor) {
@@ -42,8 +70,33 @@ public final class BlockMeshProtocol {
       int cutout,
       int translucent,
       boolean active) {
+    return header(
+        magic, id, stamp, revision, atlas, a, b, bytes, solid, cutout, translucent, active, 1);
+  }
+
+  /**
+   * {@code mips}: atlas level count (the payload is the full packed chain). For an animation,
+   * {@code revision} is the animation tick, {@code atlas} the atlas it updates, {@code a} the
+   * region count.
+   */
+  public static byte[] header(
+      int magic,
+      Identity id,
+      long stamp,
+      long revision,
+      long atlas,
+      int a,
+      int b,
+      int bytes,
+      int solid,
+      int cutout,
+      int translucent,
+      boolean active,
+      int mips) {
     if (stamp < 0 || revision <= 0 || atlas <= 0)
       throw new IllegalArgumentException("Mesh revision/time");
+    if (magic != ATLAS_MAGIC && mips != 1)
+      throw new IllegalArgumentException("Only atlases have mips");
     if (magic == MESH_MAGIC) {
       if (a < 0
           || a > MAX_VERTICES
@@ -64,10 +117,22 @@ public final class BlockMeshProtocol {
           || a > 4096
           || b < 1
           || b > 4096
-          || bytes != (long) a * b * 4
+          || mips < 1
+          || mips > maxMips(a, b)
+          || bytes != mipOffset(a, b, mips)
+          || bytes > ATLAS_BYTES - HEADER
           || solid != 0
           || cutout != 0
           || translucent != 0) throw new IllegalArgumentException("Atlas bounds");
+    } else if (magic == ANIM_MAGIC) {
+      if (a < 0
+          || a > MAX_ANIM_REGIONS
+          || b != 0
+          || bytes < (long) a * ANIM_REGION
+          || bytes > ANIM_BYTES - HEADER
+          || solid != 0
+          || cutout != 0
+          || translucent != 0) throw new IllegalArgumentException("Animation bounds");
     } else throw new IllegalArgumentException("Mesh magic");
     var out = ByteBuffer.allocate(HEADER).order(ByteOrder.LITTLE_ENDIAN);
     out.putInt(0, magic)
@@ -88,6 +153,7 @@ public final class BlockMeshProtocol {
         .putInt(88, cutout)
         .putInt(92, translucent)
         .putLong(96, id.anchor);
+    if (magic == ATLAS_MAGIC) out.putInt(104, mips);
     return out.array();
   }
 

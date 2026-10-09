@@ -74,14 +74,102 @@ public final class BlockMeshConformance {
                 0,
                 1,
                 1,
-                262146,
+                BlockMeshProtocol.MAX_VERTICES + 3,
                 24,
-                262146 * 24,
-                262146,
+                (BlockMeshProtocol.MAX_VERTICES + 3) * 24,
+                BlockMeshProtocol.MAX_VERTICES + 3,
                 0,
                 0,
                 true),
         "bounded vertices");
+    check(
+        BlockMeshProtocol.header(
+                    BlockMeshProtocol.MESH_MAGIC,
+                    ID,
+                    0,
+                    1,
+                    1,
+                    BlockMeshProtocol.MAX_VERTICES - 2,
+                    24,
+                    (BlockMeshProtocol.MAX_VERTICES - 2) * 24,
+                    BlockMeshProtocol.MAX_VERTICES - 2,
+                    0,
+                    0,
+                    true)
+                .length
+            == 128,
+        "a large build (two million vertices) fits one mesh");
+    check(
+        BlockMeshProtocol.maxMips(2048, 2048) == 12
+            && BlockMeshProtocol.maxMips(2, 3) == 2
+            && BlockMeshProtocol.mipExtent(3, 1) == 1
+            && BlockMeshProtocol.mipOffset(2, 3, 2) == 28,
+        "mip chain arithmetic matches the compositor");
+    var mipped =
+        BlockMeshProtocol.header(
+            BlockMeshProtocol.ATLAS_MAGIC,
+            ID,
+            0,
+            1,
+            1,
+            2048,
+            2048,
+            (int) BlockMeshProtocol.mipOffset(2048, 2048, 5),
+            0,
+            0,
+            0,
+            true,
+            5);
+    check(
+        ByteBuffer.wrap(mipped).order(ByteOrder.LITTLE_ENDIAN).getInt(104) == 5,
+        "vanilla 2048x2048 atlas publishes its five levels");
+    rejects(
+        () ->
+            BlockMeshProtocol.header(
+                BlockMeshProtocol.ATLAS_MAGIC, ID, 0, 1, 1, 2, 3, 24, 0, 0, 0, true, 2),
+        "mip chain bytes must include every level");
+    rejects(
+        () ->
+            BlockMeshProtocol.header(
+                BlockMeshProtocol.ATLAS_MAGIC, ID, 0, 1, 1, 2, 3, 32, 0, 0, 0, true, 3),
+        "more levels than the size allows");
+    rejects(
+        () ->
+            BlockMeshProtocol.header(
+                BlockMeshProtocol.MESH_MAGIC, ID, 0, 1, 1, 3, 24, 72, 3, 0, 0, true, 2),
+        "only an atlas carries mip levels");
+    var animation =
+        BlockMeshProtocol.header(
+            BlockMeshProtocol.ANIM_MAGIC, ID, 0, 9, 1, 2, 0, 32 + 64, 0, 0, 0, true);
+    var anim = ByteBuffer.wrap(animation).order(ByteOrder.LITTLE_ENDIAN);
+    check(
+        anim.getInt(0) == BlockMeshProtocol.ANIM_MAGIC
+            && anim.getLong(56) == 9
+            && anim.getLong(64) == 1
+            && anim.getInt(72) == 2
+            && anim.getInt(104) == 0,
+        "animation names its tick, atlas and region count");
+    rejects(
+        () ->
+            BlockMeshProtocol.header(
+                BlockMeshProtocol.ANIM_MAGIC, ID, 0, 9, 1, 3, 0, 32, 0, 0, 0, true),
+        "region table must fit the animation payload");
+    rejects(
+        () ->
+            BlockMeshProtocol.header(
+                BlockMeshProtocol.ANIM_MAGIC,
+                ID,
+                0,
+                9,
+                1,
+                1,
+                0,
+                BlockMeshProtocol.ANIM_BYTES,
+                0,
+                0,
+                0,
+                true),
+        "animation payload bounded by its mapping");
     rejects(
         () ->
             BlockMeshProtocol.header(
@@ -186,8 +274,10 @@ public final class BlockMeshConformance {
     check(
         !area.contains(-11, 0, 0) && !area.contains(0, 20, 0),
         "no suppression outside full coverage");
-    rejects(() -> new BlockMeshCoverage(0, 0, 17, 0, 23), "render distance cap falls back");
-    rejects(() -> new BlockMeshCoverage(0, 0, 16, 0, 63), "section work cap falls back");
+    check(new BlockMeshCoverage(0, 0, 32, -4, 19).radius() == 32, "32-chunk render distance");
+    rejects(
+        () -> new BlockMeshCoverage(0, 0, 35, -4, 19), "radius beyond the margin cap falls back");
+    rejects(() -> new BlockMeshCoverage(0, 0, 32, 0, 63), "section work cap falls back");
     rejects(() -> new BlockMeshCoverage(0, 0, 8, 24, 23), "invalid vertical range");
     handoff();
     geometryHandoff();
@@ -213,7 +303,7 @@ public final class BlockMeshConformance {
       changes.lightingChanged();
       check(!changes.current(complete), "propagated lighting still schedules refresh " + update);
       check(
-          policy.geometryWithinGrace(changes.geometryCurrent(complete), update * 600_000_000L),
+          changes.withinGrace(complete, update * 600_000_000L),
           "lighting alone cannot expire complete resident geometry " + update);
       check(
           first.equals(policy.select(first)),
@@ -221,17 +311,42 @@ public final class BlockMeshConformance {
     }
     var lit = changes.version();
     check(changes.current(lit), "new shaded snapshot catches latest lighting");
-    changes.geometryChanged();
+    changes.geometryChanged(4_000_000_000L);
     check(
         !changes.geometryCurrent(lit) && !changes.current(lit),
         "mining still invalidates complete faces");
-    check(
-        policy.geometryWithinGrace(changes.geometryCurrent(lit), 4_000_000_000L),
-        "actual edit starts independent geometry deadline");
+    check(changes.withinGrace(lit, 4_000_000_000L), "actual edit starts its own deadline");
     changes.lightingChanged();
     check(
-        !policy.geometryWithinGrace(changes.geometryCurrent(lit), 4_500_000_001L),
-        "lighting during mining cannot prolong stale blocks");
+        changes.withinGrace(lit, 4_000_000_000L + BlockMeshChanges.GRACE_NANOS)
+            && !changes.withinGrace(lit, 4_000_000_001L + BlockMeshChanges.GRACE_NANOS),
+        "lighting during mining cannot prolong an undisplayed edit");
+    // Continuous edits (flowing water, fire) that keep being displayed never expire.
+    var streaming = new BlockMeshChanges();
+    var shown = streaming.version();
+    for (long t = 0; t < 10_000_000_000L; t += 50_000_000L) {
+      streaming.geometryChanged(t);
+      check(streaming.withinGrace(shown, t + 40_000_000L), "kept-up edit stays within grace " + t);
+      if ((t / 50_000_000L) % 2 == 1) {
+        shown = streaming.version();
+        streaming.displayed(shown);
+      }
+    }
+    check(
+        streaming.staleNanos(shown, 20_000_000_000L) == 0, "displayed snapshot has no stale edit");
+    var lagging = new BlockMeshChanges();
+    var old = lagging.version();
+    for (long t = 0; t <= 1_500_000_000L; t += 50_000_000L) lagging.geometryChanged(t);
+    check(
+        !lagging.withinGrace(old, 1_500_000_000L),
+        "a mesh that never catches up still falls back after the grace");
+    lagging.displayed(lagging.version());
+    check(lagging.withinGrace(lagging.version(), 99_000_000_000L), "catching up clears all debt");
+    var folded = new BlockMeshChanges();
+    var base = folded.version();
+    for (long t = 0; t < 5000; t++) folded.geometryChanged(t);
+    check(folded.staleNanos(base, 10_000) == 10_000, "overflowed queue keeps the oldest time");
+    check(folded.staleNanos(null, 0) == Long.MAX_VALUE, "missing snapshot is never fresh");
     policy.invalidate();
     check(
         policy.select(first) == null, "resource/world invalidation still revokes shaded residents");
@@ -246,7 +361,7 @@ public final class BlockMeshConformance {
     check(
         !area.intersectsChunkNeighborhood(-12, 3) && !area.intersectsChunkNeighborhood(-2, 13),
         "unrelated chunk streaming cannot force a complete rebuild");
-    var limit = new BlockMeshCoverage(1875000, -1875000, 16, 0, 0);
+    var limit = new BlockMeshCoverage(1875000, -1875000, 34, 0, 0);
     check(
         !limit.intersectsChunkNeighborhood(Integer.MIN_VALUE, Integer.MAX_VALUE),
         "streaming coverage arithmetic cannot overflow near coordinate limits");
@@ -256,10 +371,10 @@ public final class BlockMeshConformance {
     var view = new BlockMeshCoverage(-2, 3, 8, -4, 19);
     var built = view.withStreamingMargin();
     check(
-        built.radius() == 9 && built.contains(view),
+        built.radius() == 8 + BlockMeshCoverage.STREAMING_MARGIN && built.contains(view),
         "bounded prebuilt border covers original vanilla view");
-    for (int dx = -1; dx <= 1; dx++)
-      for (int dz = -1; dz <= 1; dz++)
+    for (int dx = -2; dx <= 2; dx++)
+      for (int dz = -2; dz <= 2; dz++)
         check(
             built.contains(
                 new BlockMeshCoverage(
@@ -268,10 +383,20 @@ public final class BlockMeshConformance {
                     view.radius(),
                     view.minY(),
                     view.maxY())),
-            "one-section streaming step retains complete coverage " + dx + "," + dz);
+            "two-section streaming steps retain complete coverage " + dx + "," + dz);
     check(
-        !built.contains(new BlockMeshCoverage(0, 3, 8, -4, 19)),
-        "two-section move cannot hide an uncovered entering strip");
+        !built.contains(new BlockMeshCoverage(1, 3, 8, -4, 19)),
+        "three-section move cannot hide an uncovered entering strip");
+    for (int distance : new int[] {2, 12, 16, 24, 32}) {
+      var vanilla = new BlockMeshCoverage(40, -7, distance, -4, 19);
+      var prebuilt = vanilla.withStreamingMargin();
+      check(
+          prebuilt.radius() == distance + BlockMeshCoverage.STREAMING_MARGIN,
+          "render distance " + distance + " keeps the full streaming margin");
+      check(
+          prebuilt.contains(new BlockMeshCoverage(41, -8, distance, -4, 19)),
+          "render distance " + distance + " survives a diagonal chunk crossing");
+    }
     check(
         !built.contains(new BlockMeshCoverage(-2, 3, 8, -5, 19)),
         "new lower world sections require coverage");
@@ -279,23 +404,26 @@ public final class BlockMeshConformance {
         !built.contains(new BlockMeshCoverage(-2, 3, 8, -4, 20)),
         "new upper world sections require coverage");
     check(
-        !built.contains(new BlockMeshCoverage(-2, 3, 10, -4, 19)),
+        !built.contains(new BlockMeshCoverage(-2, 3, 11, -4, 19)),
         "larger render distance cannot borrow insufficient margin");
     check(!built.contains(null), "missing coverage grants no suppression");
-    var cap = new BlockMeshCoverage(0, 0, 16, -4, 19);
-    check(cap.withStreamingMargin().equals(cap), "maximum supported render distance stays bounded");
-    var heightCap = new BlockMeshCoverage(0, 0, 15, 0, 63);
+    var cap = new BlockMeshCoverage(0, 0, BlockMeshCoverage.MAX_RADIUS, -4, 19);
+    check(cap.withStreamingMargin().equals(cap), "maximum supported radius stays bounded");
+    var heightCap = new BlockMeshCoverage(0, 0, 21, 0, 63);
+    var reduced = heightCap.withStreamingMargin();
     check(
-        heightCap.withStreamingMargin().equals(heightCap),
-        "margin never exceeds total section work budget");
+        reduced.radius() == 22
+            && (2L * reduced.radius() + 1) * (2L * reduced.radius() + 1) * 64
+                <= BlockMeshCoverage.MAX_SECTIONS,
+        "margin shrinks rather than exceeding total section work budget");
     var opposite = new BlockMeshCoverage(1875000, -1875000, 0, 0, 0);
     check(
         !opposite.contains(new BlockMeshCoverage(-1875000, 1875000, 0, 0, 0)),
         "distant relocation cannot overflow containment arithmetic");
     var next = new BlockMeshCoverage(-1, 3, 8, -4, 19).withStreamingMargin();
     check(
-        next.contains(new BlockMeshCoverage(0, 3, 8, -4, 19))
-            && !built.contains(new BlockMeshCoverage(0, 3, 8, -4, 19)),
+        next.contains(new BlockMeshCoverage(1, 3, 8, -4, 19))
+            && !built.contains(new BlockMeshCoverage(1, 3, 8, -4, 19)),
         "acknowledged next border advances coverage rather than granting indefinite old ownership");
   }
 
@@ -388,11 +516,12 @@ public final class BlockMeshConformance {
     var before = new BlockMeshHandoff.Revision(20, 2, 9);
     var removed = new BlockMeshHandoff.Revision(21, 2, 9);
     var replaced = new BlockMeshHandoff.Revision(22, 2, 9);
+    var changes = new BlockMeshChanges();
     policy.geometry(before);
     policy.select(before);
-    check(
-        policy.geometryWithinGrace(false, 100),
-        "same-area removal starts bounded old-geometry grace");
+    var shown = changes.version();
+    changes.geometryChanged(100);
+    check(changes.withinGrace(shown, 100), "same-area removal starts bounded old-geometry grace");
     policy.update(removed);
     check(
         before.equals(policy.select(before)),
@@ -401,27 +530,29 @@ public final class BlockMeshConformance {
     rejects(
         () -> policy.update(replaced),
         "second geometry candidate cannot overwrite unacknowledged removal");
-    check(
-        policy.geometryWithinGrace(false, 400_000_100L),
-        "rapid edits retain original grace deadline");
+    changes.geometryChanged(400_000_100L);
+    check(changes.withinGrace(shown, 400_000_100L), "rapid edits retain original grace deadline");
     check(removed.equals(policy.select(removed)), "removed geometry is promoted by its exact ACK");
     policy.update(replaced);
     check(
         removed.equals(policy.select(removed)),
         "coalesced replacement keeps the acknowledged removal mesh");
-    check(policy.geometryWithinGrace(false, 500_000_100L), "last allowed stale geometry instant");
+    long deadline = 100 + BlockMeshChanges.GRACE_NANOS;
+    check(changes.withinGrace(shown, deadline), "last allowed stale geometry instant");
     check(
-        !policy.geometryWithinGrace(false, 500_000_101L),
-        "continuous edits cannot extend old geometry past500ms");
+        !changes.withinGrace(shown, deadline + 1),
+        "an edit never displayed cannot keep old geometry past the grace");
     policy.invalidate();
     check(policy.select(replaced) == null, "timeout fallback discards pending ownership");
     policy.geometry(replaced);
     policy.select(replaced);
+    shown = changes.version();
+    changes.displayed(shown);
     check(
-        policy.geometryWithinGrace(true, 600_000_000L),
-        "current displayed geometry clears old deadline");
+        changes.withinGrace(shown, deadline + 2), "current displayed geometry clears old deadline");
+    changes.geometryChanged(deadline + 3);
     check(
-        policy.geometryWithinGrace(false, 700_000_000L),
+        changes.withinGrace(shown, deadline + 3 + BlockMeshChanges.GRACE_NANOS),
         "later independent edit starts a new bounded window");
     policy.invalidate();
     check(

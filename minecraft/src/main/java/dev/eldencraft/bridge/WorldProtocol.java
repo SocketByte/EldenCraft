@@ -51,6 +51,7 @@ public final class WorldProtocol {
       WorldOrigin.Vec offset,
       WorldOrigin.Vec sourceToRegion,
       boolean grounded,
+      boolean nativeLadder,
       float hp,
       float maxHp,
       long playerId,
@@ -213,6 +214,7 @@ public final class WorldProtocol {
             ? vec(json.get("source_to_region"))
             : new WorldOrigin.Vec(0, 0, 0),
         bool(json, "grounded"),
+        json.has("native_ladder") && bool(json, "native_ladder"),
         hp,
         max,
         json.has("player_id") ? integer(json, "player_id", 1, Long.MAX_VALUE) : 0,

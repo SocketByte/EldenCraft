@@ -1,7 +1,10 @@
 package dev.eldencraft.bridge.client;
 
+import dev.eldencraft.bridge.CampaignConfig;
+import dev.eldencraft.bridge.CampaignHeartScale;
 import dev.eldencraft.bridge.HealthDisplayState;
 import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.player.Player;
 
 /**
  * Only vanilla HUD extraction sees mirrored health; every scope restores before game code resumes.
@@ -61,6 +64,26 @@ public final class HostHealthDisplay {
         if (restore != null) player.setHealth(restore);
       } else STATE.reset();
     }
+  }
+
+  /** Only HUD reads use compact units; no player attribute or absorption pool is written. */
+  public static float maximum(Player player, double actual) {
+    if (!compact(player)) return (float) actual;
+    var progression = CampaignConfig.current().progression;
+    return (float)
+        CampaignHeartScale.maximum(
+            actual, progression.health(0), progression.health(progression.shares()));
+  }
+
+  public static float units(Player player, float actual) {
+    if (!compact(player)) return actual;
+    double capacity = player.getMaxHealth();
+    return CampaignHeartScale.units(actual, capacity, maximum(player, capacity));
+  }
+
+  public static boolean compact(Player player) {
+    var client = Minecraft.getInstance();
+    return enabled && offline(client) && player == client.player && CampaignCombat.active(player);
   }
 
   private static boolean offline(Minecraft client) {

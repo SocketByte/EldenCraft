@@ -335,9 +335,7 @@ unsafe fn filter(regs: &Registers) {
     if source == 0 {
         return skip("skipped: attack source missing");
     }
-    if source == identity.player {
-        return skip("skipped: self-inflicted damage");
-    }
+    let self_inflicted = source == identity.player;
     if regs.r9 as u8 != 0 {
         return skip("skipped: target already dead");
     }
@@ -360,6 +358,21 @@ unsafe fn filter(regs: &Registers) {
     if !(1..=crate::native_damage::MAX_DAMAGE).contains(&damage) {
         return skip("skipped: damage outside bounds");
     }
+    let (hp, max_hp) = (
+        player.chr_ins.modules.data.hp,
+        player.chr_ins.modules.data.max_hp,
+    );
+    if self_inflicted {
+        // Elden Ring's own hazards keep native damage; a held totem still
+        // catches a lethal one, as vanilla death protection catches a fall.
+        if let Some(saved) = crate::campaign_runtime::death_protection(damage, hp, max_hp) {
+            unsafe {
+                request.add(0x228).cast::<i32>().write_unaligned(saved);
+            }
+            return skip("totem: self-inflicted lethal damage");
+        }
+        return skip("skipped: self-inflicted damage");
+    }
     let target = local;
     let incoming = unsafe { crate::combat_targets::shield_incoming(source, target) };
     let source_info = incoming.map(|_| {
@@ -374,7 +387,7 @@ unsafe fn filter(regs: &Registers) {
         .filter(|_| permit_valid)
         .and_then(|p| incoming.and_then(|direction| reduced_damage(damage, p.forward, direction)));
     let breaks = crate::campaign_runtime::guard_breaks();
-    let filtered = crate::campaign_runtime::filter_damage(damage, blocking.is_some());
+    let filtered = crate::campaign_runtime::filter_damage(damage, blocking.is_some(), hp, max_hp);
     let broken_through = crate::campaign_runtime::guard_breaks() != breaks;
     let reduced = filtered.or_else(|| {
         (!crate::campaign_runtime::enabled())

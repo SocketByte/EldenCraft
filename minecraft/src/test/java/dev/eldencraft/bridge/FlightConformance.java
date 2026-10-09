@@ -18,6 +18,35 @@ public final class FlightConformance {
     check(!edges.take(6, true), "one press cannot start twice");
     check(!edges.take(1, true), "input counter rollback rebaselines");
     check(edges.take(2, true), "new press after baseline is accepted");
+    var creative = new FlightPolicy.CreativeToggle();
+    creative.baseline(4);
+    check(!creative.take(4, 1_000, true), "held jump cannot toggle creative flight on acquisition");
+    check(!creative.take(5, 2_000, true), "first creative jump opens the toggle window");
+    check(!creative.take(5, 3_000, true), "held creative jump cannot toggle flight");
+    check(
+        creative.take(6, 2_000 + FlightPolicy.CREATIVE_TOGGLE_NANOS, true),
+        "second creative jump within seven ticks toggles flight");
+    check(!creative.take(7, 400_000_000, true), "a completed double tap resets the window");
+    check(!creative.take(8, 750_000_001, true), "late jump starts a new toggle window");
+    check(creative.take(9, 800_000_000, true), "fresh double tap can disable creative flight");
+    check(!creative.take(10, 900_000_000, false), "survival cannot arm creative flight");
+    check(!creative.take(11, 950_000_000, true), "game mode change cannot reuse survival jump");
+    creative.baseline(11);
+    check(!creative.take(12, 1_000_000_000, true), "lease reset cancels a buffered first tap");
+    check(!creative.take(1, 1_100_000_000, true), "counter rollback cancels the first tap");
+    check(!creative.take(2, 1_200_000_000, true), "rollback's next press opens a new window");
+    check(
+        Math.abs(FlightPolicy.creativeLift(true, false, .05f) - .15) < 1e-7,
+        "jump ascends using vanilla flying speed");
+    check(
+        Math.abs(FlightPolicy.creativeLift(false, true, .05f) + .15) < 1e-7,
+        "sneak descends using vanilla flying speed");
+    check(
+        FlightPolicy.creativeLift(false, false, .05f) == 0,
+        "released creative vertical controls hover");
+    check(
+        FlightPolicy.creativeLift(true, true, .05f) == 0,
+        "opposing creative vertical controls cancel");
     check(FlightPolicy.fresh(100, 150_000_100), "exact lease boundary is valid");
     check(!FlightPolicy.fresh(100, 150_000_101), "stale velocity cannot be renewed by a read");
     check(!FlightPolicy.fresh(100, 99), "future timestamp rejected");
@@ -83,6 +112,6 @@ public final class FlightConformance {
     System.out.println(
         "Flight conformance: "
             + checks
-            + " checks passed (lease/edge/bounds; physics remains vanilla).");
+            + " checks passed (lease/creative toggle/edge/bounds; physics remains vanilla).");
   }
 }

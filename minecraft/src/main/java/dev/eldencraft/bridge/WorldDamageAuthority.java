@@ -3,7 +3,6 @@ package dev.eldencraft.bridge;
 import java.util.List;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.damagesource.DamageTypes;
@@ -19,9 +18,13 @@ public final class WorldDamageAuthority {
 
     boolean pause(Entity entity);
 
-    /** Minecraft hazard on the bridged player itself; null when not bridged. */
-    default Object environment(ServerLevel level, ServerPlayer player, DamageSource source) {
+    /** Real Minecraft hazard on a paired player or current native enemy proxy. */
+    default Object environment(ServerLevel level, LivingEntity target, DamageSource source) {
       return null;
+    }
+
+    default boolean environmentalEffects(Entity entity) {
+      return false;
     }
   }
 
@@ -49,15 +52,35 @@ public final class WorldDamageAuthority {
           DamageTypes.FREEZE,
           DamageTypes.GENERIC_KILL);
 
+  /** Lava and the fire it lights share one scale, so burning cannot replace a reduced lava hit. */
+  public static final List<ResourceKey<DamageType>> LAVA =
+      List.of(DamageTypes.LAVA, DamageTypes.ON_FIRE, DamageTypes.IN_FIRE, DamageTypes.CAMPFIRE);
+
+  /**
+   * Campaign share of a hazard's damage that reaches a native enemy proxy. Explosions (TNT,
+   * creepers) and lava would otherwise outdamage every weapon once converted to native HP.
+   */
+  public static double enemyHazardScale(DamageSource source) {
+    var rules = CampaignConfig.current();
+    if (!rules.enabled()) return 1;
+    if (blast() != null) return rules.explosionDamageScale;
+    return LAVA.stream().anyMatch(source::is) ? rules.lavaDamageScale : 1;
+  }
+
   public static boolean environmental(DamageSource source) {
     return source.getEntity() == null
         && (source.getDirectEntity() == null || source.is(DamageTypes.LIGHTNING_BOLT))
         && ENVIRONMENT.stream().anyMatch(source::is);
   }
 
-  public static Object environment(ServerLevel level, ServerPlayer player, DamageSource source) {
+  public static Object environment(ServerLevel level, LivingEntity target, DamageSource source) {
     var a = adapter;
-    return a == null || !environmental(source) ? null : a.environment(level, player, source);
+    return a == null || !environmental(source) ? null : a.environment(level, target, source);
+  }
+
+  public static boolean environmentalEffects(Entity entity) {
+    var a = adapter;
+    return a != null && a.environmentalEffects(entity);
   }
 
   public static volatile Adapter adapter;

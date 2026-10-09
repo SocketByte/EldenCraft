@@ -1,5 +1,6 @@
 #pragma once
 #include "frame_protocol.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
 
@@ -82,5 +83,56 @@ inline bool read_camera(Read &&read_camera_packet,Clock &&clock,HostCamera &out)
     std::array<std::uint8_t,256> bytes{};
     if(!read_camera_packet(bytes.data(),static_cast<std::uint32_t>(bytes.size())))return false;
     return decode_camera(bytes,clock(),out);
+}
+inline constexpr std::size_t camera_history=8;
+// Elden Ring 2.7.1.0 presents the image rendered with the submission before the newest:
+// in steady lockstep the camera hook already holds the next frame's camera at Present.
+// Verified in play (blocks lock to the world while turning). The pacer's measured lead
+// adds to this; EcCameraLatency in the effect overrides it.
+inline constexpr std::uint32_t render_latency=1;
+// Recent host camera submissions, newest first, with strictly decreasing submission
+// sequences. Older native cores answer with only the newest packet. Returns the count.
+template<class Read,class Clock>
+inline std::size_t read_camera_history(Read &&read_packets,Clock &&clock,std::array<HostCamera,camera_history> &out) {
+    std::array<std::uint8_t,256*camera_history> bytes{};
+    const std::uint32_t count=read_packets(bytes.data(),static_cast<std::uint32_t>(bytes.size()));
+    if(!count||count>camera_history)return 0;
+    const auto now=clock();std::size_t n=0;
+    for(std::uint32_t i=0;i<count;++i){
+        HostCamera camera;
+        if(!decode_camera({bytes.data()+std::size_t(i)*256,256},now,camera))break;
+        if(n&&(camera.frame>=out[n-1].frame||camera.epoch!=out[0].epoch||camera.map!=out[0].map))break;
+        out[n++]=camera;
+    }
+    return n;
+}
+// Which recent submission the presented image was rendered with. Elden Ring's game
+// thread can submit the next frame's camera before Present; every Present shows exactly
+// one new submission, so each extra submission since the previous Present means the
+// newest camera leads the image by one more frame (and a Present without one means it
+// caught up). Drawing blocks with a camera that leads the image makes them swim when the
+// view turns. A lead that never returns to zero for two seconds, or more than one
+// submission per Present on average, cannot be measured this way: keep the newest.
+class CameraPacer {
+public:
+    std::uint32_t observe(std::uint64_t newest){
+        if(!last_||newest<last_||newest-last_>4){last_=newest;lead_=held_=0;rate_=1;return 0;}
+        const auto delta=newest-last_;last_=newest;
+        rate_=rate_*.95+double(delta)*.05;
+        if(rate_>1.4){lead_=held_=0;return 0;}
+        const auto next=std::int64_t(lead_)+std::int64_t(delta)-1;
+        lead_=static_cast<std::uint32_t>(std::clamp<std::int64_t>(next,0,2));
+        if(!lead_)held_=0;else if(++held_>120){lead_=held_=0;}
+        return lead_;
+    }
+    double rate()const{return rate_;}
+private:
+    std::uint64_t last_{};std::uint32_t lead_{},held_{};double rate_{1};
+};
+// The submission `behind` sequences older than the newest, else the nearest older one.
+inline const HostCamera &pick_camera(const std::array<HostCamera,camera_history> &cameras,std::size_t count,std::uint32_t behind){
+    const auto target=cameras[0].frame>behind?cameras[0].frame-behind:1;
+    for(std::size_t i=0;i<count;++i)if(cameras[i].frame<=target)return cameras[i];
+    return cameras[count?count-1:0];
 }
 }

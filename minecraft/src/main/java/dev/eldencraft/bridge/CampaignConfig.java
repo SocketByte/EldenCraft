@@ -82,6 +82,10 @@ public final class CampaignConfig {
     }
   }
 
+  /** Shares of hazard damage that reach native enemies when an older file omits the tuning. */
+  public static final double DEFAULT_EXPLOSION_SCALE = .125;
+  public static final double DEFAULT_LAVA_SCALE = .075;
+
   private static volatile CampaignConfig current = disabled();
   private final JsonObject raw;
   public final boolean enabled, debugKits;
@@ -98,7 +102,9 @@ public final class CampaignConfig {
   public final double bowBaseDamage,
       crossbowBaseDamage,
       nativeDamageScale,
-      nativeIncomingDamageScale;
+      nativeIncomingDamageScale,
+      explosionDamageScale,
+      lavaDamageScale;
 
   private CampaignConfig(
       JsonObject raw,
@@ -115,6 +121,8 @@ public final class CampaignConfig {
       double crossbowBaseDamage,
       double nativeDamageScale,
       double nativeIncomingDamageScale,
+      double explosionDamageScale,
+      double lavaDamageScale,
       Experience experience,
       CampaignLoot.Table enemyLoot,
       CampaignHudConfig hud) {
@@ -132,6 +140,8 @@ public final class CampaignConfig {
     this.bowBaseDamage = bowBaseDamage;
     this.nativeDamageScale = nativeDamageScale;
     this.nativeIncomingDamageScale = nativeIncomingDamageScale;
+    this.explosionDamageScale = explosionDamageScale;
+    this.lavaDamageScale = lavaDamageScale;
     this.experience = experience;
     this.enemyLoot = enemyLoot;
     this.hud = hud;
@@ -279,6 +289,15 @@ public final class CampaignConfig {
         combat.has("nativeIncomingDamageScale")
             ? number(combat, "nativeIncomingDamageScale", .1, 1000)
             : 1;
+    // Older campaign files receive the supplied hazard tuning rather than full-strength cheese.
+    double explosionScale =
+        combat.has("explosionDamageScale")
+            ? number(combat, "explosionDamageScale", 0, 1000)
+            : DEFAULT_EXPLOSION_SCALE;
+    double lavaScale =
+        combat.has("lavaDamageScale")
+            ? number(combat, "lavaDamageScale", 0, 1000)
+            : DEFAULT_LAVA_SCALE;
     if (combat.has("nativeEnemyDamageMultipliers")) {
       var multipliers = object(combat, "nativeEnemyDamageMultipliers");
       if (multipliers.size() > 512)
@@ -312,6 +331,8 @@ public final class CampaignConfig {
         crossbow,
         nativeScale,
         incomingScale,
+        explosionScale,
+        lavaScale,
         experience,
         CampaignLoot.parse(json, ids),
         CampaignHudConfig.parse(json));
@@ -342,6 +363,8 @@ public final class CampaignConfig {
         2,
         4,
         25,
+        1,
+        1,
         1,
         new Experience(3, .005, 100),
         new CampaignLoot.Table(0, 0, 0, 1, false, List.of()),

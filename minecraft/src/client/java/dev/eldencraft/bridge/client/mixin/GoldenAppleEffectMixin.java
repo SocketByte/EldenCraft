@@ -2,6 +2,7 @@ package dev.eldencraft.bridge.client.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.*;
 import dev.eldencraft.bridge.GoldenAppleAuthority;
+import dev.eldencraft.bridge.client.CampaignRegeneration;
 import net.minecraft.server.level.*;
 import net.minecraft.world.effect.*;
 import net.minecraft.world.entity.LivingEntity;
@@ -23,12 +24,19 @@ abstract class GoldenAppleEffectMixin {
       LivingEntity entity,
       int amplifier,
       Operation<Boolean> original) {
-    boolean result = original.call(type, level, entity, amplifier);
     var effect = (MobEffectInstance) (Object) this;
-    if (result
-        && entity instanceof ServerPlayer player
-        && effect.getEffect().equals(MobEffects.REGENERATION))
+    var player =
+        entity instanceof ServerPlayer p && effect.getEffect().equals(MobEffects.REGENERATION)
+            ? p
+            : null;
+    // An apple's own receipts already carry its healing; never count it twice.
+    boolean apple = player != null && GoldenAppleAuthority.owns(player, effect);
+    float before = entity.getHealth();
+    boolean result = original.call(type, level, entity, amplifier);
+    if (result && player != null) {
       GoldenAppleAuthority.regeneration(player, effect);
+      if (!apple) CampaignRegeneration.regeneration(player, effect, player.getHealth() - before);
+    }
     return result;
   }
 }

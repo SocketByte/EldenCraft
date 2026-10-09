@@ -27,6 +27,12 @@ const ACTIONS: [UserInputKey; 5] = [
     // rather than removing items, rebinding keys or blocking desktop input.
     UserInputKey::UseItem,
 ];
+const DIRECTIONS: [UserInputKey; 4] = [
+    UserInputKey::MoveForwards,
+    UserInputKey::MoveBackwards,
+    UserInputKey::MoveLeft,
+    UserInputKey::MoveRight,
+];
 fn is_combat(key: i32) -> bool {
     ACTIONS.iter().any(|k| *k as i32 == key)
 }
@@ -51,6 +57,8 @@ pub struct Status {
     pub guard_poll: Option<PollObservation>,
     /// True only after the extended jump/dodge transaction was acquired.
     pub movement_captured: bool,
+    /// All four native direction bindings reserved for a scripted interaction.
+    pub interaction_movement_captured: bool,
     /// Extended mapping rejection; combat-only suppression remains active.
     pub movement_error: Option<&'static str>,
 }
@@ -193,6 +201,17 @@ fn plan_with_movement(
     bit_count: usize,
     movement: bool,
 ) -> Result<Plan, &'static str> {
+    plan_with_capture(groups, bindings, bit_count, movement, false)
+}
+
+fn plan_with_capture(
+    groups: &[(i32, RawInputTypeGroup)],
+    bindings: &[Binding],
+    bit_count: usize,
+    movement: bool,
+    interaction: bool,
+) -> Result<Plan, &'static str> {
+    let movement = movement || interaction;
     if groups.is_empty()
         || groups.len() > MAX_BINDINGS
         || bindings.is_empty()
@@ -212,6 +231,7 @@ fn plan_with_movement(
                 .into_iter()
                 .flatten(),
         )
+        .chain(interaction.then_some(DIRECTIONS).into_iter().flatten())
         .collect();
     for action in actions {
         let key = action as i32;
@@ -261,7 +281,7 @@ fn plan_with_movement(
             }
         }
     }
-    if reserved.len() > 64 || codes.len() > (ACTIONS.len() + 2) * 4 {
+    if reserved.len() > 64 || codes.len() > (ACTIONS.len() + 2 + DIRECTIONS.len()) * 4 {
         return Err("combat coupled binding set exceeds bound");
     }
     // Different/mixed groups sharing a combat code are not exact clones.
@@ -309,9 +329,21 @@ fn select_plan(
     bit_count: usize,
     movement: bool,
 ) -> Result<(Plan, Option<&'static str>), &'static str> {
-    match plan_with_movement(groups, bindings, bit_count, movement) {
+    select_capture_plan(groups, bindings, bit_count, movement, false)
+}
+
+fn select_capture_plan(
+    groups: &[(i32, RawInputTypeGroup)],
+    bindings: &[Binding],
+    bit_count: usize,
+    movement: bool,
+    interaction: bool,
+) -> Result<(Plan, Option<&'static str>), &'static str> {
+    match plan_with_capture(groups, bindings, bit_count, movement, interaction) {
         Ok(plan) => Ok((plan, None)),
-        Err(error) if movement => plan(groups, bindings, bit_count).map(|plan| (plan, Some(error))),
+        Err(error) if movement || interaction => {
+            plan(groups, bindings, bit_count).map(|plan| (plan, Some(error)))
+        }
         Err(error) => Err(error),
     }
 }
@@ -323,6 +355,7 @@ fn mapping_diagnostic(
 ) -> String {
     let relevant = |key| {
         is_combat(key)
+            || DIRECTIONS.iter().any(|action| *action as i32 == key)
             || [
                 UserInputKey::Jump,
                 UserInputKey::Backstep,
@@ -437,10 +470,24 @@ impl Controller {
     /// # Safety
     /// Exact-build gated game task, no other pad writer or outstanding SDK refs.
     /// Call after physical input polling and before native action consumption.
+    #[cfg(test)]
     pub unsafe fn update_with_movement(
         &mut self,
         intent: Intent,
         jump: Option<bool>,
+    ) -> Result<Status, &'static str> {
+        unsafe { self.update_with_interaction_movement(intent, jump, false) }
+    }
+
+    /// Also reserve directional input during doors/fog startup and scripted root motion.
+    /// Native event-action input and the original physics stage remain untouched.
+    /// # Safety
+    /// Same exact-build, game-thread and exclusive pad ownership requirements as above.
+    pub unsafe fn update_with_interaction_movement(
+        &mut self,
+        intent: Intent,
+        jump: Option<bool>,
+        interaction: bool,
     ) -> Result<Status, &'static str> {
         unsafe { self.suspend()? };
         if !intent.active {
@@ -452,6 +499,7 @@ impl Controller {
                 attack_poll: None,
                 guard_poll: None,
                 movement_captured: false,
+                interaction_movement_captured: false,
                 movement_error: None,
             });
         }
@@ -501,18 +549,21 @@ impl Controller {
         if words == 0 || words > MAX_WORDS {
             return Err("combat virtual input bitset rejected");
         }
-        let (plan, movement_error) =
-            match select_plan(&groups, &bindings, words * 32, jump.is_some()) {
-                Ok((plan, error)) => {
-                    self.diagnostic =
-                        error.map(|_| mapping_diagnostic(&groups, &bindings, words * 32));
-                    (plan, error)
-                }
-                Err(error) => {
-                    self.diagnostic = Some(mapping_diagnostic(&groups, &bindings, words * 32));
-                    return Err(error);
-                }
-            };
+        let selected = if interaction {
+            select_capture_plan(&groups, &bindings, words * 32, jump.is_some(), true)
+        } else {
+            select_plan(&groups, &bindings, words * 32, jump.is_some())
+        };
+        let (plan, movement_error) = match selected {
+            Ok((plan, error)) => {
+                self.diagnostic = error.map(|_| mapping_diagnostic(&groups, &bindings, words * 32));
+                (plan, error)
+            }
+            Err(error) => {
+                self.diagnostic = Some(mapping_diagnostic(&groups, &bindings, words * 32));
+                return Err(error);
+            }
+        };
         if plan
             .groups
             .iter()
@@ -537,7 +588,7 @@ impl Controller {
                         code,
                         &plan,
                         intent,
-                        jump == Some(true),
+                        !interaction && jump == Some(true),
                         current.state_2,
                     ),
                 },
@@ -565,7 +616,7 @@ impl Controller {
         let mut bit_writes = Vec::with_capacity(2);
         for (binding, requested) in [(plan.attack, intent.attack), (plan.guard, intent.guard)]
             .into_iter()
-            .chain(plan.jump.map(|b| (b, jump == Some(true))))
+            .chain(plan.jump.map(|b| (b, !interaction && jump == Some(true))))
         {
             if requested {
                 let index = binding.index.ok_or("combat digital binding disappeared")?;
@@ -614,7 +665,8 @@ impl Controller {
             blocked_codes: plan.codes.len(),
             attack_poll,
             guard_poll,
-            movement_captured: jump.is_some() && movement_error.is_none(),
+            movement_captured: (jump.is_some() || interaction) && movement_error.is_none(),
+            interaction_movement_captured: interaction && movement_error.is_none(),
             movement_error,
         })
     }
@@ -702,6 +754,108 @@ mod tests {
             group.input_type_list[b.slot] = b.kind;
         }
         result
+    }
+    fn interaction_bindings() -> Vec<Binding> {
+        let mut b = bindings();
+        for (i, key) in [UserInputKey::Jump, UserInputKey::Backstep]
+            .into_iter()
+            .chain(DIRECTIONS)
+            .enumerate()
+        {
+            b.push(Binding {
+                key: key as i32,
+                slot: 0,
+                code: 200 + i as i32,
+                index: Some(60 + i),
+                kind: 0,
+            });
+        }
+        b
+    }
+    #[test]
+    fn interaction_capture_blocks_directions_and_jump_without_capturing_event_action() {
+        let mut b = interaction_bindings();
+        b.push(Binding {
+            key: UserInputKey::EventAction as i32,
+            slot: 0,
+            code: 300,
+            index: Some(70),
+            kind: 0,
+        });
+        let (locked, error) = select_capture_plan(&groups(&b), &b, 128, false, true).unwrap();
+        assert!(error.is_none());
+        let intent = Intent {
+            active: true,
+            ..Default::default()
+        };
+        for code in 200..206 {
+            assert!(locked.codes.contains(&code));
+            assert!(gate_value_with_jump(code, &locked, intent, false, false));
+        }
+        assert!(!locked.codes.contains(&300));
+        assert!(
+            !locked
+                .groups
+                .iter()
+                .any(|g| g.key == UserInputKey::EventAction as i32)
+        );
+        // Ending the lock, including native ladder entry, immediately omits directions.
+        let (released, error) = select_capture_plan(&groups(&b), &b, 128, false, false).unwrap();
+        assert!(error.is_none());
+        assert!(released.codes.iter().all(|code| *code < 200));
+    }
+    #[test]
+    fn unsafe_direction_aliases_preserve_combat_and_never_block_native_interaction() {
+        for action in [UserInputKey::EventAction, UserInputKey::MoveCameraUp] {
+            let mut b = interaction_bindings();
+            let direction = b
+                .iter()
+                .find(|b| b.key == UserInputKey::MoveForwards as i32)
+                .copied()
+                .unwrap();
+            b.push(Binding {
+                key: action as i32,
+                ..direction
+            });
+            assert!(plan_with_capture(&groups(&b), &b, 128, false, true).is_err());
+            let (fallback, error) = select_capture_plan(&groups(&b), &b, 128, false, true).unwrap();
+            assert!(error.is_some());
+            assert_eq!(fallback.codes, vec![100, 101, 102, 103, 104]);
+            let diagnostic = mapping_diagnostic(&groups(&b), &b, 128);
+            assert!(diagnostic.contains("MoveForwards(417)"));
+            assert!(diagnostic.contains(pad_layout::key_name(action as i32)));
+        }
+    }
+    #[test]
+    fn direction_capture_accepts_unknown_exact_clones_but_rejects_partial_aliases() {
+        let mut b = interaction_bindings();
+        let direction = b
+            .iter()
+            .find(|b| b.key == UserInputKey::MoveLeft as i32)
+            .copied()
+            .unwrap();
+        b.push(Binding {
+            key: 12345,
+            ..direction
+        });
+        let p = plan_with_capture(&groups(&b), &b, 128, false, true).unwrap();
+        assert!(p.groups.iter().any(|g| g.key == 12345));
+        b.push(Binding {
+            key: 12345,
+            slot: 1,
+            code: 301,
+            index: Some(71),
+            ..direction
+        });
+        assert!(plan_with_capture(&groups(&b), &b, 128, false, true).is_err());
+    }
+    #[test]
+    fn missing_direction_mapping_does_not_fabricate_an_input_group() {
+        let b = bindings();
+        let (fallback, error) = select_capture_plan(&groups(&b), &b, 128, false, true).unwrap();
+        assert!(error.is_some());
+        assert_eq!(fallback.groups.len(), ACTIONS.len());
+        assert!(fallback.jump.is_none());
     }
     #[test]
     fn exact_unknown_clones_preserve_original_physical_binding_without_semantic_whitelist() {

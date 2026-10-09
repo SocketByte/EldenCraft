@@ -198,6 +198,7 @@ try {
     $earlyLog = Get-ChildItem -LiteralPath (Join-Path $data 'logs') -File -Filter 'launcher-*.log' | Select-Object -First 1
     Assert-True ([bool]$earlyLog) 'Early compatibility failures write launcher logs.'
     Assert-True ((Get-Content -LiteralPath $earlyLog.FullName -Raw) -match 'Unsupported Elden Ring executable') 'Transcript contains the actual early error.'
+    Assert-True ((Get-Content -LiteralPath $earlyLog.FullName -Raw) -match 'Troubleshoot.cmd -DataDirectory') 'Launcher failures point to a support bundle using the same data directory.'
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $data 'runtime/data'))) 'Early failure does not start the native runtime.'
     Write-Utf8File $game 'game executable fixture'
     Invoke-EldenCraft -SourceRoot $package

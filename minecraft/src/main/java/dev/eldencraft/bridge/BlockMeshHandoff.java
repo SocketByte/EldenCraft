@@ -3,10 +3,11 @@ package dev.eldencraft.bridge;
 import java.util.Arrays;
 import java.util.Objects;
 
-/** Render-thread policy: one uploaded resident and at most one pending same-coverage update. */
+/**
+ * Render-thread policy: one uploaded resident and at most one pending same-coverage update. How
+ * long stale geometry may stay displayed is measured per change by {@link BlockMeshChanges}.
+ */
 public final class BlockMeshHandoff {
-  public static final long MAX_GEOMETRY_AGE_NANOS = 500_000_000L;
-
   public record Revision(long mesh, long atlas, long session) {
     public Revision {
       if (mesh <= 0 || atlas <= 0 || session <= 0)
@@ -15,19 +16,15 @@ public final class BlockMeshHandoff {
   }
 
   private Revision latest, resident;
-  private long staleSince;
-  private boolean geometryStale;
 
   /** Bootstrap after coverage, atlas or world identity invalidation; no old ownership survives. */
   public void geometry(Revision revision) {
     latest = Objects.requireNonNull(revision);
     resident = null;
-    geometryStale = false;
   }
 
   public void invalidate() {
     latest = resident = null;
-    geometryStale = false;
   }
 
   public boolean hasLatest() {
@@ -52,20 +49,6 @@ public final class BlockMeshHandoff {
         || revision.session != latest.session)
       throw new IllegalArgumentException("Mesh handoff requires one acknowledged revision");
     latest = revision;
-  }
-
-  /** Continuous edits do not restart the deadline while an old geometry snapshot is displayed. */
-  public boolean geometryWithinGrace(boolean current, long now) {
-    if (current) {
-      geometryStale = false;
-      return true;
-    }
-    if (!geometryStale) {
-      geometryStale = true;
-      staleSince = now;
-    }
-    long age = now - staleSince;
-    return age >= 0 && age <= MAX_GEOMETRY_AGE_NANOS;
   }
 
   /** Supply exactly one coherent, identity-checked and fresh ACK sample for this frame. */

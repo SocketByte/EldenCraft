@@ -18,10 +18,13 @@ public:
     bool prepare(reshade::api::effect_runtime *, const MeshHeader &,
         std::span<const std::uint8_t>, const AtlasHeader &, std::span<const std::uint8_t>,
         const frames::Scene &displayed_scene);
+    // `animation`: optional fresh EldenCraftBlockAnim publication; its sprite frames are
+    // copied into the rendered atlas when they name that atlas revision.
     bool render(reshade::api::effect_runtime *, reshade::api::command_list *,
         const frames::HostCamera &, const frames::Scene &, const Header &current_producer,
         std::uint32_t width, std::uint32_t height,
-        reshade::api::resource_view host_depth, int depth_mode, Renderer *destination=nullptr);
+        reshade::api::resource_view host_depth, int depth_mode, Renderer *destination=nullptr,
+        const Header *animation=nullptr, std::span<const std::uint8_t> animation_payload={});
     void destroy(reshade::api::effect_runtime *);
     // Allocated in prepare(), allowing the guest-exclusion ACK to bootstrap.
     // Display these only after render() returned true for the current frame.

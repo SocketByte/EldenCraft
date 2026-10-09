@@ -527,15 +527,15 @@ mod tests {
             .map(|b| b.id.clone())
             .collect();
         assert_eq!(defeated.len(), 15);
-        assert_eq!(c.capacities(&defeated), (1900, 90));
-        assert_eq!(c.capacities(&BTreeSet::new()), (414, 50));
+        assert_eq!(c.capacities(&defeated), (2314, 90));
+        assert_eq!(c.capacities(&BTreeSet::new()), (828, 50));
         let ordinary: BTreeSet<_> = c
             .bosses
             .iter()
             .filter(|b| !b.remembrance)
             .map(|b| b.id.clone())
             .collect();
-        assert_eq!(c.capacities(&ordinary), (414, 50));
+        assert_eq!(c.capacities(&ordinary), (828, 50));
     }
     #[test]
     fn armor_percentages_reduce_small_and_large_hits_equally() {

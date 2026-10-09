@@ -52,6 +52,10 @@ public final class HostController {
   private static long mapId;
   private static long pid, lastInputSequence = -1;
   private static int previousButtons, blockedButtons;
+  // Render-frame jump edges made in the air: a Space tap between two 20 Hz ticks
+  // still opens an elytra, and the press that starts a jump never does.
+  private static int frameJump;
+  private static boolean frameGrounded, airJump;
   private static Object world;
   private static Object controlledPlayer;
   private static HostState.Vec3 hostAnchor;
@@ -157,8 +161,18 @@ public final class HostController {
       previousButtons = 0;
       blockedButtons = latest.buttonsDown();
       lastInputSequence = latest.inputSequence();
+      frameJump = latest.buttonsDown() & HostState.JUMP;
+      frameGrounded = true;
+      airJump = false;
       hostAttached = true;
     }
+    // Vanilla opens a glide only on a fresh press made while already airborne.
+    // The native jump leaves the ground before any tick sees its own press, so
+    // judge each edge against the frames around it, not the server's later pose.
+    int jump = latest.buttonsDown() & HostState.JUMP;
+    if (jump != 0 && frameJump == 0 && !frameGrounded && !latest.grounded()) airJump = true;
+    frameJump = jump;
+    frameGrounded = latest.grounded();
     if (!cameraEnabled) {
       frame = null;
       avatar = null;
@@ -319,6 +333,8 @@ public final class HostController {
 
   public static void tick(Minecraft client) {
     beginFrame();
+    boolean airPress = airJump;
+    airJump = false;
     HostTimeSync.tick(client, latest);
     HostWeatherSync.tick(client, latest);
     boolean active = inputEnabled && latest != null && singleplayer(client);
@@ -352,7 +368,11 @@ public final class HostController {
     int buttons = raw & ~blockedButtons;
     int pressed = buttons & ~previousButtons;
     int released = previousButtons & ~buttons;
-    WorldFlight.input(client, inputFrame, buttons, pressed);
+    // Only the elytra edge uses airborne frame presses; key routing keeps its tick edges.
+    int flightPressed =
+        (pressed & ~HostState.JUMP)
+            | (airPress && (blockedButtons & HostState.JUMP) == 0 ? HostState.JUMP : 0);
+    WorldFlight.input(client, inputFrame, buttons, pressed, flightPressed);
     WorldTorrent.input(client, inputFrame, pressed);
     var screen = client.gui.screen();
     if (screen == null && CampaignInteractions.ownsInput()) {

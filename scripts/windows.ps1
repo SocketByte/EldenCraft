@@ -1,10 +1,11 @@
 # Windows PowerShell 5.1; the release launcher needs no system-wide installations.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('play', 'setup', 'check')]
+    [ValidateSet('play', 'setup', 'check', 'diagnose')]
     [string]$Mode = 'play',
     [string]$GamePath,
     [string]$DataDirectory,
+    [string]$OutputDirectory,
     [switch]$CpuFrames,
     [switch]$NonInteractive
 )
@@ -673,11 +674,18 @@ function Invoke-EldenCraft {
         Invoke-EldenCraftCore -SourceRoot $SourceRoot
     } catch {
         Write-Host "EldenCraft: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host ('For a support ZIP, run Troubleshoot.cmd -DataDirectory "' + $DataDirectory + '" from the extracted release folder.')
         throw
     } finally { Stop-Transcript | Out-Null }
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    try { Invoke-EldenCraft }
+    try {
+        if ($Mode -eq 'diagnose') {
+            # Diagnostics must bypass setup, manifest verification, game checks and the launch lock.
+            & (Join-Path $PSScriptRoot 'diagnostics.ps1') -DataDirectory $DataDirectory -GamePath $GamePath -OutputDirectory $OutputDirectory -NonInteractive:$NonInteractive
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        } else { Invoke-EldenCraft }
+    }
     catch { Write-Host "EldenCraft: $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
 }

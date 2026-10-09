@@ -7,7 +7,8 @@ use crate::worldterrain::{self, Box6, Cache};
 use serde::Serialize;
 
 pub const RAY_FILTER: u32 = 0x0200_0058;
-const SAMPLE_INTERVAL_MS: u64 = 50;
+/// Terrain sampling cadence; the per-tick ray count adapts to query cost.
+const SAMPLE_INTERVAL_MS: u64 = 33;
 /// PlayerIns.block_position can trail the Havok body by one simulation step.
 /// At glide/fall speeds (30+ m/s) that skew exceeds 0.5 m and used to suspend
 /// the whole shared world mid-flight. A wrong block center is off by a map
@@ -45,6 +46,7 @@ pub struct Snapshot {
     pub camera: [f64; 3],
     pub forward: [f64; 3],
     pub grounded: bool,
+    pub native_ladder: bool,
     pub hp: i32,
     pub max_hp: i32,
     pub sampled_ms: u64,
@@ -145,10 +147,13 @@ pub struct Driver {
     colliders_enabled: bool,
     colliders: Option<Result<crate::native_colliders::Driver, &'static str>>,
     collider_error: Option<&'static str>,
+    /// Havok -> region offset the colliders were last synchronized with.
+    collider_offset: Option<[f64; 3]>,
     /// Rich ray queries (normal + physical character filter) without owned colliders.
     rays: Option<Result<crate::native_colliders::Api, &'static str>>,
     surfaces: crate::surface::Learner,
     last_surface_ms: u64,
+    ray_budget: worldterrain::RayBudget,
 }
 impl Default for Driver {
     fn default() -> Self {
@@ -172,9 +177,11 @@ impl Driver {
             colliders_enabled: std::env::var("ELDENCRAFT_NATIVE_COLLIDERS").is_ok_and(|s| s == "1"),
             colliders: None,
             collider_error: None,
+            collider_offset: None,
             rays: None,
             surfaces: Default::default(),
             last_surface_ms: 0,
+            ray_budget: worldterrain::RayBudget::default(),
         }
     }
     /// Do not reset persistent coordinate identity on temporary focus/menu loss.
@@ -183,6 +190,7 @@ impl Driver {
     pub fn suspend(&mut self) {
         self.last_sample_ms = 0;
         self.guest_last_ms = 0;
+        self.collider_offset = None;
         if let Some(Ok(c)) = self.colliders.as_mut() {
             self.collider_error = unsafe { c.suspend() }.err();
             self.terrain.refresh_boxes(&c.take_removed_boxes());
@@ -224,6 +232,24 @@ impl Driver {
     }
     pub fn revoke_guest(&mut self) {
         self.guest_last_ms = 0;
+    }
+    /// Placed Minecraft collider boxes near the Havok feet, for the movement
+    /// model's step-up, while a guest publication of the last 500 ms is held.
+    pub fn step_boxes(
+        &self,
+        feet_havok: [f64; 3],
+        now: u64,
+    ) -> Option<Vec<crate::step_assist::Box6>> {
+        let offset = self.collider_offset?;
+        if self.guest_last_ms == 0 || now.saturating_sub(self.guest_last_ms) > 500 {
+            return None;
+        }
+        Some(crate::step_assist::near(
+            feet_havok,
+            self.desired_blocks
+                .iter()
+                .map(|b| std::array::from_fn(|i| b[i] - offset[i % 3])),
+        ))
     }
     /// The bridge owns freshness/PID checks and event processing. This method
     /// only accepts copied full shape/entity state for the matching region.
@@ -270,6 +296,7 @@ impl Driver {
         self.desired_blocks.clear();
         self.guest_session = 0;
         self.guest_last_ms = 0;
+        self.collider_offset = None;
     }
 }
 
@@ -501,6 +528,7 @@ mod live {
             if let Some(result) = self.colliders.as_mut() {
                 match result {
                     Ok(c) => {
+                        self.collider_offset = guest_fresh.then_some(transform.offset);
                         self.collider_error = if guest_fresh {
                             unsafe {
                                 c.sync(
@@ -526,6 +554,8 @@ mod live {
                 if self.colliders.is_none() && self.rays.is_none() {
                     self.rays = Some(crate::native_colliders::Api::resolve());
                 }
+                let rays = self.ray_budget.rays();
+                let started = std::time::Instant::now();
                 let to_region = |h: Option<worldterrain::Hit>| {
                     h.map(|h| worldterrain::Hit {
                         point: transform.to_region(h.point),
@@ -539,11 +569,10 @@ mod live {
                     // Sample what the player physically collides with; the
                     // diagnostic filter also reports query-only volumes in mid-air.
                     let filter = unsafe { c.character_filter() }.unwrap_or(RAY_FILTER);
-                    self.terrain
-                        .tick_hits(now, worldterrain::MAX_RAYS_PER_TICK, |ray| {
-                            let o = transform.to_havok(ray.origin);
-                            unsafe { c.terrain_hit(o, ray.delta, filter) }.map(to_region)
-                        });
+                    self.terrain.tick_hits(now, rays, |ray| {
+                        let o = transform.to_havok(ray.origin);
+                        unsafe { c.terrain_hit(o, ray.delta, filter) }.map(to_region)
+                    });
                 } else if let Some((api, world)) = self
                     .rays
                     .as_ref()
@@ -551,46 +580,48 @@ mod live {
                     .and_then(|api| unsafe { api.world() }.ok().map(|world| (api, world)))
                 {
                     let filter = unsafe { api.character_filter(world) }.unwrap_or(RAY_FILTER);
-                    self.terrain
-                        .tick_hits(now, worldterrain::MAX_RAYS_PER_TICK, |ray| {
-                            let o = transform.to_havok(ray.origin);
-                            if !finite_position(o) {
-                                return Err("terrain native ray origin rejected");
-                            }
-                            unsafe { api.ray(world, o, ray.delta, filter) }.map(|h| {
-                                to_region(h.map(|h| worldterrain::Hit {
-                                    point: h.point,
-                                    normal: Some(h.normal),
-                                    material: unsafe { api.body_material(world, h.body) },
-                                }))
-                            })
-                        });
+                    self.terrain.tick_hits(now, rays, |ray| {
+                        let o = transform.to_havok(ray.origin);
+                        if !finite_position(o) {
+                            return Err("terrain native ray origin rejected");
+                        }
+                        unsafe { api.ray(world, o, ray.delta, filter) }.map(|h| {
+                            to_region(h.map(|h| worldterrain::Hit {
+                                point: h.point,
+                                normal: Some(h.normal),
+                                material: unsafe { api.body_material(world, h.body) },
+                            }))
+                        })
+                    });
                 } else {
                     let havok =
                         unsafe { CSHavokMan::instance() }.map_err(|_| "world Havok unavailable")?;
                     let player = unsafe { PlayerIns::local_player() }
                         .map_err(|_| "world ray owner unavailable")?;
-                    self.terrain
-                        .tick(now, worldterrain::MAX_RAYS_PER_TICK, |ray| {
-                            let o = transform.to_havok(ray.origin);
-                            if !finite_position(o) {
-                                return Err("terrain native ray origin rejected");
-                            }
-                            Ok(havok
-                                .phys_world
-                                .cast_ray(
-                                    RAY_FILTER,
-                                    &HavokPosition::from_xyz(o[0] as f32, o[1] as f32, o[2] as f32),
-                                    PositionDelta(
-                                        ray.delta[0] as f32,
-                                        ray.delta[1] as f32,
-                                        ray.delta[2] as f32,
-                                    ),
-                                    player,
-                                )
-                                .map(|p| transform.to_region([p.0 as f64, p.1 as f64, p.2 as f64])))
-                        });
+                    self.terrain.tick(now, rays, |ray| {
+                        let o = transform.to_havok(ray.origin);
+                        if !finite_position(o) {
+                            return Err("terrain native ray origin rejected");
+                        }
+                        Ok(havok
+                            .phys_world
+                            .cast_ray(
+                                RAY_FILTER,
+                                &HavokPosition::from_xyz(o[0] as f32, o[1] as f32, o[2] as f32),
+                                PositionDelta(
+                                    ray.delta[0] as f32,
+                                    ray.delta[1] as f32,
+                                    ray.delta[2] as f32,
+                                ),
+                                player,
+                            )
+                            .map(|p| transform.to_region([p.0 as f64, p.1 as f64, p.2 as f64])))
+                    });
                 }
+                self.ray_budget.observe(
+                    self.terrain.last_rays(),
+                    started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                );
                 self.last_sample_ms = now;
             }
             // Learn body material -> hit material beside the feet (outside the capsule).
@@ -632,6 +663,8 @@ mod live {
                 camera,
                 forward,
                 grounded,
+                native_ladder: player.chr_ins.modules.ladder.state
+                    != eldenring::cs::LadderState::None,
                 hp,
                 max_hp,
                 sampled_ms: now,

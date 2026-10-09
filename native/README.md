@@ -27,6 +27,33 @@ ownership. Restoration requires the same live object and a value still owned by
 the bridge. Player releases use me3 with `start_online=false` and a separate
 `EldenCraft.sl2`.
 
+The movement capsule uses the pinned native resize routine at RVA `0x464670`
+for Minecraft clearance (at most 1.8 m high, radius 0.3 m). The routine updates
+both native proxies, shape references, broadphase and cached dimensions; the
+bridge never edits Havok allocations or dimension fields directly. It retains
+the other capsule options and scopes subsequent native animation resize calls,
+capturing each newer native pose. Cached scoped sizes preserve their original
+restoration lease; native flattened secondary shapes remain supported. Suspension or
+the next unowned physics stage restores only the exact dimensions still owned
+on the same local player/module. Native ladders retain native motion and size.
+The executable SHA and resize/caller/shape-consumer fingerprints gate this path.
+
+Native interactions hand movement back to Elden Ring before the R latch is
+consumed. Held movement and jump input stay captured while the original native
+root-motion and collision stage completes fog entry, door opening and other
+scripted animations. A short startup window covers behavior scheduling;
+movement resumes after the native action flags permit it for 150 ms. The physics
+hook rechecks the interaction reservation at the collision boundary and restores the
+native capsule when it releases ownership. This avoids replacing an animation's
+root motion with Minecraft locomotion while its collision rules are changing.
+
+Minecraft enemy fluid contacts are matched to recent native frame/target
+generation evidence and a live stage owner. Only horizontal root displacement
+and submitted horizontal velocity are scaled (water 0.5, lava 0.25); native AI,
+vertical motion and collision remain active. Contacts expire after 150 ms and
+release on guest/session/world/control loss. Minecraft hazard damage uses the
+existing native enemy damage sink, with historical/current target checks.
+
 ## Interaction menus
 
 `interaction_runtime` captures the pinned ESD talk events and environment queries.
@@ -93,6 +120,18 @@ The optional `ELDENCRAFT_FILE_CONTROL=1` interface accepts increasing, bounded
 command sequences through `command.json`. See `src/control.rs` and
 `scripts/eldencraft-control.ps1`. Acknowledgements report dispatch, not completion
 of game actions.
+
+## Placed-block collision
+
+Minecraft publishes merged, seamless boxes for placed blocks around the player
+and ahead of their motion. [Colliders](src/native_colliders.rs) create missing
+static bodies nearest first and keep each stale body until its replacement
+exists, so a box that changes shape never leaves a frame without a floor.
+[Step assist](src/step_assist.rs) gives the movement model vanilla step-up onto
+placed slabs and stair steps (0.6 m; a full block on Torrent) with an owned hop;
+Elden Ring terrain keeps native stepping. Terrain sampling sizes its ray budget
+from measured query cost (about 1.25 ms per 33 ms tick, 96 to 1020 rays) and
+refines floors at 25 cm within three cells of the feet.
 
 Subsystem implementations: [transport index](../PROTOCOL.md),
 [movement](src/movement_driver.rs), [flight](src/player_flight.rs),

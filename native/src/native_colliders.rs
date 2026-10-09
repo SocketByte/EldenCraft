@@ -18,8 +18,12 @@ use std::{
 
 const INVALID_BODY: u32 = 0x00ff_ffff;
 pub const MAX_BODIES: usize = 4096;
-const CREATE_BUDGET: usize = 8;
-const REMOVE_BUDGET: usize = 32;
+/// Bodies created per task. Minecraft publishes merged boxes, so ordinary
+/// builds fit in one task; the time budget below bounds a large backlog.
+const CREATE_BUDGET: usize = 96;
+const REMOVE_BUDGET: usize = 128;
+/// Wall-clock bound for body construction in one game task.
+const CREATE_TIME_BUDGET: std::time::Duration = std::time::Duration::from_micros(2000);
 const MAX_RETIRED_WORLDS: usize = 8;
 const PROBE_INTERVAL_MS: u64 = 500;
 const BODY_STRIDE: usize = 0xb0;
@@ -957,34 +961,19 @@ impl Driver {
         }
         self.world = Some(world);
         let desired: BTreeMap<Key, Box6> = boxes.iter().copied().map(|b| (key(b), b)).collect();
-        let stale: Vec<Key> = self
-            .bodies
-            .keys()
-            .filter(|k| !desired.contains_key(*k))
-            .copied()
-            .take(REMOVE_BUDGET)
-            .collect();
-        let mut removed = 0;
-        for k in stale {
-            let body = self.bodies[&k];
-            unsafe { self.api.remove(world, body) }?;
-            self.bodies.remove(&k);
-            self.removed_boxes.push(body.bounds);
-            removed += 1;
-        }
-        let missing: Vec<Box6> = desired
-            .iter()
-            .filter(|(k, _)| !self.bodies.contains_key(*k))
-            .map(|(_, b)| *b)
-            .take(CREATE_BUDGET)
-            .collect();
+        let feet: [f64; 3] = std::array::from_fn(|i| feet_havok[i] + offset[i]);
+        let owned: BTreeMap<Key, Box6> = self.bodies.iter().map(|(k, b)| (*k, b.bounds)).collect();
+        let missing = missing_nearest_first(&owned, &desired, feet, CREATE_BUDGET);
         if !missing.is_empty() && self.template.is_none() {
             let owned = self.bodies.values().map(|b| b.id).collect();
             self.template = Some(unsafe { self.api.template(world, feet_havok, &owned) }?);
         }
         let mut created = 0;
-        // Remove obsolete shapes before adding replacements at their position.
-        if self.bodies.keys().all(|k| desired.contains_key(k))
+        // Replacements are created BEFORE stale bodies are destroyed. A merged
+        // Minecraft box that changes shape briefly overlaps its successor
+        // (harmless for static bodies) instead of leaving a task with no floor.
+        let started = std::time::Instant::now();
+        if !missing.is_empty()
             && let Some(template) = self.template
         {
             // Material/filter came from this world. If its source has gone,
@@ -1002,6 +991,9 @@ impl Driver {
                 return Err("native ground template no longer accepts character; retrying");
             }
             for b in missing {
+                if self.bodies.len() >= MAX_BODIES || started.elapsed() >= CREATE_TIME_BUDGET {
+                    break;
+                }
                 let own = match unsafe { self.api.create_box(world, template, b, offset) } {
                     Ok(b) => b,
                     Err(e) => {
@@ -1023,6 +1015,21 @@ impl Driver {
                 unsafe {
                     (self.api.add)(world.hk as Ptr, &own.id, 1, 1, 0);
                 }
+            }
+        }
+        let still_missing = desired
+            .keys()
+            .filter(|k| !self.bodies.contains_key(*k))
+            .count();
+        let owned: BTreeMap<Key, Box6> = self.bodies.iter().map(|(k, b)| (*k, b.bounds)).collect();
+        let mut removed = 0;
+        if removal_allowed(still_missing, owned.len(), MAX_BODIES) {
+            for k in stale_farthest_first(&owned, &desired, feet, REMOVE_BUDGET) {
+                let body = self.bodies[&k];
+                unsafe { self.api.remove(world, body) }?;
+                self.bodies.remove(&k);
+                self.removed_boxes.push(body.bounds);
+                removed += 1;
             }
         }
         let mut broadphase = 0;
@@ -1244,6 +1251,47 @@ fn probe_ray(
     delta[axis] = -(bounds[axis + 3] - bounds[axis] + 0.25);
     Ok((origin, delta))
 }
+fn box_distance(point: [f64; 3], b: &Box6) -> f64 {
+    (0..3)
+        .map(|i| (b[i] - point[i]).max(point[i] - b[i + 3]).max(0.).powi(2))
+        .sum::<f64>()
+}
+/// Desired boxes without a body, nearest to the player first, bounded.
+fn missing_nearest_first(
+    owned: &BTreeMap<Key, Box6>,
+    desired: &BTreeMap<Key, Box6>,
+    feet: [f64; 3],
+    budget: usize,
+) -> Vec<Box6> {
+    let mut missing: Vec<Box6> = desired
+        .iter()
+        .filter(|(k, _)| !owned.contains_key(*k))
+        .map(|(_, b)| *b)
+        .collect();
+    missing.sort_by(|a, b| box_distance(feet, a).total_cmp(&box_distance(feet, b)));
+    missing.truncate(budget);
+    missing
+}
+/// Owned bodies no longer desired, farthest from the player first, bounded.
+fn stale_farthest_first(
+    owned: &BTreeMap<Key, Box6>,
+    desired: &BTreeMap<Key, Box6>,
+    feet: [f64; 3],
+    budget: usize,
+) -> Vec<Key> {
+    let mut stale: Vec<(Key, f64)> = owned
+        .iter()
+        .filter(|(k, _)| !desired.contains_key(*k))
+        .map(|(k, b)| (*k, box_distance(feet, b)))
+        .collect();
+    stale.sort_by(|a, b| b.1.total_cmp(&a.1));
+    stale.into_iter().take(budget).map(|(k, _)| k).collect()
+}
+/// Stale bodies stay until every desired replacement exists, unless the body
+/// table has no room left for those replacements.
+fn removal_allowed(still_missing: usize, owned: usize, max: usize) -> bool {
+    still_missing == 0 || owned + still_missing > max
+}
 fn geometry(bounds: Box6, offset: [f64; 3]) -> Result<([f32; 4], [Vector; 8]), &'static str> {
     if !valid_box(bounds) || !finite(offset) {
         return Err("native box geometry invalid");
@@ -1394,6 +1442,53 @@ mod tests {
         assert!(geometry([0., 0., 0., 0., 1., 1.], [0.; 3]).is_err());
         assert!(geometry([0., 0., 0., 0.0001, 1., 1.], [0.; 3]).is_err());
         assert!(geometry([0., 0., 0., 1., 1., 1.], [f64::NAN; 3]).is_err());
+    }
+    fn table(boxes: &[Box6]) -> BTreeMap<Key, Box6> {
+        boxes.iter().map(|b| (key(*b), *b)).collect()
+    }
+    #[test]
+    fn replacements_are_created_nearest_first_before_any_stale_body_is_removed() {
+        let near = [0., 0., 0., 1., 1., 1.];
+        let far = [10., 0., 0., 11., 1., 1.];
+        let merged = [0., 0., 0., 2., 1., 1.];
+        let owned = table(&[near]);
+        let desired = table(&[far, merged]);
+        let feet = [0.5, 1., 0.5];
+        assert_eq!(
+            missing_nearest_first(&owned, &desired, feet, 8),
+            vec![merged, far]
+        );
+        assert_eq!(
+            missing_nearest_first(&owned, &desired, feet, 1),
+            vec![merged]
+        );
+        // The old 1x1 floor survives until both replacements exist.
+        assert!(!removal_allowed(2, 1, MAX_BODIES));
+        assert!(!removal_allowed(1, 2, MAX_BODIES));
+        assert!(removal_allowed(0, 3, MAX_BODIES));
+        let after = table(&[near, far, merged]);
+        assert_eq!(
+            stale_farthest_first(&after, &desired, feet, 8),
+            vec![key(near)]
+        );
+    }
+    #[test]
+    fn a_full_body_table_removes_stale_bodies_first_farthest_away() {
+        assert!(removal_allowed(5, MAX_BODIES - 2, MAX_BODIES));
+        let a = [0., 0., 0., 1., 1., 1.];
+        let b = [5., 0., 0., 6., 1., 1.];
+        let c = [20., 0., 0., 21., 1., 1.];
+        let owned = table(&[a, b, c]);
+        let desired = table(&[a]);
+        assert_eq!(
+            stale_farthest_first(&owned, &desired, [0.; 3], 1),
+            vec![key(c)]
+        );
+        assert_eq!(
+            stale_farthest_first(&owned, &desired, [0.; 3], 8),
+            vec![key(c), key(b)]
+        );
+        assert!(missing_nearest_first(&owned, &desired, [0.; 3], 8).is_empty());
     }
     #[test]
     fn box_identity_normalizes_negative_zero_only() {

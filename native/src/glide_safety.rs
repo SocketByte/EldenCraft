@@ -4,7 +4,8 @@
 //! even after a gentle glide. While the genuine guest glide is active, and until
 //! shortly after the following landing, apply the game's own fall-immunity
 //! SpEffect states and keep the native fall timer at zero. Normal falls that do
-//! not involve a glide keep vanilla Elden Ring fall damage.
+//! not involve a glide keep vanilla Elden Ring fall damage. Fresh Minecraft
+//! fluid/climb travel cancels the current fall without a post-travel window.
 pub const DISABLE_FALL_DAMAGE: u16 = 47;
 pub const DISABLE_FALL_DEATH: u16 = 266;
 /// Remain protected this long after ground contact following a glide.
@@ -20,6 +21,7 @@ pub const MAX_SCORE: usize = 48;
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Window {
     active: bool,
+    travel_active: bool,
     glide_ended: Option<u64>,
     grounded_since: Option<u64>,
 }
@@ -28,6 +30,7 @@ impl Window {
         if gliding {
             *self = Self {
                 active: true,
+                travel_active: false,
                 glide_ended: None,
                 grounded_since: None,
             };
@@ -54,7 +57,14 @@ impl Window {
         self.active
     }
     pub fn active(&self) -> bool {
-        self.active
+        self.active || self.travel_active
+    }
+    /// Fluid/climb cancels a current fall only while its fresh motion lease is
+    /// present. It never starts the elytra's eight-second post-glide window.
+    pub fn update_travel(&mut self, gliding: bool, travel: bool, grounded: bool, now: u64) -> bool {
+        let glide = self.update(gliding, grounded, now);
+        self.travel_active = travel;
+        glide || travel
     }
 }
 
@@ -189,12 +199,12 @@ mod live {
         }
         /// # Safety
         /// PostPhysics task only, after the passthrough gates passed.
-        pub unsafe fn tick(&mut self, gliding: bool, grounded: bool, now: u64) {
+        pub unsafe fn tick(&mut self, gliding: bool, travel: bool, grounded: bool, now: u64) {
             let was = self.window.active();
-            let active = self.window.update(gliding, grounded, now);
+            let active = self.window.update_travel(gliding, travel, grounded, now);
             if active && !was {
                 self.events.push(format!(
-                    "Glide fall safety engaged (gliding={gliding}, grounded={grounded})."
+                    "Traversal fall safety engaged (gliding={gliding}, fluid/climb={travel}, grounded={grounded})."
                 ));
             }
             if !active {
@@ -209,7 +219,7 @@ mod live {
                 return;
             };
             // The fall module timer drives the native long-fall/fall-death path.
-            if gliding {
+            if gliding || travel {
                 player.chr_ins.modules.fall.fall_timer = 0.0;
             }
             if self.choices.is_none() {
@@ -278,6 +288,25 @@ pub use live::Driver;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fluid_and_climb_safety_does_not_leak_into_the_next_ordinary_fall() {
+        let mut w = Window::default();
+        assert!(w.update_travel(false, true, false, 100));
+        assert!(w.active());
+        assert!(w.update_travel(false, true, true, 200));
+        assert!(
+            !w.update_travel(false, false, false, 201),
+            "loss/exit has no post-climb immunity"
+        );
+        assert!(!w.active());
+        assert!(w.update_travel(true, false, false, 300));
+        assert!(w.update_travel(false, true, false, 400));
+        assert!(
+            w.update_travel(false, false, false, 500),
+            "a genuine preceding glide keeps its landing window"
+        );
+        assert!(!w.update_travel(false, false, false, 400 + POST_GLIDE_MAX_MS));
+    }
     #[test]
     fn window_covers_glide_landing_and_bounded_post_glide_fall() {
         let mut w = Window::default();

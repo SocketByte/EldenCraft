@@ -71,6 +71,13 @@ public final class CombatProxyEntity extends LivingEntity {
     return false;
   }
 
+  public String fluidContact() {
+    // Refresh at the just-synchronized native position, without applying a
+    // second position or fluid-current producer to this native-owned entity.
+    updateFluidInteraction();
+    return isInLava() ? "lava" : isInWater() ? "water" : "none";
+  }
+
   @Override
   public void travel(Vec3 input) {
     setDeltaMovement(Vec3.ZERO);
@@ -86,7 +93,10 @@ public final class CombatProxyEntity extends LivingEntity {
   public boolean hurtServer(ServerLevel level, DamageSource source, float amount) {
     boolean melee = ProxyCombatAuthority.permitDamage(this, source);
     Object world = melee ? null : WorldDamageAuthority.begin(level, this, source);
+    if (!melee && world == null) world = WorldDamageAuthority.environment(level, this, source);
     if (!melee && world == null) return false;
+    // Scale before vanilla resolution so hurt resistance and the reported loss agree.
+    if (!melee) amount *= (float) WorldDamageAuthority.enemyHazardScale(source);
     float before = getHealth();
     boolean accepted = super.hurtServer(level, source, amount);
     float loss = before - getHealth();

@@ -74,6 +74,8 @@ pub struct Guest {
     #[serde(default)]
     pub mobs: Vec<Mob>,
     #[serde(default)]
+    pub fluids: Vec<crate::world_fluids::Contact>,
+    #[serde(default)]
     pub events: Vec<Event>,
     #[serde(default)]
     pub ack_incoming: u64,
@@ -187,10 +189,20 @@ impl Guest {
         }
         if self.blocks.len() > 1024
             || self.mobs.len() > 64
+            || self.fluids.len() > 64
             || self.events.len() > 128
             || self.projectiles.len() > 32
         {
             return Err("world snapshot count exceeded");
+        }
+        let mut fluid_ids = std::collections::HashSet::new();
+        if self
+            .fluids
+            .iter()
+            .any(|c| !c.valid() || !fluid_ids.insert(c.id))
+            || !self.fluids.is_empty() && self.player_uuid.is_none()
+        {
+            return Err("world fluid contact invalid");
         }
         let mut projectile_ids = std::collections::HashSet::new();
         for p in &self.projectiles {
@@ -358,6 +370,38 @@ mod tests {
         }
     }
     #[test]
+    fn fluid_contacts_are_optional_bounded_and_require_paired_identity() {
+        let c = crate::world_fluids::Contact {
+            id: 10,
+            generation: 2,
+            medium: crate::world_fluids::Medium::Water,
+            position: [0.; 3],
+            time_ms: 1000,
+            observed_frame: 1,
+        };
+        let mut g = Guest {
+            player_uuid: Some("owned-player".into()),
+            fluids: vec![c],
+            ..guest()
+        };
+        assert!(g.validate().is_ok());
+        let decoded: Guest = serde_json::from_slice(&serde_json::to_vec(&g).unwrap()).unwrap();
+        assert_eq!(decoded.fluids, vec![c]);
+        g.fluids.push(c);
+        assert!(g.validate().is_err());
+        g.fluids.pop();
+        g.player_uuid = None;
+        assert!(g.validate().is_err());
+        g.fluids.clear();
+        assert!(g.validate().is_ok());
+        assert!(serde_json::from_str::<Guest>(r#"{"epoch":1,"host_pid":1,"session":1,"observed_frame":1,"map":0,"terrain_revision":0,"blocks_revision":0}"#).unwrap().fluids.is_empty());
+        g.fluids = (0..65)
+            .map(|i| crate::world_fluids::Contact { id: i + 10, ..c })
+            .collect();
+        g.player_uuid = Some("owned-player".into());
+        assert!(g.validate().is_err());
+    }
+    #[test]
     fn inactive_world_can_carry_fresh_kinematics_without_authorizing_world_damage() {
         let g = Guest {
             kinematics_active: true,
@@ -367,6 +411,7 @@ mod tests {
                 time_ms: 1000,
                 observed_frame: 1,
                 gliding: true,
+                travel: crate::player_flight::Travel::None,
                 velocity: [1., 0., 0.],
             }),
             ..guest()

@@ -48,6 +48,8 @@ mod native_map;
 #[cfg(windows)]
 mod native_teleport;
 mod overlay_input;
+#[cfg(windows)]
+mod player_capsule;
 mod player_flight;
 mod pose_lock;
 pub mod projectile_flight;
@@ -55,11 +57,13 @@ mod projectile_path;
 #[cfg(windows)]
 mod scene_camera;
 mod settle;
+mod step_assist;
 mod surface;
 mod torrent;
 mod weather_sync;
 #[cfg(windows)]
 mod world_bridge;
+mod world_fluids;
 mod world_incoming;
 #[cfg(windows)]
 mod world_native;

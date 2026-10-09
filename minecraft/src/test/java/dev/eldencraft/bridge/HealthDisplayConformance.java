@@ -71,7 +71,33 @@ public final class HealthDisplayConformance {
     equal(state.end(player, world, 10), 40f);
     state.reset();
     equal(state.begin(player, world, 20, 20, true, true, 50, 100), null);
+    compactHearts();
     System.out.println(
         "Health display conformance: " + checks + " checks passed (pure lifecycle model only).");
+  }
+
+  private static void compactHearts() {
+    var progression = CampaignConfig.current().progression;
+    double start = progression.health(0), end = progression.health(progression.shares());
+    equal((float) CampaignHeartScale.maximum(start, start, end), 20f); // Ten full hearts.
+    equal((float) CampaignHeartScale.maximum(end, start, end), 60f); // Three full rows.
+    equal((float) CampaignHeartScale.maximum(end * 2, start, end), 60f);
+    double previous = 0;
+    for (int victories = 0; victories <= progression.shares(); victories++) {
+      double capacity = progression.health(victories);
+      double maximum = CampaignHeartScale.maximum(capacity, start, end);
+      if (maximum < previous || maximum < 20 || maximum > 60)
+        throw new AssertionError("Heart capacity must grow within one to three rows");
+      previous = maximum;
+      for (double fraction : new double[] {0, .1, .5, 1}) {
+        equal(
+            CampaignHeartScale.units(capacity * fraction, capacity, maximum),
+            (float) (maximum * fraction));
+      }
+      // Identical damage/healing/absorption shares, even as the display unit changes.
+      equal(CampaignHeartScale.units(8, capacity, maximum), (float) (8 * maximum / capacity));
+    }
+    equal(CampaignHeartScale.units(Double.NaN, start, 20), 0f);
+    equal(CampaignHeartScale.units(10, 0, 20), 0f);
   }
 }

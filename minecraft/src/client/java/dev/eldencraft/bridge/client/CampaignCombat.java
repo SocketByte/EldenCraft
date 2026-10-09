@@ -11,6 +11,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Unit;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.EquipmentSlotGroup;
@@ -151,9 +152,15 @@ public final class CampaignCombat {
                   (float) event.rawDamage());
           }
         } else {
-          ((CampaignArmorInvoker) player)
-              .eldencraft$campaignArmorWear(
-                  player.damageSources().generic(), (float) event.rawDamage());
+          if (event.rawDamage() > 0)
+            ((CampaignArmorInvoker) player)
+                .eldencraft$campaignArmorWear(
+                    player.damageSources().generic(), (float) event.rawDamage());
+          // Native already kept this much of the hit off Elden Ring's health.
+          if (event.absorbed() > 0)
+            player.setAbsorptionAmount(
+                Math.max(0, player.getAbsorptionAmount() - (float) event.absorbed()));
+          if (event.totem()) CampaignTotem.spend(player);
         }
         damageSequence = event.seq();
       }
@@ -208,6 +215,7 @@ public final class CampaignCombat {
     damageSession = damageSequence = 0;
     previousGuard = null;
     guardBreakNanos = 0;
+    CampaignRegeneration.clear();
   }
 
   private static void publish(CampaignStamina account) {
@@ -364,6 +372,15 @@ public final class CampaignCombat {
   public static void tune(ItemStack stack) {
     if (stack.isEmpty()) return;
     var config = CampaignConfig.current();
+    // Vanilla and native guard wear both use the same durability component. Apply this before
+    // the attribute-only early return, since shields do not have a configured weapon rule.
+    if (config.enabled()
+        && (stack.is(Items.WOODEN_SWORD)
+            || stack.is(Items.WOODEN_AXE)
+            || stack.is(Items.WOODEN_SPEAR)
+            || stack.is(Items.SHIELD))
+        && !stack.has(DataComponents.UNBREAKABLE))
+      stack.set(DataComponents.UNBREAKABLE, Unit.INSTANCE);
     String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
     var rule = config.weapons.get(id);
     var armor = config.armors.get(id);
