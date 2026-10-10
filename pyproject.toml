@@ -1,6 +1,6 @@
 [project]
 name = "eldencraft"
-version = "0.25.4"
+version = "0.25.5"
 description = "Offline Elden Ring and Minecraft integration with local development tools."
 readme = "README.md"
 license = "MIT"

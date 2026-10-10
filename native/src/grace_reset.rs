@@ -58,7 +58,6 @@ pub enum RestRejection {
     ReturnTitle,
     LoadWait,
     LobbyClient,
-    NetMessage,
     ScriptUnavailable,
     MapReentry,
     BonfireInvalid,
@@ -74,6 +73,43 @@ pub struct RestCheck {
     pub map_reentry: bool,
     pub bonfire: u32,
     pub rejection: Option<RestRejection>,
+}
+
+impl RestCheck {
+    fn validate(&self) -> Option<RestRejection> {
+        let flags = eldenring::cs::LuaEventControlFlags(self.flags);
+        if !(flags.bonfire_loop_begin_requested() || flags.bonfire_sitting_loop_active()) {
+            Some(RestRejection::NotRequested)
+        } else if flags.bonfire_end_pending() {
+            Some(RestRejection::EndPending)
+        } else if flags.bonfire_stand_up_in_progress() {
+            Some(RestRejection::StandingUp)
+        } else if flags.return_title_requested() {
+            Some(RestRejection::ReturnTitle)
+        } else if self.load_wait {
+            Some(RestRejection::LoadWait)
+        } else if self.lobby_client {
+            Some(RestRejection::LobbyClient)
+        } else if self.script == 0 {
+            Some(RestRejection::ScriptUnavailable)
+        } else if self.map_reentry {
+            Some(RestRejection::MapReentry)
+        } else if self.bonfire < 1000 || self.bonfire == u32::MAX {
+            Some(RestRejection::BonfireInvalid)
+        } else {
+            // This Lua proxy flag is also set during verified offline grace
+            // resets (live flags 0xa0). Online/lobby/protocol admission belongs
+            // to sample_checked(), before this rest-only context is considered.
+            None
+        }
+    }
+
+    pub(crate) fn context(&self) -> Option<Rest> {
+        self.validate().is_none().then_some(Rest {
+            script: self.script,
+            bonfire: self.bonfire,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -289,40 +325,10 @@ pub unsafe fn sample_checked() -> Result<CheckedSample, Rejection> {
             script: script.map_or(0, |s| s.as_ptr() as usize),
             map_reentry: script.is_some_and(|s| s.is_wait_reentry_to_map),
             bonfire: script.map_or(0, |s| s.bonfire_entity_id),
-            rejection: if !(flags.bonfire_loop_begin_requested()
-                || flags.bonfire_sitting_loop_active())
-            {
-                Some(RestRejection::NotRequested)
-            } else if flags.bonfire_end_pending() {
-                Some(RestRejection::EndPending)
-            } else if flags.bonfire_stand_up_in_progress() {
-                Some(RestRejection::StandingUp)
-            } else if flags.return_title_requested() {
-                Some(RestRejection::ReturnTitle)
-            } else if proxy.is_load_wait {
-                Some(RestRejection::LoadWait)
-            } else if proxy.is_lobby_state_client {
-                Some(RestRejection::LobbyClient)
-            } else if proxy.is_net_message {
-                Some(RestRejection::NetMessage)
-            } else if script.is_none() {
-                Some(RestRejection::ScriptUnavailable)
-            } else if script.is_some_and(|s| s.is_wait_reentry_to_map) {
-                Some(RestRejection::MapReentry)
-            } else if script
-                .is_some_and(|s| s.bonfire_entity_id < 1000 || s.bonfire_entity_id == u32::MAX)
-            {
-                Some(RestRejection::BonfireInvalid)
-            } else {
-                None
-            },
+            rejection: None,
         };
-        if rest_check.rejection.is_none() {
-            sample.rest = Some(Rest {
-                script: rest_check.script,
-                bonfire: rest_check.bonfire,
-            });
-        }
+        rest_check.rejection = rest_check.validate();
+        sample.rest = rest_check.context();
     }
     Ok(CheckedSample {
         sample,
@@ -335,6 +341,87 @@ pub unsafe fn sample_checked() -> Result<CheckedSample, Rejection> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn offline_rest() -> RestCheck {
+        RestCheck {
+            flags: 0xa0,
+            load_wait: false,
+            lobby_client: false,
+            net_message: true,
+            script: 44,
+            map_reentry: false,
+            bonfire: 11051954,
+            rejection: None,
+        }
+    }
+
+    #[test]
+    fn offline_grace_reset_with_the_lua_message_flag_retains_its_passive_source_lease() {
+        let check = offline_rest();
+        let rest = check.context().expect("live offline flags 0xa0 are a rest");
+        assert_eq!(rest.bonfire, 11051954);
+        let mut lease = Lease::default();
+        lease.record_ready(1000, ready());
+        let resetting = Sample {
+            activity_ready: false,
+            rest: Some(rest),
+            ..ready()
+        };
+        assert!(lease.hold(1016, resetting));
+        assert!(lease.hold(1400, resetting));
+        assert!(
+            !lease.hold(2500, resetting),
+            "message flag cannot extend the lease"
+        );
+    }
+
+    #[test]
+    fn lua_message_flag_alone_never_admits_a_menu_or_survives_rest_exit_or_load() {
+        for invalid in [
+            RestCheck {
+                flags: 0,
+                ..offline_rest()
+            },
+            RestCheck {
+                flags: 0xe0,
+                ..offline_rest()
+            },
+            RestCheck {
+                flags: 0x1a0,
+                ..offline_rest()
+            },
+            RestCheck {
+                flags: 0x8a0,
+                ..offline_rest()
+            },
+            RestCheck {
+                load_wait: true,
+                ..offline_rest()
+            },
+            RestCheck {
+                lobby_client: true,
+                ..offline_rest()
+            },
+            RestCheck {
+                script: 0,
+                ..offline_rest()
+            },
+            RestCheck {
+                map_reentry: true,
+                ..offline_rest()
+            },
+            RestCheck {
+                bonfire: 0,
+                ..offline_rest()
+            },
+            RestCheck {
+                bonfire: u32::MAX,
+                ..offline_rest()
+            },
+        ] {
+            assert!(invalid.context().is_none(), "invalid rest: {invalid:?}");
+        }
+    }
 
     fn ready() -> Sample {
         Sample {

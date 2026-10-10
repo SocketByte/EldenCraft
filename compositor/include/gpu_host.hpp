@@ -20,13 +20,12 @@ class Host {
     std::array<std::array<void *, planes>, sets> handles_{};
     ID3D12Fence *ready_{};
     void *ready_handle_{};
-    std::uint32_t generation_{}, width_{}, height_{}, failed_generation_{};
+    std::uint32_t generation_{}, width_{}, height_{}, failed_generation_{}, plane_mask_{}, guest_pid_{};
     std::uint64_t next_attempt_{};
-    struct PendingAck { std::uint32_t set; std::uint64_t frame, fence; };
-    std::vector<PendingAck> pending_;
+    CopyAcks copies_;
     bool reported_{}, disabled_{};
     void release(reshade::api::effect_runtime *runtime);
-    bool create(reshade::api::effect_runtime *runtime, std::uint32_t width, std::uint32_t height);
+    bool create(reshade::api::effect_runtime *runtime, std::uint32_t width, std::uint32_t height, std::uint32_t mask, std::uint32_t guest_pid);
     void publish_ack(std::uint32_t set, std::uint64_t frame);
 public:
     Host() = default;
@@ -39,9 +38,13 @@ public:
     bool ready(const frames::Descriptor &descriptor) const;
     reshade::api::resource plane(std::uint32_t set, std::uint32_t plane) const;
     // A copy of `set` holding `frame` was submitted before signalling `fence`.
-    void note_copy(std::uint32_t set, std::uint64_t frame, std::uint64_t fence) { pending_.push_back({set, frame, fence}); }
+    void note_copy(std::uint32_t set, std::uint64_t frame, std::uint64_t fence) { copies_.note(set, frame, fence); }
     // Acknowledge every set whose copy completed on the GPU.
     void retire(std::uint64_t completed_fence);
+    // A coherent, consumed publication may be discarded only after its writes
+    // and every outstanding host copy completed. Never release unpublished work.
+    bool discardable(const frames::Descriptor &)const;
+    void discard_completed(const frames::Descriptor &);
     void destroy(reshade::api::effect_runtime *runtime);
     bool active() const { return generation_ != 0; }
     std::uint32_t generation() const { return generation_; }

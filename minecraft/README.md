@@ -21,6 +21,12 @@ server resolves Minecraft inventory, blocks, mobs, item actions and combat.
 Communication uses bounded local mappings with session identities, seqlocks and
 freshness checks.
 
+Completed immutable block-mesh sections are assembled and compared on a bounded
+worker; tessellation stays on the render thread. Geometry and the live 16x16
+lightmap are published independently. Placed-block collision sections are cached
+until edits or chunk changes invalidate them; dynamic shapes remain live. The
+merged collider list and its UTF-8 JSON are reused while unchanged.
+
 The launcher creates a dedicated Prism instance. When Minecraft finishes its
 startup screens, the client creates and joins its EldenCraft survival world
 through Minecraft's own world-creation API. Later launches reopen that save,

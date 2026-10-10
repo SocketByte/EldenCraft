@@ -38,6 +38,18 @@ Strict bounded JSON for configuration and world messages is implemented in
 The [native guide](native/README.md) describes compatibility and diagnostics;
 the [compositor guide](compositor/README.md) describes rendering.
 
+ECGT v1 uses reserved host words at bytes 72/76 for the full-size plane mask and
+host failure status, and guest byte 152 for its requested mask. Zero masks retain
+legacy behavior (all five planes); mask 7 requests world color/depth and overlay,
+and mask 31 also requests avatar color/depth. Unused planes are 1x1 shared textures.
+Temporary ring saturation or resource transitions skip capture; permanent
+unavailability permits the existing CPU fallback. A new guest PID resets the
+shared fence, while adding avatar planes for the same guest reuses world resources.
+When composition is gated, the host consumes and discards coherent publications
+after their producer fence and all outstanding host copies complete. Discarded
+publications cannot become fresh images or be copied after their acknowledgement;
+an acknowledgement never covers a future frame that has not been published.
+
 ## Campaign JSON
 
 Both games load the same startup configuration described in
@@ -325,6 +337,14 @@ geometry changes.
 Fluids are tessellated by vanilla's `FluidRenderer` into the mesh (water in the
 translucent pass, lava in the solid one). A mesh holds at most 2097152 vertices in
 a 64 MiB mapping; there is no separate block count limit.
+
+Mesh v1 accepts legacy 24-byte prelit vertices and 28-byte raw vertices. Both have
+position at byte 0, UV at byte 12 and color at byte 20; raw vertices retain ARGB
+color and append packed light UVs at byte 24. `Local\\EldenCraftBlockLight` uses
+the same 128-byte header with magic `0x4c4d4345` (ECML), followed by 1024 bytes of
+RGBA8 lightmap pixels. Its count/stride are 16/16, identity and atlas revision must
+match the mesh, and its independent revision changes only with the lightmap.
+Lighting is applied per vertex with the original bilinear sampling and rounding.
 
 The atlas header's word at byte 104 is its mip level count (0 or 1 for one level,
 at most `floor(log2(max(w,h))) + 1` and 13). The payload is the whole chain,

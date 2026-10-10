@@ -31,6 +31,14 @@ Shared textures require compatible OpenGL extensions and the same GPU adapter fo
 both games. `EldenCraft.cmd -CpuFrames` selects CPU frame transport. Initial color
 handling supports SDR RGBA8; HDR conversion is not implemented.
 
+A busy shared-texture ring skips a capture until a set is available, avoiding a
+CPU readback during GPU congestion. First-person capture allocates three full-size
+planes per set; F5 adds the two avatar planes and retains them until a resize.
+This reduces shared texture memory without changing capture resolution or effects.
+While composition is paused by a menu, focus change or F11, the host consumes and
+discards completed publications without copying pixels. Acknowledgements wait for
+outstanding host copies and never include unpublished producer writes.
+
 ## Native blocks
 
 Placed blocks, fluids and animated sprites are drawn from the baked mesh with
@@ -38,7 +46,19 @@ the host camera, so they stay locked to Elden Ring instead of following the
 lagging RGB-D capture. The atlas carries its full mip chain and is sampled like
 vanilla (nearest texels, linear between levels). Animated sprite frames arrive
 each game tick and are copied into the resident atlas. Translucent faces are
-re-sorted only when the camera moves or the mesh changes.
+re-sorted only when the camera turns or the mesh changes. Translation preserves
+their depth order. Indices stay resident between sorts, and a busy upload ring
+keeps drawing with the last order.
+
+Cached geometry resides in GPU-local buffers. Its raw color and packed light UVs
+use a 28-byte vertex format; the legacy prelit 24-byte format remains supported.
+The 16x16 lightmap arrives independently, so lighting changes update a small
+texture instead of rebuilding and retransmitting geometry. Vertex lighting keeps
+the original bilinear sampling and byte rounding before interpolation.
+
+When native blocks leave a sparse RGB-D capture, GPU-computed occupied depth
+bounds reject empty tiles and rays before reprojection. Surviving rays retain the
+original probes and refinement, including camera-plane crossings and edge pixels.
 
 Each Present uses the host camera of the image being presented. Elden Ring
 submits the next frame's camera before Present, so blocks are drawn with the
@@ -54,7 +74,9 @@ every five seconds reports the offsets it chose (`cameraLead0/1/2/3+`, newest =
 copying pixels. `frame_inspect.exe 10` additionally checks frame planes. Publication
 timing is distinct from display FPS and input-to-display latency.
 
-CTest covers frame/scene/block metadata, residency, GPU handoffs, shaders,
+CTest covers frame/scene/block metadata, residency, GPU handoffs, shared resource
+aliases, gated frame recycling, D3D12 descriptor copies and scene-mask dispatch,
+transparency sorting, lighting equivalence, sparse depth bounds, shaders,
 projection, Nether layout and shared-memory interop. The composition math and
 ownership rules are implemented in [scene_protocol.hpp](include/scene_protocol.hpp)
 and the [native camera publisher](../native/src/scene_camera.rs).

@@ -2,6 +2,7 @@ package dev.eldencraft.bridge.client;
 
 import com.mojang.renderpearl.api.textures.GpuTexture;
 import com.mojang.renderpearl.backend.opengl.GlTexture;
+import dev.eldencraft.bridge.FramePipeline;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.VarHandle;
@@ -45,6 +46,7 @@ final class GpuTransport {
   static final int MAX_W = 3840, MAX_H = 2160;
 
   private static final int PREFERRED = 96;
+  private static final int PLANE_MASK = 72, HOST_STATUS = 76, BASE_PLANES = 7, ALL_PLANES = 31;
   private static boolean importFailed;
   private static final int REQUEST = 128, ACKS = 256, STATUS_IMPORTED = 1, STATUS_FAILED = 2;
   private static final ValueLayout.OfInt INT = ValueLayout.JAVA_INT_UNALIGNED;
@@ -52,12 +54,12 @@ final class GpuTransport {
 
   private static SharedMemory control;
   private static boolean disabled, checked, copyImage;
-  private static int generation, width, height, failedGeneration;
+  private static int generation, width, height, failedGeneration, planeMask;
   private static final int[][] memory = new int[SETS][PLANES], texture = new int[SETS][PLANES];
   private static final int[] depthTarget = new int[SETS * PLANES];
   private static final long[] written = new long[SETS];
   private static int semaphore, program, vao, readFbo, drawFbo, setNext;
-  private static long lastRequestNanos;
+  private static long lastRequestNanos, waitingSince;
 
   private GpuTransport() {}
 
@@ -101,19 +103,23 @@ final class GpuTransport {
 
   /**
    * Asks for textures of this size, imports a new host generation when one is published and returns
-   * a set that is safe to overwrite, or -1 to use the readback path for this frame.
+   * a reusable set, GPU_BUSY while the GPU/host is catching up, or GPU_UNAVAILABLE for readback.
    */
-  static int acquire(int w, int h, boolean depthNeeded) {
-    if (!available()) return -1;
+  static int acquire(int w, int h, boolean depthNeeded, boolean avatarNeeded) {
+    if (!available()) return FramePipeline.GPU_UNAVAILABLE;
     MemorySegment m = control.segment;
+    if (m.get(INT, HOST_STATUS) == STATUS_FAILED) return FramePipeline.GPU_UNAVAILABLE;
     long now = System.nanoTime();
+    int requestedPlanes = avatarNeeded ? ALL_PLANES : BASE_PLANES;
     if (m.get(INT, REQUEST + 4) != w
         || m.get(INT, REQUEST + 8) != h
+        || m.get(INT, REQUEST + 24) != requestedPlanes
         || now - lastRequestNanos > 1_000_000_000L) {
       lastRequestNanos = now;
       m.set(INT, REQUEST + 4, w);
       m.set(INT, REQUEST + 8, h);
       m.set(INT, REQUEST + 12, (int) ProcessHandle.current().pid());
+      m.set(INT, REQUEST + 24, requestedPlanes);
       VarHandle.fullFence();
       m.set(INT, REQUEST, REQUEST_MAGIC);
     }
@@ -121,12 +127,26 @@ final class GpuTransport {
     if (m.get(INT, 0) != MAGIC
         || m.get(INT, 4) != VERSION
         || m.get(INT, 24) != SETS
-        || m.get(INT, 28) != PLANES) return -1;
+        || m.get(INT, 28) != PLANES) {
+      if (waitingSince == 0) waitingSince = now;
+      // Older/absent hosts may have no GPU transport at all. Only that persistent
+      // absence allows readback; a saturated, established transport never does.
+      return now - waitingSince < 1_000_000_000L
+          ? FramePipeline.GPU_BUSY
+          : FramePipeline.GPU_UNAVAILABLE;
+    }
+    waitingSince = 0;
     int next = m.get(INT, 12);
-    if (m.get(INT, 16) != w || m.get(INT, 20) != h || next == 0 || next == failedGeneration)
-      return -1;
-    if (next != generation && !importGeneration(m, next, w, h)) return -1;
-    if (depthNeeded && program == 0) return -1;
+    if (next == failedGeneration) return FramePipeline.GPU_UNAVAILABLE;
+    int mask = m.get(INT, PLANE_MASK);
+    if (mask == 0) mask = ALL_PLANES; // ECGT v1 hosts allocated every plane.
+    if (m.get(INT, 16) != w
+        || m.get(INT, 20) != h
+        || next == 0
+        || (mask & requestedPlanes) != requestedPlanes) return FramePipeline.GPU_BUSY;
+    if (next != generation && !importGeneration(m, next, w, h, mask))
+      return failedGeneration == next ? FramePipeline.GPU_UNAVAILABLE : FramePipeline.GPU_BUSY;
+    if (depthNeeded && program == 0) return FramePipeline.GPU_UNAVAILABLE;
     long newest = 0;
     for (int s = 0; s < SETS; s++) newest = Math.max(newest, m.get(LONG, ACKS + s * 8L));
     int set = dev.eldencraft.bridge.FramePipeline.gpuSet(written, newest, setNext);
@@ -140,17 +160,19 @@ final class GpuTransport {
 
   /** True once shared textures proved unusable in this process (unsupported or failed import). */
   static boolean failed() {
-    return disabled || importFailed;
+    return disabled
+        || importFailed
+        || (control != null && control.segment.get(INT, HOST_STATUS) == STATUS_FAILED);
   }
 
   /** The host back-buffer size it publishes every frame, or null when unknown. */
   static int[] preferredSize() {
-    if (!available()) return null;
+    if (!available() || failed()) return null;
     int w = control.segment.get(INT, PREFERRED), h = control.segment.get(INT, PREFERRED + 4);
     return w > 0 && h > 0 && w <= MAX_W && h <= MAX_H ? new int[] {w, h} : null;
   }
 
-  private static boolean importGeneration(MemorySegment m, int next, int w, int h) {
+  private static boolean importGeneration(MemorySegment m, int next, int w, int h, int mask) {
     destroy();
     while (GL11C.glGetError() != 0) {}
     int oldTexture = GL11C.glGetInteger(GL11C.GL_TEXTURE_BINDING_2D);
@@ -181,8 +203,8 @@ final class GpuTransport {
               GL11C.GL_TEXTURE_2D,
               1,
               depthPlane(p) ? GL30C.GL_R32F : GL11C.GL_RGBA8,
-              w,
-              h,
+              (mask & (1 << p)) != 0 ? w : 1,
+              (mask & (1 << p)) != 0 ? h : 1,
               object,
               0L);
           GL11C.glTexParameteri(GL11C.GL_TEXTURE_2D, GL11C.GL_TEXTURE_MIN_FILTER, GL11C.GL_NEAREST);
@@ -211,9 +233,14 @@ final class GpuTransport {
         readFbo = GL30C.glGenFramebuffers();
         drawFbo = GL30C.glGenFramebuffers();
       }
+      if (!sameGeneration(m, next, pid, w, h)) {
+        destroy();
+        return false;
+      }
       generation = next;
       width = w;
       height = h;
+      planeMask = mask;
       java.util.Arrays.fill(written, 0L);
       status(m, STATUS_IMPORTED, next);
       LOG.info(
@@ -223,6 +250,12 @@ final class GpuTransport {
           Integer.toUnsignedString(next));
       return true;
     } catch (Throwable failure) {
+      // Host resize/F5/restart can replace the control block during an import.
+      // Retry that transition instead of permanently disabling full resolution.
+      if (!sameGeneration(m, next, pid, w, h)) {
+        destroy();
+        return false;
+      }
       failedGeneration = next;
       importFailed = true;
       destroy();
@@ -233,6 +266,15 @@ final class GpuTransport {
       GL11C.glBindTexture(GL11C.GL_TEXTURE_2D, oldTexture);
       GL30C.glBindFramebuffer(GL30C.GL_DRAW_FRAMEBUFFER, oldDraw);
     }
+  }
+
+  private static boolean sameGeneration(MemorySegment m, int next, int pid, int w, int h) {
+    VarHandle.fullFence();
+    return m.get(INT, 0) == MAGIC
+        && m.get(INT, 12) == next
+        && m.get(INT, 8) == pid
+        && m.get(INT, 16) == w
+        && m.get(INT, 20) == h;
   }
 
   private static void status(MemorySegment m, int value, int forGeneration) {
@@ -293,7 +335,7 @@ final class GpuTransport {
   /** Copies a colour target into a shared plane. False if the backend is not OpenGL. */
   static boolean copyColor(GpuTexture source, int set, int plane) {
     int id = glId(source);
-    if (id == 0) return false;
+    if (id == 0 || (planeMask & (1 << plane)) == 0) return false;
     if (copyImage) {
       ARBCopyImage.glCopyImageSubData(
           id,
@@ -344,7 +386,7 @@ final class GpuTransport {
    */
   static boolean copyDepth(GpuTexture source, int set, int plane) {
     int id = glId(source);
-    if (id == 0 || program == 0) return false;
+    if (id == 0 || program == 0 || (planeMask & (1 << plane)) == 0) return false;
     int oldProgram = GL11C.glGetInteger(GL20C.GL_CURRENT_PROGRAM),
         oldVao = GL11C.glGetInteger(GL30C.GL_VERTEX_ARRAY_BINDING);
     int oldDraw = GL11C.glGetInteger(GL30C.GL_DRAW_FRAMEBUFFER_BINDING),

@@ -7,13 +7,15 @@
 #include <vector>
 
 namespace eldencraft::blocks {
-inline constexpr std::uint32_t mesh_magic=0x424d4345,atlas_magic=0x41424345,ack_magic=0x414d4345,anim_magic=0x4e414345;
+inline constexpr std::uint32_t mesh_magic=0x424d4345,atlas_magic=0x41424345,ack_magic=0x414d4345,anim_magic=0x4e414345,light_magic=0x4c4d4345;
 inline constexpr std::size_t header_bytes=128,mesh_capacity=64*1024*1024,atlas_capacity=90*1024*1024+header_bytes;
 // Decorations keep their original, smaller mappings.
 inline constexpr std::size_t detail_mesh_capacity=8*1024*1024,detail_atlas_capacity=64*1024*1024+header_bytes;
 // Animated sprite frames for the resident atlas, republished every client tick.
 inline constexpr std::size_t anim_capacity=4*1024*1024,anim_region_bytes=16;
-inline constexpr std::uint32_t max_vertices=2097152,vertex_stride=24,max_atlas_dimension=4096,max_atlas_mips=13,max_anim_regions=4096;
+inline constexpr std::uint32_t max_vertices=2097152,vertex_stride=24,lit_vertex_stride=28,max_atlas_dimension=4096,max_atlas_mips=13,max_anim_regions=4096;
+inline constexpr std::size_t light_capacity=header_bytes+1024;
+inline constexpr wchar_t light_name[]=L"Local\\EldenCraftBlockLight";
 inline constexpr wchar_t mesh_name[]=L"Local\\EldenCraftBlockMesh",atlas_name[]=L"Local\\EldenCraftBlockAtlas";
 inline constexpr wchar_t ack_name[]=L"Local\\EldenCraftBlockMeshAck",anim_name[]=L"Local\\EldenCraftBlockAnim";
 struct Header {
@@ -60,8 +62,8 @@ inline bool decode_header(std::span<const std::uint8_t> data,std::uint32_t magic
     // Only an atlas carries a level count (0 from older producers means one level).
     for(std::size_t i=magic==atlas_magic?108:104;i<header_bytes;++i)if(data[i])return false;
     if(magic==mesh_magic){
-        if(out.count>max_vertices||out.count%3||out.stride!=vertex_stride
-            ||out.bytes!=std::uint64_t(out.count)*vertex_stride||out.bytes>mesh_capacity-header_bytes
+        if(out.count>max_vertices||out.count%3||(out.stride!=vertex_stride&&out.stride!=lit_vertex_stride)
+            ||out.bytes!=std::uint64_t(out.count)*out.stride||out.bytes>mesh_capacity-header_bytes
             ||out.solid%3||out.cutout%3||out.translucent%3
             ||std::uint64_t(out.solid)+out.cutout+out.translucent!=out.count)return false;
     }else if(magic==atlas_magic){
@@ -70,6 +72,8 @@ inline bool decode_header(std::span<const std::uint8_t> data,std::uint32_t magic
         if(out.mips>max_mips(out.count,out.stride)
             ||out.bytes!=mip_offset(out.count,out.stride,out.mips)
             ||out.bytes>atlas_capacity-header_bytes||out.solid||out.cutout||out.translucent)return false;
+    }else if(magic==light_magic){
+        if(out.count!=16||out.stride!=16||out.bytes!=1024||out.solid||out.cutout||out.translucent)return false;
     }else if(magic==ack_magic){
         if(out.count||out.stride||out.bytes||out.solid||out.cutout||out.translucent)return false;
     }else if(magic==anim_magic){
@@ -81,8 +85,8 @@ inline bool decode_header(std::span<const std::uint8_t> data,std::uint32_t magic
     return true;
 }
 inline bool validate_vertices(std::span<const std::uint8_t> bytes,const Header &h) {
-    if(bytes.size()!=h.bytes)return false;
-    for(std::size_t at=0;at<bytes.size();at+=vertex_stride){
+    if(bytes.size()!=h.bytes||(h.stride!=vertex_stride&&h.stride!=lit_vertex_stride)||bytes.size()%h.stride)return false;
+    for(std::size_t at=0;at<bytes.size();at+=h.stride){
         for(int axis=0;axis<3;++axis){const auto v=frames::read<float>(bytes,at+axis*4);
             if(!std::isfinite(v)||std::abs(v)>3e7f)return false;}
         for(int uv=0;uv<2;++uv){const auto v=frames::read<float>(bytes,at+12+uv*4);

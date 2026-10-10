@@ -24,6 +24,8 @@ Bytes fixture(std::uint32_t magic){
         put(b,84,3u);put(b,88,3u);put(b,92,3u);
     }else if(magic==atlas_magic){
         put(b,56,std::uint64_t(5));put(b,72,2u);put(b,76,3u);put(b,80,24u);
+    }else if(magic==light_magic){
+        put(b,72,16u);put(b,76,16u);put(b,80,1024u);
     }else if(magic==anim_magic){
         // Two regions of the 2x3 fixture atlas at revision 5, animation tick 7.
         put(b,64,std::uint64_t(5));put(b,72,2u);put(b,80,32u+4u+8u);
@@ -41,7 +43,7 @@ Header decode(const Bytes &b,std::uint32_t magic){
     Header h;check(decode_header(b,magic,h),"valid fixture must decode");return h;
 }
 void header_rejections(){
-    for(auto magic:{mesh_magic,atlas_magic,ack_magic,anim_magic}){
+    for(auto magic:{mesh_magic,atlas_magic,ack_magic,anim_magic,light_magic}){
         const auto good=fixture(magic);Header h;
         for(auto size:{std::size_t(0),std::size_t(64),header_bytes-1})
             check(!decode_header({good.data(),size},magic,h),"truncated header rejected before reads");
@@ -66,6 +68,12 @@ void header_rejections(){
 }
 void mesh_bounds(){
     const auto good=fixture(mesh_magic);Header h;
+    {auto raw=good;put(raw,76,lit_vertex_stride);put(raw,80,9u*lit_vertex_stride);
+        check(decode_header(raw,mesh_magic,h),"raw color/light vertices accepted");
+        std::vector<std::uint8_t> vertices(h.bytes,0);
+        check(validate_vertices(vertices,h),"raw vertex validation advances by actual stride");
+        put(vertices,lit_vertex_stride+12,std::numeric_limits<float>::quiet_NaN());
+        check(!validate_vertices(vertices,h),"bad UV in a later raw vertex rejected");}
     {auto empty=good;for(auto offset:{72u,80u,84u,88u,92u})put(empty,offset,0u);
         check(decode_header(empty,mesh_magic,h),"empty mesh is an authoritative clear");
         check(validate_vertices({},h),"empty mesh requires no payload");}

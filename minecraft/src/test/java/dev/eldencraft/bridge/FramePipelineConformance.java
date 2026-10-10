@@ -73,7 +73,14 @@ public final class FramePipelineConformance {
         "superseded set reused first from start");
     check(FramePipeline.gpuSet(new long[] {5, 9, 0}, 4, 0) == 2, "busy sets skipped");
     check(
-        FramePipeline.gpuSet(new long[] {5, 9, 7}, 4, 1) == -1, "all busy falls back to readback");
+        FramePipeline.gpuSet(new long[] {5, 9, 7}, 4, 1) == FramePipeline.GPU_BUSY,
+        "all busy drops without expensive readback");
+    check(
+        !FramePipeline.readbackAllowed(FramePipeline.GPU_BUSY), "backpressure never reads pixels");
+    check(
+        FramePipeline.readbackAllowed(FramePipeline.GPU_UNAVAILABLE),
+        "unsupported GPU keeps readback");
+    check(!FramePipeline.readbackAllowed(0), "shared set uses GPU copies");
     check(
         FramePipeline.gpuSet(new long[] {5, 9, 7}, 9, 2) == 2,
         "rotation starts at the preferred set");

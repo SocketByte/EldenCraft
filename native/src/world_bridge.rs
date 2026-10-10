@@ -1221,9 +1221,9 @@ impl Driver {
                 Some(origin),
             )
         }?;
-        if receipt.actual_delta > 0 {
+        if receipt.applied_delta() > 0 {
             crate::campaign_runtime::record_kill(&receipt);
-            Ok(receipt.actual_delta)
+            Ok(receipt.applied_delta())
         } else {
             Err("native enemy rejected world damage")
         }

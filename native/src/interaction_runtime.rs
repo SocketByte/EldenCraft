@@ -6,9 +6,9 @@ use crate::interaction_wire::{
     self as wire, Choice, Command, Input, Menu, Prompt, State, Subtitle,
 };
 use eldenring::cs::{
-    CSEzStateTalkEnv, CSEzStateTalkEvent, CSLuaEventManImp, CSNpcTalkIns, CSSessionManager,
-    FieldInsHandle, GameMan, LobbyState, MenuType, NpcParam, PlayerIns, ProtocolState,
-    SoloParamRepository, TalkParam, WorldChrMan,
+    CSEzStateTalkEnv, CSEzStateTalkEvent, CSNpcTalkIns, CSSessionManager, FieldInsHandle, GameMan,
+    LobbyState, MenuType, NpcParam, PlayerIns, ProtocolState, SoloParamRepository, TalkParam,
+    WorldChrMan,
 };
 use eldenring::ez_state::{EzStateEnvironmentQuery, EzStateRawValue, EzStateValue};
 use fromsoftware_shared::{FromStatic, program::Program};
@@ -333,17 +333,8 @@ fn menu_admitted(fresh_bridge: bool, offline_session: bool, script_owner: bool) 
     fresh_bridge && offline_session && script_owner
 }
 unsafe fn bonfire_menu_context() -> bool {
-    unsafe { CSLuaEventManImp::instance() }.is_ok_and(|events| {
-        let proxy = &events.lua_event_proxy;
-        let flags = proxy.control_flags;
-        (flags.bonfire_loop_begin_requested() || flags.bonfire_sitting_loop_active())
-            && !flags.bonfire_end_pending()
-            && !flags.bonfire_stand_up_in_progress()
-            && !flags.return_title_requested()
-            && !proxy.is_load_wait
-            && !proxy.is_lobby_state_client
-            && !proxy.is_net_message
-    })
+    // Use the same offline/player/rest evidence as passive reset recovery.
+    unsafe { crate::grace_reset::sample() }.is_some_and(|sample| sample.rest.is_some())
 }
 unsafe fn owner(npc: &CSNpcTalkIns) -> Option<Owner> {
     let w = unsafe { WorldChrMan::instance() }.ok()?;
@@ -1837,11 +1828,21 @@ mod tests {
             block: 33,
             feet: [0., 0., 0.],
             activity_ready: false,
-            rest: Some(crate::grace_reset::Rest {
+            // Reproduce the offline reset from the live failed Show receipt:
+            // begin/sitting flags are valid even with the Lua message flag set.
+            rest: crate::grace_reset::RestCheck {
+                flags: 0xa0,
+                load_wait: false,
+                lobby_client: false,
+                net_message: true,
                 script: 44,
-                bonfire: 100001951,
-            }),
+                map_reentry: false,
+                bonfire: 11051954,
+                rejection: None,
+            }
+            .context(),
         };
+        assert!(resting.rest.is_some());
         let mut list = List {
             owner: Some(owner),
             generation: 55,

@@ -3,6 +3,10 @@
 texture EcOverlayTexture : ELDENCRAFT_OVERLAY;
 texture EcSceneTexture : ELDENCRAFT_SCENE;
 texture EcSceneDepthTexture : ELDENCRAFT_SCENE_DEPTH;
+texture EcSceneMaskTexture : ELDENCRAFT_SCENE_MASK;
+texture EcSceneBoundsTexture : ELDENCRAFT_SCENE_BOUNDS;
+sampler EcSceneMaskSampler { Texture=EcSceneMaskTexture; AddressU=CLAMP; AddressV=CLAMP; MinFilter=POINT; MagFilter=POINT; MipFilter=POINT; };
+sampler EcSceneBoundsSampler { Texture=EcSceneBoundsTexture; AddressU=CLAMP; AddressV=CLAMP; MinFilter=POINT; MagFilter=POINT; MipFilter=POINT; };
 texture EcHostDepthTexture : DEPTH;
 texture EcAvatarTexture : ELDENCRAFT_AVATAR;
 texture EcAvatarDepthTexture : ELDENCRAFT_AVATAR_DEPTH;
@@ -36,6 +40,7 @@ texture EcLightTexture { Width=BUFFER_WIDTH/64; Height=BUFFER_HEIGHT/64; Format=
 sampler EcLightSampler { Texture=EcLightTexture; AddressU=CLAMP; AddressV=CLAMP; MinFilter=LINEAR; MagFilter=LINEAR; MipFilter=LINEAR; };
 uniform int EcSceneDebug < ui_type="combo"; ui_label="Scene depth inspection"; ui_items="Off\0Host raw depth\0Host metre bands\0Guest scene inspection\0"; > = 0;
 uniform bool EcSceneReady=false,EcDepthReady=false,EcSceneZeroToOne=true;
+uniform bool EcSceneMaskReady=false;
 uniform bool EcBlocksReady=false;
 uniform bool EcAvatarReady=false;
 uniform float4 EcAvatarInverse0,EcAvatarInverse1,EcAvatarInverse2,EcAvatarInverse3;
@@ -130,6 +135,11 @@ float EcHostMetres(float depth) {
 bool EcReadScene(float2 imageUv,out float3 world) {
     world=0;
     if(any(imageUv<0)||any(imageUv>=1))return false;
+    if(EcSceneMaskReady){
+        float2 pixel=min(floor(imageUv/EcSceneTexel),round(1/EcSceneTexel)-1);
+        float4 bounds=tex2Dlod(EcSceneMaskSampler,float4((floor(pixel/16)+.5)/float2(240,135),0,0));
+        if(any(pixel<bounds.xy)||any(pixel>=bounds.zw))return false;
+    }
     // POINT depth belongs to a texel centre. Using the unsnapped probe NDC
     // reconstructs a different ray and makes adjacent cube faces swim.
     imageUv=(floor(imageUv/EcSceneTexel)+.5)*EcSceneTexel;
@@ -180,11 +190,39 @@ float EcSurfaceDistance(float2 imageUv,float3 surfacePosition,float3 ray) {
     if(length(dx)>limit||length(dy)>limit)return fallback;
     return EcPlaneDistance(surfacePosition,EcHostTranslation,EcHostForward,ray,dx,dy);
 }
+// EC_SCENE_MASK_INTERSECTION_BEGIN -- tested with projected sample paths.
+bool EcMaskIntersects(float2 a,float2 b,float4 bounds) {
+    float2 direction=b-a;bool2 parallel=abs(direction)<1e-8;
+    if((parallel.x&&(a.x<bounds.x||a.x>bounds.z))
+        ||(parallel.y&&(a.y<bounds.y||a.y>bounds.w)))return false;
+    float2 safe=float2(parallel.x?1:direction.x,parallel.y?1:direction.y);
+    float2 lo=(bounds.xy-a)/safe,hi=(bounds.zw-a)/safe;
+    float2 enter=min(lo,hi),leave=max(lo,hi);
+    if(parallel.x){enter.x=0;leave.x=1;}if(parallel.y){enter.y=0;leave.y=1;}
+    return max(0,max(enter.x,enter.y))<=min(1,min(leave.x,leave.y));
+}
+// EC_SCENE_MASK_INTERSECTION_END
+bool EcSceneRayOccupied(float3 ray,float limit) {
+    if(!EcSceneMaskReady)return true;
+    float4 bounds=tex2Dlod(EcSceneBoundsSampler,float4(.5,.5,0,0));
+    if(any(bounds.zw<=bounds.xy))return false;
+    float4 a=EcProject(EcHostTranslation+ray*.05),b=EcProject(EcHostTranslation+ray*limit);
+    // Crossing the guest camera plane can put probes outside the projected
+    // endpoint segment. Keep the full original search for that case.
+    if(a.w<=.0001||b.w<=.0001)return true;
+    float2 first=a.xy/a.w*float2(.5,-.5)+.5,last=b.xy/b.w*float2(.5,-.5)+.5;
+    if(EcBottomUp){first.y=1-first.y;last.y=1-last.y;}
+    // A texel of padding covers point-sample rounding at silhouettes. This mask
+    // rejects only empty rays; all surviving rays use the original probes/refinement.
+    bounds=(bounds+float4(-1,-1,1,1))*EcSceneTexel.xyxy;
+    return EcMaskIntersects(first,last,bounds);
+}
 float4 EcCapturedScene(float2 uv,float limit,out float surfaceDistance) {
     surfaceDistance=1e8;
     if(!EcSceneReady)return 0;
     float3 ray=EcHostForward+EcHostRight*((uv.x*2-1)*EcHostLens.x*EcHostLens.y)+EcHostUp*((1-uv.y*2)*EcHostLens.x);
     if(limit<=.05)return 0;
+    if(!EcSceneRayOccupied(ray,limit))return 0;
     float3 samplePoint=0;float2 sceneUv=0;bool found=false;float distance=limit;
     // Geometric probes .05*(limit/.05)^(i/11): one pow per pixel, not per step.
     float probeGrowth=pow(max(limit/.05,1),1.0/11),probe=.05/probeGrowth;

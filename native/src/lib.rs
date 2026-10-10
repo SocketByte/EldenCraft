@@ -1,4 +1,6 @@
 //! Offline Elden Ring host for actual Minecraft passthrough.
+#[cfg(any(windows, test))]
+mod boss_damage_links;
 mod boss_fmg;
 mod boss_hud;
 pub mod campaign;

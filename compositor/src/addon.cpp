@@ -5,6 +5,7 @@
 #include "block_mapping.hpp"
 #include "block_renderer.hpp"
 #include "gpu_host.hpp"
+#include "scene_mask.hpp"
 #include "nether_mapping.hpp"
 #include <algorithm>
 #include <array>
@@ -21,9 +22,9 @@ constexpr const char *semantic = "ELDENCRAFT_OVERLAY";
 // ReShade 6.8 update_texture_bindings() waits for the whole graphics queue to
 // go idle before writing descriptors. Only rebind when a view actually changes.
 enum Binding : std::size_t {overlay_binding,scene_binding,scene_depth_binding,avatar_binding,avatar_depth_binding,
-    block_color_binding,block_depth_binding,binding_count};
+    block_color_binding,block_depth_binding,scene_mask_binding,scene_bounds_binding,binding_count};
 constexpr std::array<const char *,binding_count> binding_semantics={semantic,"ELDENCRAFT_SCENE","ELDENCRAFT_SCENE_DEPTH",
-    "ELDENCRAFT_AVATAR","ELDENCRAFT_AVATAR_DEPTH","ELDENCRAFT_BLOCK_COLOR","ELDENCRAFT_BLOCK_DEPTH"};
+    "ELDENCRAFT_AVATAR","ELDENCRAFT_AVATAR_DEPTH","ELDENCRAFT_BLOCK_COLOR","ELDENCRAFT_BLOCK_DEPTH","ELDENCRAFT_SCENE_MASK","ELDENCRAFT_SCENE_BOUNDS"};
 constexpr std::array<const char *,4> scene_projection_names={"EcSceneProjection0","EcSceneProjection1","EcSceneProjection2","EcSceneProjection3"};
 constexpr std::array<const char *,4> scene_inverse_names={"EcSceneInverse0","EcSceneInverse1","EcSceneInverse2","EcSceneInverse3"};
 constexpr std::array<const char *,4> avatar_inverse_names={"EcAvatarInverse0","EcAvatarInverse1","EcAvatarInverse2","EcAvatarInverse3"};
@@ -42,9 +43,12 @@ struct __declspec(uuid("3d398506-a6ea-4f25-88ea-d14f721efb7c")) State {
     eldencraft::frames::Frame frame;
     eldencraft::blocks::Reader blocks_reader;
     eldencraft::blocks::Mailbox blocks_animation;
+    eldencraft::blocks::Mailbox blocks_light;
     eldencraft::blocks::Renderer blocks_renderer;
     eldencraft::blocks::AckWriter blocks_ack;
     eldencraft::gpu::Host gpu;
+    eldencraft::frames::SceneMask scene_mask;
+    bool mask_ready{},mask_enabled{};
     eldencraft::nether::Reader nether;
     // Which host camera submission each Present shows; how often each lead was chosen.
     eldencraft::frames::CameraPacer pacer;
@@ -135,6 +139,7 @@ void destroy(effect_runtime *runtime, State &state) {
     state.view={}; state.texture={}; state.copy_fence={}; state.width=state.height=state.row_pitch=0;
     state.last_upload=state.next_fence=state.uploaded_publication=0;
     state.scene_allocated=state.avatar_allocated=state.scene_uploaded=false;state.uploaded_scene={};
+    state.mask_ready=false;
     ++state.allocation_generation;
 }
 void bind_frame_textures(effect_runtime *runtime,State &s) {
@@ -146,6 +151,22 @@ void bind_frame_textures(effect_runtime *runtime,State &s) {
         bind(runtime,s,avatar_depth_binding,s.scene_views[3],generation);}
 }
 bool allocate(effect_runtime *runtime,State &s,std::uint32_t w,std::uint32_t h,bool scene,bool avatar) {
+    if(s.width==w&&s.height==h&&s.texture.handle){
+        auto *dev=runtime->get_device();const auto old_count=s.avatar_allocated?4u:s.scene_allocated?2u:0u;
+        const auto new_count=avatar?4u:scene?2u:0u;
+        for(std::size_t i=old_count;i<new_count;++i){const auto fmt=(i%2)==0?format::r8g8b8a8_unorm:format::r32_float;
+            if(!s.scene_textures[i].handle&&!dev->create_resource(resource_desc(w,h,1,1,fmt,1,memory_heap::default_,resource_usage::shader_resource|resource_usage::copy_dest),nullptr,resource_usage::shader_resource,&s.scene_textures[i]))return false;
+            if(!s.scene_views[i].handle&&!dev->create_resource_view(s.scene_textures[i],resource_usage::shader_resource,resource_view_desc(fmt),&s.scene_views[i]))return false;
+        }
+        // Only a CPU transport's upload buffers need resizing. GPU sharing keeps
+        // its overlay/world textures and fence intact when the F5 planes arrive.
+        if(new_count>old_count&&std::any_of(s.uploads.begin(),s.uploads.end(),[](const Upload &u){return u.buffer.handle!=0;})){
+            runtime->get_command_queue()->wait_idle();
+            for(auto &u:s.uploads){if(u.buffer.handle)dev->destroy_resource(u.buffer);u={};}
+        }
+        s.scene_allocated=s.scene_allocated||scene;s.avatar_allocated=s.avatar_allocated||avatar;
+        bind_frame_textures(runtime,s);return true;
+    }
     destroy(runtime,s); auto *dev=runtime->get_device();
     s.width=w; s.height=h; s.row_pitch=(w*4+255u)&~255u;
     if(!dev->create_resource(resource_desc(w,h,1,1,format::r8g8b8a8_unorm,1,memory_heap::default_,
@@ -176,6 +197,17 @@ void finish_upload(State &s,const eldencraft::frames::Descriptor &d,bool scene) 
     s.scene_uploaded=scene;s.uploaded_scene=s.reader.scene;s.uploaded_flags=d.flags;
     if(!s.reported) { s.reported=true; log_message(reshade::log::level::info,"EldenCraft compositor: first stable real Minecraft overlay uploaded."); }
 }
+void prepare_scene_mask(effect_runtime *runtime,State &s,bool scene){
+    s.mask_enabled=scene&&s.reader.pending_scene().mesh_revision&&texture_variable(runtime,s,"EcSceneMaskTexture").handle
+        &&s.scene_mask.prepare(runtime);
+    if(s.mask_enabled){
+        bind(runtime,s,scene_mask_binding,s.scene_mask.view(),1);
+        bind(runtime,s,scene_bounds_binding,s.scene_mask.bounds_view(),1);
+    }
+}
+void update_scene_mask(State &s,command_list *cmd,bool scene){
+    s.mask_ready=scene&&s.mask_enabled&&s.scene_mask.update(cmd,s.scene_views[1],s.width,s.height);
+}
 enum class UploadResult { uploaded, dropped, pending };
 // Zero-copy route: Minecraft rendered straight into a shared texture set. Copy
 // it into the private bound textures (GPU to GPU, no queue idle), then
@@ -187,6 +219,7 @@ UploadResult upload_gpu(effect_runtime *runtime,State &s,std::uint64_t now) {
     const bool scene=(d.flags&16)!=0, avatar=(d.flags&32)!=0;
     if((s.width!=d.width || s.height!=d.height||(scene&&!s.scene_allocated)||(avatar&&!s.avatar_allocated))
         && !allocate(runtime,s,d.width,d.height,scene,avatar)) return UploadResult::dropped;
+    prepare_scene_mask(runtime,s,scene);
     if(!s.reader.commit(s.frame,now)) return UploadResult::dropped;
     auto *cmd=queue->get_immediate_command_list();
     if(!cmd) return UploadResult::dropped;
@@ -200,6 +233,7 @@ UploadResult upload_gpu(effect_runtime *runtime,State &s,std::uint64_t now) {
     copy(2,s.texture);
     if(scene){copy(0,s.scene_textures[0]);copy(1,s.scene_textures[1]);}
     if(avatar){copy(3,s.scene_textures[2]);copy(4,s.scene_textures[3]);}
+    update_scene_mask(s,cmd,scene);
     queue->flush_immediate_command_list();
     const auto fence=++s.next_fence;
     if(!queue->signal(s.copy_fence,fence)) {
@@ -221,6 +255,7 @@ UploadResult upload(effect_runtime *runtime,State &s,std::uint64_t now) {
     const bool avatar=(d.flags&32)!=0;
     if((s.width!=d.width || s.height!=d.height||(scene&&!s.scene_allocated)||(avatar&&!s.avatar_allocated))
         && !allocate(runtime,s,d.width,d.height,scene,avatar)) return UploadResult::dropped;
+    prepare_scene_mask(runtime,s,scene);
     if(!ensure_upload_buffers(runtime,s)) return UploadResult::dropped;
     const auto completed=dev->get_completed_fence_value(s.copy_fence);
     auto slot=std::find_if(s.uploads.begin(),s.uploads.end(),[&](const Upload &u){return u.completion<=completed;});
@@ -250,6 +285,7 @@ UploadResult upload(effect_runtime *runtime,State &s,std::uint64_t now) {
     if(scene)for(std::size_t i=0;i<(avatar?4u:2u);++i){cmd->barrier(s.scene_textures[i],resource_usage::shader_resource,resource_usage::copy_dest);
         cmd->copy_buffer_to_texture(slot->buffer,plane_bytes*(i+1),s.row_pitch/4,s.height,s.scene_textures[i],0);
         cmd->barrier(s.scene_textures[i],resource_usage::copy_dest,resource_usage::shader_resource);}
+    update_scene_mask(s,cmd,scene);
     // Submission precedes the signal: an upload slot is reusable only when this
     // exact copy completed. Subsequent effects and future copies use this queue.
     queue->flush_immediate_command_list();
@@ -510,6 +546,8 @@ void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool a
     s.blocks_reader.poll(now,GetCurrentProcessId());
     const bool animation_polled=s.blocks_animation.poll(eldencraft::blocks::anim_name,eldencraft::blocks::anim_capacity,
         eldencraft::blocks::anim_magic,now,GetCurrentProcessId());
+    const bool light_polled=s.blocks_light.poll(eldencraft::blocks::light_name,eldencraft::blocks::light_capacity,
+        eldencraft::blocks::light_magic,now,GetCurrentProcessId());
     now=GetTickCount64(); // Observe producer deadlines after both mailbox reads.
     const bool mesh_available=s.blocks_reader.retained(now,GetCurrentProcessId());
     const auto *animation=(animation_polled||s.blocks_animation.retained(now,GetCurrentProcessId()))
@@ -522,8 +560,11 @@ void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool a
         const auto &mesh=s.blocks_reader.mesh.header;
         const auto &scene=s.uploaded_scene;
         if(mesh.epoch==camera.epoch&&mesh.map==camera.map&&mesh.anchor==scene.anchor) {
+            if((light_polled||s.blocks_light.retained(now,GetCurrentProcessId()))
+                &&mesh.same_context(s.blocks_light.header)&&mesh.atlas_revision==s.blocks_light.header.atlas_revision)
+                s.blocks_renderer.lighting(runtime,s.blocks_light.header,s.blocks_light.payload);
             const bool prepared_candidate=s.blocks_renderer.prepare(runtime,mesh,s.blocks_reader.mesh.payload,
-                s.blocks_reader.atlas.header,s.blocks_reader.atlas.payload,scene);
+                s.blocks_reader.atlas.header,s.blocks_reader.atlas.payload,scene,camera);
             const char *preparation_failure=prepared_candidate?nullptr:s.blocks_renderer.failure_reason();
             std::uint32_t w=0,h=0;runtime->get_screenshot_width_and_height(&w,&h);
             // A busy candidate upload must not hide the exact older revision
@@ -566,6 +607,7 @@ void update_scene(effect_runtime *runtime,command_list *commands,State &s,bool a
             ?"EldenCraft blocks: exact Minecraft mesh revision rendered with the submitted host camera."
             :"EldenCraft blocks: mesh/captured-exclusion handshake unavailable; native block pass hidden.");}
     boolean_uniform(runtime,s,"EcSceneReady",ready);boolean_uniform(runtime,s,"EcDepthReady",depth_ready);
+    boolean_uniform(runtime,s,"EcSceneMaskReady",ready&&s.mask_ready);
     boolean_uniform(runtime,s,"EcAvatarReady",ready&&(s.uploaded_flags&32)&&s.uploaded_scene.avatar_mode!=0);
     if(ready&&(s.uploaded_flags&32))for(int i=0;i<4;++i)
         uniform(runtime,s,avatar_inverse_names[i],s.uploaded_scene.avatar_inverse.data()+i*4,4);
@@ -637,6 +679,8 @@ void init_runtime(effect_runtime *runtime) {
 void destroy_runtime(effect_runtime *runtime) {
     if(auto *s=runtime->get_private_data<State>()) {
         s->blocks_ack.clear();s->blocks_renderer.destroy(runtime);
+        bind(runtime,*s,scene_mask_binding,{},0);bind(runtime,*s,scene_bounds_binding,{},0);
+        runtime->get_command_queue()->wait_idle();s->scene_mask.destroy(runtime);
         destroy(runtime,*s);s->gpu.destroy(runtime);runtime->destroy_private_data<State>();
     }
 }
@@ -672,6 +716,9 @@ void begin_effects(effect_runtime *runtime,command_list *commands,resource_view,
                     s->upload_ms+=elapsed_ms(upload_started);
                 }
             }
+        } else if(!s->failed&&s->reader.acquire(now)) {
+            const auto d=s->reader.descriptor();const bool shared=(d.flags&eldencraft::frames::gpu_shared_flag)!=0;
+            if((!shared||s->gpu.discardable(d))&&s->reader.discard(now)&&shared)s->gpu.discard_completed(d);
         }
         bind_frame_textures(runtime,*s);
         const auto display_now=GetTickCount64();

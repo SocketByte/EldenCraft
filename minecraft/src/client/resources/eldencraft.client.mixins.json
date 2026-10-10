@@ -89,6 +89,8 @@
     "BlockMeshLevelMixin",
     "BlockMeshDirtyMixin",
     "BlockMeshLightMixin",
+    "ColliderShapeAccessor",
+    "ColliderChunkMixin",
     "GuestResolutionWindowMixin",
     "TerrainMiningMixin",
     "BlockWorkMixin",

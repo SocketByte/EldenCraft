@@ -48,6 +48,15 @@ int main(){try{
     check(!reader.acquire(1500)&&!reader.fresh(1500),"explicit invalidation hides the frame");
     put(40,std::int32_t(0));publish(10,7,40);
     check(reader.poll(frame,1600)&&frame.overlay.size()==layer&&frame.overlay[0]==40,"copy-mode poll still owns private pixels");
+    publish(12,8,50);
+    check(reader.acquire(1700)&&reader.discard(1700),"gated host consumes metadata without pixel copy");
+    check(frame.publication==7&&frame.overlay[0]==40,"discard keeps the private displayed image untouched");
+    check(!reader.fresh(1700)&&!reader.acquire(1800),"discarded publication stays hidden and cannot be copied after acknowledgement");
+    publish(14,9,60);check(reader.acquire(1900),"next discard candidate acquired");
+    put(desc,std::uint64_t(16));check(!reader.discard(1900),"torn discard cannot authorize a texture acknowledgement");
+    check(reader.acquire(2000)&&reader.discard(2000),"torn discard retries the same publication");
+    publish(18,10,70);
+    check(reader.poll(frame,2100)&&frame.overlay[0]==70&&reader.fresh(2100),"composition resumes with a new image immediately after a menu");
     UnmapViewOfFile(data);CloseHandle(mapping);
     std::cout<<"Frame mapping checks passed: "<<checks<<"\n";return 0;
 }catch(const std::exception &error){std::cerr<<error.what()<<"\n";return 1;}}

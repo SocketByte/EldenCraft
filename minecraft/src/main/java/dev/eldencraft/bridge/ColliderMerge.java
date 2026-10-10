@@ -66,7 +66,12 @@ public final class ColliderMerge {
 
   /** Merge, then keep the {@code limit} boxes nearest to the point (nearest first). */
   public static List<Box> nearest(List<Box> boxes, double x, double y, double z, int limit) {
-    var merged = merge(boxes);
+    return nearestMerged(merge(boxes), x, y, z, limit);
+  }
+
+  /** Select from a cached exact merge; a changing player position never re-merges the world. */
+  public static List<Box> nearestMerged(List<Box> boxes, double x, double y, double z, int limit) {
+    var merged = new ArrayList<>(boxes);
     if (merged.size() <= limit) return merged;
     merged.sort(
         Comparator.comparingDouble((Box b) -> b.distanceSquared(x, y, z)).thenComparing(ORDER));

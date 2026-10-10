@@ -82,7 +82,10 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
   private boolean reportedDegraded;
   private final WorldIncoming incoming = new WorldIncoming();
   private final WorldTerrainLighting terrainLighting = new WorldTerrainLighting();
-  private String blocksHash = "";
+  private final PlacedColliders placedColliders = new PlacedColliders();
+  private List<ColliderMerge.Box> publishedColliders = List.of();
+  private WorldOrigin colliderOrigin;
+  private JsonArray publishedBlocks = new JsonArray();
 
   /** Native wire bound: at most 4096 boxes per publication. */
   private static final int MAX_COLLIDER_BOXES = 4096, MAX_RAW_COLLIDER_BOXES = 131072;
@@ -96,6 +99,12 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
   private static boolean clientGravity, clientPhysics;
 
   private SharedWorldClient() {}
+
+  /** Every successful server chunk edit, including commands, explosions and pistons. */
+  public static void collisionChanged(
+      ServerLevel level, BlockPos pos, BlockState before, BlockState after) {
+    INSTANCE.placedColliders.changed(level, pos, before, after);
+  }
 
   public static void initialize() {
     WorldDamageAuthority.adapter = INSTANCE;
@@ -134,6 +143,7 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
           WorldFlight.serverStopped(server);
           WorldTorrent.serverStopping(server);
           INSTANCE.terrainLighting.clear();
+          INSTANCE.placedColliders.clear();
         });
   }
 
@@ -418,7 +428,10 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
               && snapshot.get("map").getAsLong() == reference.map()
               && snapshot.get("host_pid").getAsLong() == reference.pid()
               && snapshot.get("session").getAsLong() == EVENTS.session();
-      var json = matches ? snapshot.deepCopy() : new JsonObject();
+      // Server snapshots and their children are immutable after publication. Only
+      // this client's top-level envelope is edited; large collider arrays can be shared.
+      var json = new JsonObject();
+      if (matches) for (var entry : snapshot.entrySet()) json.add(entry.getKey(), entry.getValue());
       json.addProperty("epoch", reference.epoch());
       json.addProperty("map", reference.map());
       json.addProperty("host_pid", reference.pid());
@@ -528,6 +541,8 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
         incoming.clear();
         clearGoals();
         difficultyConfigured = false;
+        placedColliders.clear();
+        colliderFeet = null;
       }
       incoming.enter(l.host.pid(), l.session, l.host.epoch());
       var player = game.getPlayerList().getPlayer(l.player);
@@ -900,48 +915,6 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
     proxyIds = Map.copyOf(ids);
   }
 
-  /**
-   * Collision boxes of real placed blocks (not shadow terrain) in the window, in Minecraft
-   * coordinates. Sections without a real block are skipped by their palette.
-   */
-  private static List<ColliderMerge.Box> placedCollision(ServerLevel level, ColliderWindow w) {
-    var boxes = new ArrayList<ColliderMerge.Box>();
-    var pos = new BlockPos.MutableBlockPos();
-    for (int sx = w.minX() >> 4; sx <= w.maxX() >> 4; sx++)
-      for (int sz = w.minZ() >> 4; sz <= w.maxZ() >> 4; sz++) {
-        var chunk = level.getChunkSource().getChunkNow(sx, sz);
-        if (chunk == null) continue;
-        for (int sy = w.minY() >> 4; sy <= w.maxY() >> 4; sy++) {
-          int index = chunk.getSectionIndexFromSectionY(sy);
-          if (index < 0 || index >= chunk.getSections().length) continue;
-          var section = chunk.getSection(index);
-          if (section.hasOnlyAir()
-              || !section.maybeHas(s -> !s.isAir() && !s.is(SharedWorldBlocks.TERRAIN))) continue;
-          for (int y = 0; y < 16; y++)
-            for (int z = 0; z < 16; z++)
-              for (int x = 0; x < 16; x++) {
-                int bx = (sx << 4) + x, by = (sy << 4) + y, bz = (sz << 4) + z;
-                if (!w.contains(bx, by, bz)) continue;
-                var state = section.getBlockState(x, y, z);
-                if (state.isAir() || state.is(SharedWorldBlocks.TERRAIN)) continue;
-                pos.set(bx, by, bz);
-                for (var box : state.getCollisionShape(level, pos).toAabbs()) {
-                  if (boxes.size() >= MAX_RAW_COLLIDER_BOXES) return boxes;
-                  boxes.add(
-                      new ColliderMerge.Box(
-                          bx + box.minX,
-                          by + box.minY,
-                          bz + box.minZ,
-                          bx + box.maxX,
-                          by + box.maxY,
-                          bz + box.maxZ));
-                }
-              }
-        }
-      }
-    return boxes;
-  }
-
   private void applyIncoming(ServerLevel level, Lease l) {
     if (l.host.guestSession() != l.session) return;
     long now = l.clock + (System.nanoTime() - l.readNanos) / 1_000_000;
@@ -974,7 +947,6 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
     // independent high-water on the client could pair a new ACK with old HP.
     json.addProperty("ack_incoming", incoming.ack(l.host.pid(), l.session, l.host.epoch()));
     var mobs = new JsonArray();
-    var blocks = new JsonArray();
     var expiredGoals = goals.entrySet().iterator();
     while (expiredGoals.hasNext()) {
       var entry = expiredGoals.next();
@@ -1030,28 +1002,30 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
     colliderMillis = millis;
     var window = ColliderWindow.around(feet.x, feet.y, feet.z, vx, vy, vz);
     var merged =
-        ColliderMerge.nearest(
-            placedCollision(level, window), feet.x, feet.y, feet.z, MAX_COLLIDER_BOXES);
-    for (int start = 0; start < merged.size(); start += 64) {
-      var boxes = new JsonArray();
-      for (var box : merged.subList(start, Math.min(merged.size(), start + 64))) {
-        var min = o.toHost(box.minX(), box.minY(), box.minZ());
-        var max = o.toHost(box.maxX(), box.maxY(), box.maxZ());
-        boxes.add(JsonWire.vector(min.x(), min.y(), min.z(), max.x(), max.y(), max.z()));
+        placedColliders.get(
+            level, window, feet.x, feet.y, feet.z, MAX_COLLIDER_BOXES, MAX_RAW_COLLIDER_BOXES);
+    if (!Objects.equals(colliderOrigin, o) || !publishedColliders.equals(merged)) {
+      var blocks = new JsonArray();
+      for (int start = 0; start < merged.size(); start += 64) {
+        var boxes = new JsonArray();
+        for (var box : merged.subList(start, Math.min(merged.size(), start + 64))) {
+          var min = o.toHost(box.minX(), box.minY(), box.minZ());
+          var max = o.toHost(box.maxX(), box.maxY(), box.maxZ());
+          boxes.add(JsonWire.vector(min.x(), min.y(), min.z(), max.x(), max.y(), max.z()));
+        }
+        var b = new JsonObject();
+        b.addProperty("key", "merged:" + (start / 64));
+        b.addProperty("state", "eldencraft:merged_collision");
+        b.add("boxes", boxes);
+        blocks.add(b);
       }
-      var b = new JsonObject();
-      b.addProperty("key", "merged:" + (start / 64));
-      b.addProperty("state", "eldencraft:merged_collision");
-      b.add("boxes", boxes);
-      blocks.add(b);
-    }
-    String hash = blocks.toString();
-    if (!hash.equals(blocksHash)) {
-      blocksHash = hash;
+      publishedBlocks = blocks;
+      publishedColliders = merged;
+      colliderOrigin = o;
       blocksRevision++;
     }
     json.addProperty("blocks_revision", blocksRevision);
-    json.add("blocks", blocks);
+    json.add("blocks", publishedBlocks);
     json.add("mobs", mobs);
     var fluids = new JsonArray();
     for (var proxy : proxies.values()) {

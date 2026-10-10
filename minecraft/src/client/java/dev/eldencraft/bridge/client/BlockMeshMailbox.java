@@ -26,7 +26,9 @@ final class BlockMeshMailbox implements AutoCloseable {
   }
 
   private static final VarHandle SEQ = ValueLayout.JAVA_LONG.varHandle();
-  private SharedMemory mesh, atlas, anim;
+  private SharedMemory mesh, atlas, anim, light;
+  private long lightSeq;
+  private byte[] lightHeader;
   private long animSeq;
   private byte[] animHeader;
   private MemorySegment guard = MemorySegment.NULL,
@@ -98,8 +100,30 @@ final class BlockMeshMailbox implements AutoCloseable {
     }
     mesh = SharedMemory.create("Local\\" + prefix + "Mesh", meshBytes);
     atlas = SharedMemory.create("Local\\" + prefix + "Atlas", atlasBytes);
-    if (animated)
+    if (animated) {
       anim = SharedMemory.create("Local\\" + prefix + "Anim", BlockMeshProtocol.ANIM_BYTES);
+      light = SharedMemory.create("Local\\" + prefix + "Light", BlockMeshProtocol.LIGHT_BYTES);
+    }
+  }
+
+  /** The real 16x16 lightmap updates independently of immutable geometry. */
+  void lighting(byte[] header, byte[] data) {
+    lightHeader = header.clone();
+    writeLight(data);
+  }
+
+  private void writeLight(byte[] data) {
+    if (light == null || lightHeader == null || closed) return;
+    var dst = light.segment;
+    SEQ.setVolatile(dst, 8L, lightSeq + 1);
+    VarHandle.fullFence();
+    var src = MemorySegment.ofArray(lightHeader);
+    MemorySegment.copy(src, 0, dst, 0, 8);
+    MemorySegment.copy(src, 16, dst, 16, 112);
+    if (data != null) MemorySegment.copy(MemorySegment.ofArray(data), 0, dst, 128, 1024);
+    VarHandle.fullFence();
+    SEQ.setVolatile(dst, 8L, lightSeq + 2);
+    lightSeq += 2;
   }
 
   /** Current frames of every animated sprite in the resident atlas. */
@@ -144,6 +168,13 @@ final class BlockMeshMailbox implements AutoCloseable {
       var b = ByteBuffer.wrap(atlasHeader).order(ByteOrder.LITTLE_ENDIAN);
       b.putLong(48, now).putInt(36, active ? 1 : 0);
       write(atlas, atlasHeader, null, true);
+    }
+    if (lightHeader != null) {
+      ByteBuffer.wrap(lightHeader)
+          .order(ByteOrder.LITTLE_ENDIAN)
+          .putLong(48, now)
+          .putInt(36, active ? 1 : 0);
+      writeLight(null);
     }
     if (animHeader != null && anim != null && !closed) {
       var b = ByteBuffer.wrap(animHeader).order(ByteOrder.LITTLE_ENDIAN);
@@ -246,6 +277,7 @@ final class BlockMeshMailbox implements AutoCloseable {
     if (mesh != null) mesh.close();
     if (atlas != null) atlas.close();
     if (anim != null) anim.close();
+    if (light != null) light.close();
     try {
       if (guard.address() != 0) {
         int ignored = (int) close.invokeExact(guard);

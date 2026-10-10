@@ -26,8 +26,8 @@ public final class HostDamageConformance {
     check(sample(state, 2, 1050, 90) == 0); // Duplicate frame cannot repeat a sound.
     check(sample(state, 3, 1100, 90) == 0);
     check(sample(state, 4, 1150, 95) == 0); // Healing rebases; it is not damage.
-    check(sample(state, 5, 1200, 80) == 15);
-    check(sample(state, 6, 1250, 0) == 80); // Visual hit only, never a guest death request.
+    check(sample(state, 5, 1200, 80) == 0); // The same drain does not restart after healing.
+    check(sample(state, 6, 1250, 0) == 0); // Continuing drain, never a guest death request.
     check(sample(state, 7, 1300, 100) == 0);
     state.reset();
     check(sample(state, 8, 1350, 50) == 0); // Focus/staleness/disconnect/dead guest gate.
@@ -61,6 +61,28 @@ public final class HostDamageConformance {
     check(state.observe(PLAYER, WORLD, 8, 43, 9, 1400, 0, 0) == 0);
     check(sample(state, 20, 2000, 1) == 0);
     check(sample(state, 21, 2249, 0) == 1); // Just inside the continuity bound.
+    state = new HostDamageState();
+    check(state.observe(PLAYER, WORLD, 7, 42, 1, 1000, 10000, 10000) == 0);
+    check(state.observe(PLAYER, WORLD, 7, 42, 2, 1050, 9500, 10000) == 500);
+    // Five seconds of Maliketh-like continuous HP drain: one animation/sound,
+    // while every sample still updates the HP baseline used for the next loss.
+    for (int tick = 1; tick <= 100; tick++) {
+      check(
+          state.observe(PLAYER, WORLD, 7, 42, 2 + tick, 1050 + tick * 50, 9500 - tick * 2, 10000)
+              == 0);
+    }
+    check(state.observe(PLAYER, WORLD, 7, 42, 103, 6100, 9500, 10000) == 0); // Healing during burn.
+    check(state.observe(PLAYER, WORLD, 7, 42, 104, 6150, 9498, 10000) == 0);
+    for (int tick = 1; tick <= 9; tick++) {
+      check(state.observe(PLAYER, WORLD, 7, 42, 104 + tick, 6150 + tick * 50, 9498, 10000) == 0);
+    }
+    check(state.observe(PLAYER, WORLD, 7, 42, 114, 6650, 9000, 10000) == 498); // A separate hit.
+    // A lower-frequency drain also stays quiet after the 500ms animation ends.
+    state = baseline();
+    check(sample(state, 2, 1100, 99) == 1);
+    for (int tick = 2; tick <= 30; tick++) {
+      check(sample(state, 1 + tick, 1000 + tick * 100, 100 - tick) == 0);
+    }
     System.out.println(
         "Host damage conformance: " + checks + " checks passed (pure feedback policy only).");
   }

@@ -63,6 +63,21 @@ public final class JsonWireConformance {
     rejects(() -> JsonWire.integer(null, 0, 1));
     check(JsonWire.vector(1, -2, 3).toString().equals("[1,-2,3]"));
     check(JsonWire.vector(0.5, -1.25, 2.0).get(1).getAsDouble() == -1.25);
+    var publication = new WorldPublication();
+    var envelope = new com.google.gson.JsonObject();
+    var boxes = new com.google.gson.JsonArray();
+    boxes.add(JsonWire.vector(1, 2, 3, 4, 5, 6));
+    envelope.add("blocks", boxes);
+    envelope.addProperty("text", "Minecraft 世界\n\"quoted\"");
+    envelope.addProperty("frame", 1);
+    check(JsonWire.parse(publication.encode(envelope, 4096)).equals(envelope));
+    envelope.addProperty("frame", 2);
+    check(JsonWire.parse(publication.encode(envelope, 4096)).equals(envelope));
+    var replacement = new com.google.gson.JsonArray();
+    replacement.add(JsonWire.vector(-1, -2, -3));
+    envelope.add("blocks", replacement);
+    check(JsonWire.parse(publication.encode(envelope, 4096)).equals(envelope));
+    rejects(() -> publication.encode(envelope, 10));
     System.out.println("JSON conformance: " + checks + " checks passed.");
   }
 }

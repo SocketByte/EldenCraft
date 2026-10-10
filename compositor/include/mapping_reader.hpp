@@ -134,5 +134,13 @@ public:
         scene=pending_.scene;
         return freshness_.observe(pending_.publication,now);
     }
+    // Consume metadata without copying pixels or making the discarded image
+    // fresh. A later acquire must not copy the texture after it was released.
+    bool discard(std::uint64_t now) {
+        if(!coherent()){acquired_=false;return false;}
+        acquired_=false;
+        const bool consumed=freshness_.observe(pending_.publication,now);
+        freshness_.invalidate();return consumed;
+    }
 };
 } // namespace eldencraft::frames

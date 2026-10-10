@@ -115,6 +115,40 @@ public final class ColliderConformance {
     } catch (IllegalArgumentException expected) {
       check(true, "degenerate boxes are rejected");
     }
+    var cache = new ColliderSnapshotCache();
+    Object owner = new Object();
+    int[] scans = {0};
+    java.util.function.Supplier<List<ColliderMerge.Box>> scan =
+        () -> {
+          scans[0]++;
+          return floor;
+        };
+    var cached = cache.get(owner, still, 1, 100, 64, -20, 4096, scan);
+    check(
+        cache.get(owner, nudged, 1, 101, 64, -20, 4096, scan) == cached && scans[0] == 1,
+        "moving within the window reuses exact collision without scanning or merging");
+    cache.get(owner, still, 2, 101, 64, -20, 4096, scan);
+    check(scans[0] == 2, "block or dynamic-shape revision invalidates the merge");
+    cache.get(owner, dash, 2, 101, 64, -20, 4096, scan);
+    check(scans[0] == 3, "entering coverage scans new collision");
+    cache.get(new Object(), dash, 2, 101, 64, -20, 4096, scan);
+    check(scans[0] == 4, "replacement world cannot reuse an old merge");
+    var capped = new ColliderSnapshotCache();
+    Object cappedOwner = new Object();
+    int[] cappedScans = {0};
+    java.util.function.Supplier<List<ColliderMerge.Box>> cappedScan =
+        () -> {
+          cappedScans[0]++;
+          return scattered;
+        };
+    var nearStart = capped.get(cappedOwner, still, 1, 0, 1, 0, 5, cappedScan);
+    var nearEnd = capped.get(cappedOwner, still, 1, 57, 1, 0, 5, cappedScan);
+    check(
+        cappedScans[0] == 1 && !nearStart.equals(nearEnd),
+        "capped selection follows feet without rescanning");
+    check(
+        nearEnd.equals(ColliderMerge.nearest(scattered, 57, 1, 0, 5)),
+        "cached selection equals exact reference");
     System.out.println("ColliderConformance: " + checks + " checks passed");
   }
 }

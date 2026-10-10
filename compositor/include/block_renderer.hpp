@@ -17,7 +17,8 @@ public:
     Renderer &operator=(const Renderer &) = delete;
     bool prepare(reshade::api::effect_runtime *, const MeshHeader &,
         std::span<const std::uint8_t>, const AtlasHeader &, std::span<const std::uint8_t>,
-        const frames::Scene &displayed_scene);
+        const frames::Scene &displayed_scene, const frames::HostCamera &camera);
+    bool lighting(reshade::api::effect_runtime *, const Header &, std::span<const std::uint8_t>);
     // `animation`: optional fresh EldenCraftBlockAnim publication; its sprite frames are
     // copied into the rendered atlas when they name that atlas revision.
     bool render(reshade::api::effect_runtime *, reshade::api::command_list *,

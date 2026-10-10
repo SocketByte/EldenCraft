@@ -271,7 +271,7 @@ impl Driver {
                 match result {
                     Ok(result) => {
                         crate::campaign_runtime::record_kill(&result);
-                        if self.record_native_outcome(Some(result.actual_delta)) {
+                        if self.record_native_outcome(Some(result.applied_delta())) {
                             self.status.last = Some(format!(
                                 "receipt {} attack {} item {} mc_damage {} durability {}->{} native {:?}",
                                 receipt.sequence,

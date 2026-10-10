@@ -43,6 +43,52 @@ public final class BlockMeshConformance {
   }
 
   public static void main(String[] args) {
+    var raw =
+        BlockMeshProtocol.header(
+            BlockMeshProtocol.MESH_MAGIC, ID, 1000, 6, 7, 3, 28, 84, 3, 0, 0, true);
+    check(
+        ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).getInt(76) == 28,
+        "raw vanilla ARGB and light UV layout supported alongside legacy details");
+    var light =
+        BlockMeshProtocol.header(
+            BlockMeshProtocol.LIGHT_MAGIC, ID, 1000, 8, 7, 16, 16, 1024, 0, 0, 0, true);
+    check(
+        ByteBuffer.wrap(light).order(ByteOrder.LITTLE_ENDIAN).getLong(56) == 8,
+        "lightmap revision is independent of geometry");
+    rejects(
+        () ->
+            BlockMeshProtocol.header(
+                BlockMeshProtocol.LIGHT_MAGIC, ID, 0, 1, 1, 16, 16, 1020, 0, 0, 0, true),
+        "truncated lightmap rejected");
+    byte[] solid = new byte[84], glass = new byte[84];
+    solid[20] = 31;
+    solid[24] = (byte) 240;
+    glass[20] = 93;
+    var assembled =
+        MeshPayload.assemble(
+            List.<byte[][]>of(new byte[][] {solid, new byte[0], glass}), null, null);
+    check(
+        assembled.changed() && Arrays.equals(assembled.counts(), new int[] {3, 0, 3}),
+        "worker counts complete triangles per layer");
+    check(
+        assembled.bytes()[20] == 31
+            && assembled.bytes()[24] == (byte) 240
+            && assembled.bytes()[84 + 20] == 93,
+        "worker preserves raw color, light and layer order");
+    check(
+        !MeshPayload.assemble(
+                List.<byte[][]>of(new byte[][] {solid, new byte[0], glass}),
+                assembled.bytes(),
+                assembled.counts())
+            .changed(),
+        "unchanged geometry does not upload again");
+    rejects(
+        () ->
+            MeshPayload.assemble(
+                List.<byte[][]>of(new byte[][] {new byte[27], new byte[0], new byte[0]}),
+                null,
+                null),
+        "partial raw vertex rejected");
     var h =
         ByteBuffer.wrap(
                 BlockMeshProtocol.header(

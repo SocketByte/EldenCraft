@@ -12,6 +12,8 @@ use serde::Serialize;
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct Eligibility {
     pub enemy_class: bool,
+    /// Human NPC bosses such as Gideon inherit PlayerIns, not EnemyIns.
+    pub player_class: bool,
     pub character_type: i32,
     pub team: u8,
     pub player_team: u8,
@@ -19,22 +21,26 @@ pub struct Eligibility {
     /// Registration of this exact handle in the boss-health roster establishes
     /// its combat role independently of PvP/PvE appearance type or lock-on.
     pub boss_registered: bool,
+    /// An exact authored body/owner pair with its current native boss roster.
+    /// This does not infer an encounter from a matching model or nearby boss.
+    pub boss_damage_linked: bool,
     pub lock_distance: u8,
     pub lock_disabled: bool,
 }
 impl Eligibility {
-    fn rejection(self) -> Option<&'static str> {
-        if !self.enemy_class {
+    pub(crate) fn rejection(self) -> Option<&'static str> {
+        let boss_role = self.boss_registered || self.boss_damage_linked;
+        if !self.enemy_class && !(self.player_class && self.boss_registered) {
             Some("not_enemy_class")
-        } else if !self.boss_registered && !native_enemy_type(self.character_type) {
+        } else if !boss_role && !native_enemy_type(self.character_type) {
             Some("not_native_npc")
         } else if self.team == self.player_team {
             Some("same_team")
         } else if !self.npc_param_present {
             Some("npc_param_missing")
-        } else if !self.boss_registered && self.lock_distance == 0 {
+        } else if !boss_role && self.lock_distance == 0 {
             Some("npc_not_lockable")
-        } else if !self.boss_registered && self.lock_disabled {
+        } else if !boss_role && self.lock_disabled {
             Some("native_lock_disabled")
         } else {
             None
@@ -109,25 +115,30 @@ pub struct RejectedShapes {
 /// incomplete Rust enum is instantiated from the native character type.
 #[cfg(windows)]
 pub fn eligibility(chr: &eldenring::cs::ChrIns, player_team: u8) -> Eligibility {
-    use eldenring::cs::{EnemyIns, NpcParam, SoloParamRepository};
+    use eldenring::cs::{EnemyIns, NpcParam, PlayerIns, SoloParamRepository};
     use fromsoftware_shared::{FromStatic, Superclass};
     let enemy_class = chr.as_subclass::<EnemyIns>().is_some();
+    let player_class = chr.as_subclass::<PlayerIns>().is_some();
+    let boss_registered = registered_boss(chr);
     let character_type = unsafe { std::ptr::addr_of!(chr.chr_type).cast::<i32>().read() };
-    let lock_distance = if enemy_class && chr.npc_param_id >= 0 {
-        unsafe { SoloParamRepository::instance() }
-            .ok()
-            .and_then(|repo| repo.get::<NpcParam>(chr.npc_param_id as u32))
-            .map(|row| row.lock_dist())
-    } else {
-        None
-    };
+    let lock_distance =
+        if (enemy_class || (player_class && boss_registered)) && chr.npc_param_id >= 0 {
+            unsafe { SoloParamRepository::instance() }
+                .ok()
+                .and_then(|repo| repo.get::<NpcParam>(chr.npc_param_id as u32))
+                .map(|row| row.lock_dist())
+        } else {
+            None
+        };
     Eligibility {
         enemy_class,
+        player_class,
         character_type,
         team: chr.team_type,
         player_team,
         npc_param_present: lock_distance.is_some(),
-        boss_registered: registered_boss(chr),
+        boss_registered,
+        boss_damage_linked: crate::boss_damage_links::registered_body(chr),
         lock_distance: lock_distance.unwrap_or(0),
         lock_disabled: chr.chr_ctrl.modifier.data.action_flags.disable_lock_on(),
     }
@@ -167,6 +178,7 @@ pub fn boss_encounter(chr: &eldenring::cs::ChrIns) -> bool {
         })
     });
     registered
+        || crate::boss_damage_links::registered_body(chr)
         || (chr.npc_param_id >= 0
             && unsafe { SoloParamRepository::instance() }
                 .ok()
@@ -1143,6 +1155,8 @@ mod live {
                 reject_boss(&mut snapshot, chr, "target_bounds_out_of_range");
                 continue;
             }
+            let (hp, max_hp) = crate::boss_damage_links::published_health(chr)
+                .unwrap_or((chr.modules.data.hp, chr.modules.data.max_hp));
             snapshot.candidates.push(Candidate {
                 handle: handle(chr),
                 instance_token: ptr as usize,
@@ -1158,8 +1172,8 @@ mod live {
                 map_shape,
                 proxy_min_havok,
                 proxy_max_havok,
-                hp: chr.modules.data.hp,
-                max_hp: chr.modules.data.max_hp,
+                hp,
+                max_hp,
                 player_distance_m: distance,
                 ray_entry_m: None,
                 ray_obstructed: None,
@@ -1413,14 +1427,60 @@ mod tests {
     fn ordinary_enemy() -> Eligibility {
         Eligibility {
             enemy_class: true,
+            player_class: false,
             character_type: eldenring::cs::ChrType::Npc as i32,
             team: 6,
             player_team: 0,
             npc_param_present: true,
             boss_registered: false,
+            boss_damage_linked: false,
             lock_distance: 20,
             lock_disabled: false,
         }
+    }
+    #[test]
+    fn authored_shared_health_bodies_keep_their_boss_role_without_relaxing_team_or_class() {
+        let body = Eligibility {
+            boss_damage_linked: true,
+            character_type: 1,
+            lock_distance: 0,
+            lock_disabled: true,
+            ..ordinary_enemy()
+        };
+        assert_eq!(body.rejection(), None);
+        assert_eq!(
+            Eligibility {
+                boss_damage_linked: false,
+                ..body
+            }
+            .rejection(),
+            Some("not_native_npc")
+        );
+        assert_eq!(
+            Eligibility {
+                team: body.player_team,
+                ..body
+            }
+            .rejection(),
+            Some("same_team")
+        );
+        assert_eq!(
+            Eligibility {
+                npc_param_present: false,
+                ..body
+            }
+            .rejection(),
+            Some("npc_param_missing")
+        );
+        assert_eq!(
+            Eligibility {
+                enemy_class: false,
+                player_class: true,
+                ..body
+            }
+            .rejection(),
+            Some("not_enemy_class")
+        );
     }
     #[test]
     fn registered_bosses_survive_missing_distance_entries_and_scan_limits() {
@@ -1516,16 +1576,68 @@ mod tests {
         );
     }
     #[test]
+    fn registered_player_ins_npc_bosses_publish_pickable_hitboxes() {
+        // Live Gideon: PlayerIns, type 5, team 6 versus the local player's team 1;
+        // his exact boss-health registration is the positive combat-role evidence.
+        let gideon = Eligibility {
+            enemy_class: false,
+            player_class: true,
+            character_type: eldenring::cs::ChrType::Npc as i32,
+            team: 6,
+            player_team: 1,
+            npc_param_present: true,
+            boss_registered: true,
+            boss_damage_linked: false,
+            lock_distance: 0,
+            lock_disabled: false,
+        };
+        assert_eq!(gideon.rejection(), None);
+        let (_, [height, radius]) =
+            select_authored_shape(shape(1.8, 0.3), None, None, None).unwrap();
+        let (min, max) = combat_bounds([0., 0., 3.], height, radius, HitboxPadding::default());
+        assert!(ray_aabb([0., 1.6, 0.], [0., 0., 1.], min, max, PLAYER_TEST_REACH).is_some());
+        // Other players, neutral spell helpers and friendly NPCs are not
+        // admitted merely because they share Gideon's native character class.
+        for (target, reason) in [
+            (
+                Eligibility {
+                    boss_registered: false,
+                    ..gideon
+                },
+                "not_enemy_class",
+            ),
+            (
+                Eligibility {
+                    player_class: false,
+                    ..gideon
+                },
+                "not_enemy_class",
+            ),
+            (Eligibility { team: 1, ..gideon }, "same_team"),
+            (
+                Eligibility {
+                    npc_param_present: false,
+                    ..gideon
+                },
+                "npc_param_missing",
+            ),
+        ] {
+            assert_eq!(target.rejection(), Some(reason));
+        }
+    }
+    #[test]
     fn fire_giant_combat_body_qualifies_without_its_phase_two_gauge_registration() {
         // Live 47600050: the gauge belongs to dormant 47601050, so this
         // attacking body is unregistered and reports native character type 7.
         let fire_giant = Eligibility {
             enemy_class: true,
+            player_class: false,
             character_type: eldenring::cs::ChrType::Unk7 as i32,
             team: 33,
             player_team: 1,
             npc_param_present: true,
             boss_registered: false,
+            boss_damage_linked: false,
             lock_distance: 100,
             lock_disabled: false,
         };

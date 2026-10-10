@@ -1227,7 +1227,7 @@ impl Host {
             });
         // Vanilla getting-hit feedback: camera tilt toward the attacker and knockback
         // away from it (none while a raised shield takes the hit).
-        if self.hurt.observe(state.identity, state.hp) && compositor_ready {
+        if self.hurt.observe(state.identity, state.hp, now_ms) && compositor_ready {
             let away = unsafe { crate::hurt::away_from_attacker() };
             if let Ok(mut camera) = self.passthrough_camera.try_lock() {
                 camera.hurt(away);

@@ -40,10 +40,10 @@
   },
   "combat": {
     "nativeDamageScale": 36,
-    "explosionDamageScale": 0.125,
+    "explosionDamageScale": 0.595,
     "lavaDamageScale": 0.075,
-    "crossbowBaseDamage": 2,
-    "bowBaseDamage": 1,
+    "crossbowBaseDamage": 6,
+    "bowBaseDamage": 3,
     "nativeIncomingDamageScale": 1,
     "nativeEnemyDamageMultipliers": {}
   },
@@ -81,19 +81,19 @@
       "attackSpeed": 0.9
     },
     "minecraft:diamond_sword": {
-      "damage": 19.5,
+      "damage": 12.675,
       "attackSpeed": 1.6
     },
     "minecraft:diamond_axe": {
-      "damage": 31.5,
+      "damage": 20.475,
       "attackSpeed": 1
     },
     "minecraft:netherite_sword": {
-      "damage": 27,
+      "damage": 15.6,
       "attackSpeed": 1.6
     },
     "minecraft:netherite_axe": {
-      "damage": 43.5,
+      "damage": 23.725,
       "attackSpeed": 1
     },
     "minecraft:wooden_spear": {
@@ -117,11 +117,11 @@
       "attackSpeed": 1.0
     },
     "minecraft:diamond_spear": {
-      "damage": 21,
+      "damage": 13.65,
       "attackSpeed": 1.0
     },
     "minecraft:netherite_spear": {
-      "damage": 28.5,
+      "damage": 18.525,
       "attackSpeed": 1.0
     },
     "minecraft:mace": {
@@ -211,35 +211,35 @@
       "knockbackResistance": 0
     },
     "minecraft:diamond_helmet": {
-      "armor": 3,
+      "armor": 5,
       "knockbackResistance": 0
     },
     "minecraft:diamond_chestplate": {
-      "armor": 8,
+      "armor": 10,
       "knockbackResistance": 0
     },
     "minecraft:diamond_leggings": {
-      "armor": 6,
+      "armor": 8,
       "knockbackResistance": 0
     },
     "minecraft:diamond_boots": {
-      "armor": 3,
+      "armor": 5,
       "knockbackResistance": 0
     },
     "minecraft:netherite_helmet": {
-      "armor": 3,
+      "armor": 7,
       "knockbackResistance": 0.1
     },
     "minecraft:netherite_chestplate": {
-      "armor": 8,
+      "armor": 12,
       "knockbackResistance": 0.1
     },
     "minecraft:netherite_leggings": {
-      "armor": 6,
+      "armor": 10,
       "knockbackResistance": 0.1
     },
     "minecraft:netherite_boots": {
-      "armor": 3,
+      "armor": 7,
       "knockbackResistance": 0.1
     },
     "minecraft:turtle_helmet": {
@@ -295,87 +295,87 @@
     "staminaCurve": [
       {
         "level": 10,
-        "value": 50
+        "value": 54
       },
       {
         "level": 11,
-        "value": 51
+        "value": 58
       },
       {
         "level": 12,
-        "value": 52
-      },
-      {
-        "level": 13,
-        "value": 55
-      },
-      {
-        "level": 14,
-        "value": 57
-      },
-      {
-        "level": 15,
-        "value": 59
-      },
-      {
-        "level": 16,
         "value": 62
       },
       {
-        "level": 17,
-        "value": 64
-      },
-      {
-        "level": 18,
+        "level": 13,
         "value": 66
       },
       {
-        "level": 19,
-        "value": 68
-      },
-      {
-        "level": 20,
+        "level": 14,
         "value": 70
       },
       {
-        "level": 21,
-        "value": 72
-      },
-      {
-        "level": 22,
-        "value": 73
-      },
-      {
-        "level": 23,
+        "level": 15,
         "value": 74
       },
       {
+        "level": 16,
+        "value": 78
+      },
+      {
+        "level": 17,
+        "value": 80
+      },
+      {
+        "level": 18,
+        "value": 82
+      },
+      {
+        "level": 19,
+        "value": 84
+      },
+      {
+        "level": 20,
+        "value": 86
+      },
+      {
+        "level": 21,
+        "value": 88
+      },
+      {
+        "level": 22,
+        "value": 90
+      },
+      {
+        "level": 23,
+        "value": 92
+      },
+      {
         "level": 24,
-        "value": 76
+        "value": 94
       },
       {
         "level": 25,
-        "value": 79
+        "value": 96
       },
       {
         "level": 26,
-        "value": 81
+        "value": 98
       },
       {
         "level": 27,
-        "value": 83
+        "value": 100
       },
       {
         "level": 28,
-        "value": 85
+        "value": 101
       },
       {
         "level": 29,
-        "value": 87
+        "value": 102
       },
       {
         "level": 30,
-        "value": 90
+        "value": 103
       }
     ]
   },
@@ -836,28 +836,12 @@
       "remembrance": true,
       "rewards": [
         {
-          "item": "minecraft:netherite_sword",
-          "count": 1
-        },
-        {
-          "item": "minecraft:netherite_chestplate",
-          "count": 1
-        },
-        {
-          "item": "minecraft:smithing_table",
-          "count": 1
-        },
-        {
           "item": "minecraft:netherite_upgrade_smithing_template",
           "count": 2
         },
         {
-          "item": "minecraft:netherite_ingot",
-          "count": 2
-        },
-        {
           "item": "minecraft:enchanted_golden_apple",
-          "count": 1
+          "count": 12
         }
       ],
       "experience": 1500
@@ -872,20 +856,8 @@
           "count": 1
         },
         {
-          "item": "minecraft:netherite_leggings",
-          "count": 1
-        },
-        {
-          "item": "minecraft:netherite_upgrade_smithing_template",
-          "count": 2
-        },
-        {
-          "item": "minecraft:netherite_ingot",
-          "count": 2
-        },
-        {
           "item": "minecraft:enchanted_golden_apple",
-          "count": 1
+          "count": 12
         }
       ],
       "experience": 600
@@ -941,7 +913,7 @@
         },
         {
           "item": "minecraft:enchanted_golden_apple",
-          "count": 1
+          "count": 12
         },
         {
           "item": "minecraft:netherite_spear",
@@ -969,7 +941,7 @@
         },
         {
           "item": "minecraft:enchanted_golden_apple",
-          "count": 1
+          "count": 6
         }
       ],
       "experience": 1800
@@ -993,7 +965,7 @@
         },
         {
           "item": "minecraft:enchanted_golden_apple",
-          "count": 1
+          "count": 12
         }
       ],
       "experience": 2000
@@ -1012,12 +984,16 @@
           "count": 4
         },
         {
+          "item": "minecraft:elytra",
+          "count": 1
+        },
+        {
           "item": "minecraft:golden_apple",
-          "count": 4
+          "count": 24
         },
         {
           "item": "minecraft:enchanted_golden_apple",
-          "count": 1
+          "count": 24
         }
       ],
       "experience": 2400
@@ -1028,19 +1004,7 @@
       "remembrance": true,
       "rewards": [
         {
-          "item": "minecraft:netherite_ingot",
-          "count": 5
-        },
-        {
-          "item": "minecraft:golden_apple",
-          "count": 5
-        },
-        {
-          "item": "minecraft:diamond",
-          "count": 16
-        },
-        {
-          "item": "minecraft:enchanted_golden_apple",
+          "item": "minecraft:elytra",
           "count": 1
         }
       ],
@@ -4422,6 +4386,15 @@
           "item": "minecraft:arrow",
           "count": 16,
           "price": 100,
+          "stock": -1,
+          "unlock_any": [],
+          "unlock_all": []
+        },
+        {
+          "id": "firework_rockets",
+          "item": "minecraft:firework_rocket",
+          "count": 8,
+          "price": 400,
           "stock": -1,
           "unlock_any": [],
           "unlock_all": []

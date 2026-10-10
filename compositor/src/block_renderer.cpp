@@ -1,8 +1,10 @@
 #include "block_renderer.hpp"
+#include "block_bindings.hpp"
 #include "block_shader.hpp"
 #include "block_residency.hpp"
 #include "block_mapping.hpp"
 #include "block_details.hpp"
+#include "block_sort.hpp"
 #include <d3dcompiler.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -19,8 +21,6 @@ using namespace reshade::api;
 using Microsoft::WRL::ComPtr;
 namespace {
 constexpr std::uint32_t max_target_dimension=8192;
-struct Vertex { float position[3],uv[2];std::uint8_t tint[4]; };
-static_assert(sizeof(Vertex)==24);
 bool context(const Header &a,const Header &b) {
     return a.epoch==b.epoch && a.session==b.session && a.map==b.map
         && a.pid==b.pid && a.host_pid==b.host_pid && a.anchor==b.anchor;
@@ -38,7 +38,8 @@ bool upload_bytes(device *d,resource r,std::span<const std::uint8_t> bytes) {
 }
 bool valid_mesh(const Header &h,std::span<const std::uint8_t> data) {
     if(h.magic!=mesh_magic||h.flags!=1||!h.epoch||!h.session||!h.revision||!h.atlas_revision||!h.pid||h.host_pid!=GetCurrentProcessId()
-        ||h.count>max_vertices||h.stride!=24||h.bytes!=std::uint64_t(h.count)*24||data.size()!=h.bytes
+        ||h.count>max_vertices||(h.stride!=vertex_stride&&h.stride!=lit_vertex_stride)
+        ||h.bytes!=std::uint64_t(h.count)*h.stride||data.size()!=h.bytes
         ||std::uint64_t(h.solid)+h.cutout+h.translucent!=h.count||h.solid%3||h.cutout%3||h.translucent%3)return false;
     return true;
 }
@@ -49,18 +50,20 @@ struct Renderer::Impl {
     std::unique_ptr<Renderer> detail_renderer;
     std::uint64_t detail_report{};
     std::uint32_t detail_peak_cracks{},detail_peak_outlines{},detail_drawn_frames{};
-    struct Mesh {Header header{};resource vertices{};std::vector<Vertex> cpu;std::uint64_t capacity{},completion{},order{};bool valid{};};
+    struct Mesh {Header header{};resource vertices{},upload{},indices{};
+        std::vector<TriangleCenter> centers;std::vector<std::pair<double,std::uint32_t>> work;std::vector<std::uint32_t> sorted;
+        std::array<float,3> forward{};std::uint64_t capacity{},upload_capacity{},index_capacity{},upload_completion{},completion{},order{};bool valid{};};
     // anim_tick: the animation tick whose sprite frames this texture currently holds.
-    struct Atlas {Header header{};resource texture{},upload{};resource_view view{};std::uint64_t completion{},order{},anim_tick{};bool valid{};};
-    struct Sort {resource indices{};std::uint64_t completion{};};
+    struct Atlas {Header header{};resource texture{},upload{};resource_view view{};std::uint64_t upload_completion{},completion{},order{},anim_tick{};bool valid{};};
+    struct Sort {resource upload{};std::uint64_t capacity{},completion{};};
     struct AnimUpload {resource buffer{};std::uint64_t capacity{},completion{};};
     Mesh *pending_mesh{};Atlas *pending_atlas{};Sort *pending_sort{};AnimUpload *pending_anim{};
     std::array<Mesh,3> meshes{};std::array<Atlas,3> atlases{};std::array<Sort,3> sorts{};std::array<AnimUpload,3> anim_uploads{};
     std::vector<Region> regions;
-    // Back-to-front order of the last translucent sort, reused while the view holds still.
-    struct SortKey {std::uint64_t revision{},session{};std::array<double,3> position{};std::array<float,3> forward{};bool valid{};};
-    SortKey sort_key{};std::vector<std::uint32_t> sorted;
-    pipeline_layout layout{};std::array<pipeline,3> pipelines{};sampler point{};fence fence_{};
+    pipeline_layout layout{};std::array<pipeline,6> pipelines{};sampler point{};fence fence_{};
+    resource lightmap{};resource_view light_view{};Header light_header{};
+    struct LightUpload {resource buffer{};std::uint64_t completion{};};
+    std::array<LightUpload,3> light_uploads{};
     std::array<resource,2> targets{};std::array<resource_view,2> srvs{},rtvs{};resource zbuffer{};resource_view dsv{};
     std::uint32_t width{},height{};std::uint64_t serial{},order{},target_generation{};bool initialized{},failed{},rendered{};
     Header newest{};bool have_newest{};std::uint64_t newest_since{};
@@ -70,7 +73,7 @@ struct Renderer::Impl {
         failure=reason;
         if(!failed){
             char message[512]{};
-            std::snprintf(message,sizeof(message),"EldenCraft blocks: fatal renderer failure: %s. D3D12; root constants=32, SRVs=2, samplers=1; RTVs=RGBA8_UNORM/R32_FLOAT, DSV=D32_FLOAT.",reason);
+            std::snprintf(message,sizeof(message),"EldenCraft blocks: fatal renderer failure: %s. D3D12; root constants=32, SRVs=3, samplers=1; RTVs=RGBA8_UNORM/R32_FLOAT, DSV=D32_FLOAT.",reason);
             reshade::log::message(reshade::log::level::error,message);
         }
         failed=true;return false;
@@ -79,18 +82,20 @@ struct Renderer::Impl {
         if(failed)return false;if(initialized)return true;
         auto *d=runtime->get_device();
         if(d->get_api()!=device_api::d3d12)return fatal("initialization requires D3D12");
-        ComPtr<ID3DBlob> vs,ps,error;
+        std::array<ComPtr<ID3DBlob>,2> vs;ComPtr<ID3DBlob> ps,error;
         const UINT flags=D3DCOMPILE_ENABLE_STRICTNESS|D3DCOMPILE_OPTIMIZATION_LEVEL3;
-        if(FAILED(D3DCompile(block_shader,sizeof(block_shader)-1,"EldenCraftBlocks",nullptr,nullptr,"VS","vs_5_0",flags,0,&vs,&error))){
+        for(unsigned raw=0;raw<2;++raw){const D3D_SHADER_MACRO macros[]={{"RAW_LIGHT","1"},{nullptr,nullptr}};
+        if(FAILED(D3DCompile(block_shader,sizeof(block_shader)-1,"EldenCraftBlocks",raw?macros:nullptr,nullptr,"VS","vs_5_0",flags,0,&vs[raw],&error))){
             if(error)reshade::log::message(reshade::log::level::error,static_cast<const char *>(error->GetBufferPointer()));
             return fatal("compile VS/vs_5_0");
+        }
         }
         if(FAILED(D3DCompile(block_shader,sizeof(block_shader)-1,"EldenCraftBlocks",nullptr,nullptr,"PS","ps_5_0",flags,0,&ps,&error))){
             if(error)reshade::log::message(reshade::log::level::error,static_cast<const char *>(error->GetBufferPointer()));
             return fatal("compile PS/ps_5_0");
         }
         constant_range constants{};constants.count=32;constants.visibility=shader_stage::all_graphics;
-        descriptor_range texture{};texture.count=2;texture.type=descriptor_type::shader_resource_view;texture.visibility=shader_stage::pixel;
+        descriptor_range texture{};texture.count=3;texture.type=descriptor_type::shader_resource_view;texture.visibility=shader_stage::all_graphics;
         descriptor_range samplers{};samplers.count=1;samplers.type=descriptor_type::sampler;samplers.visibility=shader_stage::pixel;
         pipeline_layout_param params[]={pipeline_layout_param(constants),pipeline_layout_param(texture),pipeline_layout_param(samplers)};
         // Vanilla block rendering: nearest texels, linear between mip levels, so distant
@@ -101,19 +106,20 @@ struct Renderer::Impl {
         if(!d->create_pipeline_layout(3,params,&layout))return fatal("create pipeline layout/root signature");
         if(!d->create_sampler(sd,&point))return fatal("create point sampler");
         if(!d->create_fence(0,fence_flags::none,&fence_))return fatal("create submission fence");
-        input_element elements[3]{};
-        const char *names[] = {"POSITION","TEXCOORD","COLOR"};
-        const format fmts[] = {format::r32g32b32_float,format::r32g32_float,format::r8g8b8a8_unorm};
-        const std::uint32_t offsets[]={0,12,20};
-        for(unsigned i=0;i<3;++i){elements[i].location=i;elements[i].semantic=names[i];elements[i].format=fmts[i];elements[i].offset=offsets[i];elements[i].stride=24;}
-        shader_desc vertex{};vertex.code=vs->GetBufferPointer();vertex.code_size=vs->GetBufferSize();
+        input_element elements[4]{};
+        const char *names[] = {"POSITION","TEXCOORD","COLOR","TEXCOORD"};
+        const format fmts[] = {format::r32g32b32_float,format::r32g32_float,format::r8g8b8a8_unorm,format::r32_uint};
+        const std::uint32_t offsets[]={0,12,20,24};
+        for(unsigned i=0;i<4;++i){elements[i].location=i;elements[i].semantic=names[i];elements[i].semantic_index=i==3?1:0;elements[i].format=fmts[i];elements[i].offset=offsets[i];}
         shader_desc pixel{};pixel.code=ps->GetBufferPointer();pixel.code_size=ps->GetBufferSize();
         rasterizer_desc raster{};raster.cull_mode=cull_mode::none;raster.scissor_enable=true;
         if(details){raster.depth_bias=-10;raster.slope_scaled_depth_bias=-1;}
         primitive_topology topology=primitive_topology::triangle_list;
         format depth_format=format::d32_float;format color_formats[]={format::r8g8b8a8_unorm,format::r32_float};
         std::uint32_t samples=1;
-        for(unsigned i=0;i<3;++i){
+        for(unsigned raw=0;raw<2;++raw)for(unsigned i=0;i<3;++i){
+            shader_desc vertex{};vertex.code=vs[raw]->GetBufferPointer();vertex.code_size=vs[raw]->GetBufferSize();
+            for(auto &element:elements)element.stride=raw?lit_vertex_stride:vertex_stride;
             depth_stencil_desc depth{};depth.depth_func=compare_op::less_equal;depth.depth_write_mask=!details&&i!=2;
             blend_desc blend{};blend.render_target_write_mask[1]=1;
             if(details&&i==0){
@@ -128,11 +134,11 @@ struct Renderer::Impl {
                 blend.dest_alpha_blend_factor[0]=blend_factor::one_minus_source_alpha;}
             pipeline_subobject parts[]={
                 {pipeline_subobject_type::vertex_shader,1,&vertex},{pipeline_subobject_type::pixel_shader,1,&pixel},
-                {pipeline_subobject_type::input_layout,3,elements},{pipeline_subobject_type::blend_state,1,&blend},
+                {pipeline_subobject_type::input_layout,raw?4u:3u,elements},{pipeline_subobject_type::blend_state,1,&blend},
                 {pipeline_subobject_type::rasterizer_state,1,&raster},{pipeline_subobject_type::depth_stencil_state,1,&depth},
                 {pipeline_subobject_type::primitive_topology,1,&topology},{pipeline_subobject_type::depth_stencil_format,1,&depth_format},
                 {pipeline_subobject_type::render_target_formats,2,color_formats},{pipeline_subobject_type::sample_count,1,&samples}};
-            if(!d->create_pipeline(layout,static_cast<std::uint32_t>(std::size(parts)),parts,&pipelines[i]))
+            if(!d->create_pipeline(layout,static_cast<std::uint32_t>(std::size(parts)),parts,&pipelines[raw*3+i]))
                 return fatal(i==0?"create solid graphics pipeline":i==1?"create cutout graphics pipeline":"create translucent graphics pipeline");
         }
         initialized=true;failure=nullptr;return true;
@@ -199,8 +205,29 @@ struct Renderer::Impl {
 };
 Renderer::Renderer(bool details):impl_(std::make_unique<Impl>()){impl_->details=details;}
 Renderer::~Renderer()=default;
+bool Renderer::lighting(effect_runtime *runtime,const Header &header,std::span<const std::uint8_t> pixels){
+    auto &s=*impl_;if(!runtime||s.details||header.magic!=light_magic||header.flags!=1
+        ||pixels.size()!=1024||header.count!=16||header.stride!=16)return false;
+    if(!s.initialize(runtime))return false;
+    if(s.light_view.handle&&s.light_header.same_content(header))return true;
+    auto *d=runtime->get_device();const auto completed=d->get_completed_fence_value(s.fence_);
+    auto it=std::find_if(s.light_uploads.begin(),s.light_uploads.end(),[&](const Impl::LightUpload &u){return u.completion<=completed;});
+    if(it==s.light_uploads.end())return false;
+    if(!s.lightmap.handle){
+        if(!d->create_resource(resource_desc(16,16,1,1,format::r8g8b8a8_unorm,1,memory_heap::default_,resource_usage::copy_dest|resource_usage::shader_resource),nullptr,resource_usage::shader_resource,&s.lightmap))return false;
+        if(!d->create_resource_view(s.lightmap,resource_usage::shader_resource,resource_view_desc(format::r8g8b8a8_unorm),&s.light_view)){release(d,s.lightmap);return false;}
+    }
+    if(!it->buffer.handle&&!d->create_resource(resource_desc(4096,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&it->buffer))return false;
+    void *mapped=nullptr;if(!d->map_buffer_region(it->buffer,0,4096,map_access::write_only,&mapped))return false;
+    for(unsigned y=0;y<16;++y)std::memcpy(static_cast<std::uint8_t*>(mapped)+y*256,pixels.data()+y*64,64);
+    d->unmap_buffer_region(it->buffer);auto *cmd=runtime->get_command_queue()->get_immediate_command_list();if(!cmd)return false;
+    cmd->barrier(s.lightmap,resource_usage::shader_resource,resource_usage::copy_dest);
+    cmd->copy_buffer_to_texture(it->buffer,0,64,16,s.lightmap,0);
+    cmd->barrier(s.lightmap,resource_usage::copy_dest,resource_usage::shader_resource);
+    if(!s.signal(runtime,it->completion))return false;s.light_header=header;return true;
+}
 bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<const std::uint8_t> vertices,
-    const AtlasHeader &atlas,std::span<const std::uint8_t> pixels,const frames::Scene &displayed_scene){
+    const AtlasHeader &atlas,std::span<const std::uint8_t> pixels,const frames::Scene &displayed_scene,const frames::HostCamera &camera){
     auto &s=*impl_;if(s.failed)return false;s.failure=nullptr;
     if(!runtime)return s.reject("prepare runtime unavailable");
     if(!s.initialize(runtime))return false;
@@ -212,13 +239,16 @@ bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<
     if(!s.details&&waits_for_captured_resident(mesh,acknowledged,displayed_scene,GetTickCount64(),s.newest_since))
         return s.reject("awaiting captured resident before next mesh revision");
     auto mi=std::find_if(s.meshes.begin(),s.meshes.end(),[&](const Impl::Mesh &m){return m.valid&&revision(m.header,mesh);});
-    // The mapping reader validates changed immutable payloads; this independent
-    // full check is likewise only for a revision not already resident.
-    if(mi==s.meshes.end()&&!validate_vertices(vertices,mesh))return s.reject("mesh vertex validation");
+    // Mailbox already validated changed immutable vertices. Do not scan a large
+    // payload twice or retain opaque geometry in CPU memory just for sorting.
+    if(mesh.stride==lit_vertex_stride&&(!s.light_view.handle||!mesh.same_context(s.light_header)
+        ||mesh.atlas_revision!=s.light_header.atlas_revision))return s.reject("matching lightmap unavailable");
     std::uint32_t width{},height{};runtime->get_screenshot_width_and_height(&width,&height);
     if(!width||!height||width>max_target_dimension||height>max_target_dimension)return s.reject("prepare target dimensions");
     if(!s.details&&!s.allocate_targets(runtime,width,height))return false;
     auto *d=runtime->get_device();const auto completed=d->get_completed_fence_value(s.fence_);
+    for(auto &m:s.meshes)if(m.upload.handle&&m.upload_completion<=completed){release(d,m.upload);m.upload_capacity=0;}
+    for(auto &a:s.atlases)if(a.upload.handle&&a.upload_completion<=completed)release(d,a.upload);
     auto ai=std::find_if(s.atlases.begin(),s.atlases.end(),[&](const Impl::Atlas &a){return a.valid&&context(a.header,atlas)&&a.header.revision==atlas.revision;});
     if(ai!=s.atlases.end()&&!ai->header.same_content(atlas))return s.reject("atlas revision changed layout");
     // Payloads are immutable for a revision. Heartbeat sequences never cause
@@ -246,8 +276,8 @@ bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<
             release(d,a.view);release(d,a.texture);release(d,a.upload);a.valid=false;
             if(!d->create_resource(resource_desc(atlas.count,atlas.stride,1,static_cast<std::uint16_t>(levels),format::r8g8b8a8_unorm,1,memory_heap::default_,resource_usage::copy_dest|resource_usage::shader_resource),nullptr,resource_usage::shader_resource,&a.texture))return s.reject("create atlas texture");
             if(!d->create_resource_view(a.texture,resource_usage::shader_resource,resource_view_desc(format::r8g8b8a8_unorm,0,levels,0,1),&a.view))return s.reject("create atlas SRV");
-            if(!d->create_resource(resource_desc(total,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&a.upload))return s.reject("create atlas upload buffer");
         }
+        if(!a.upload.handle&&!d->create_resource(resource_desc(total,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&a.upload))return s.reject("create atlas upload buffer");
         void *mapped=nullptr;if(!d->map_buffer_region(a.upload,0,total,map_access::write_only,&mapped))return s.reject("map atlas upload buffer");
         for(std::uint32_t m=0;m<levels;++m){
             const auto w=mip_extent(atlas.count,m),h=mip_extent(atlas.stride,m);const auto source=mip_offset(atlas.count,atlas.stride,m);
@@ -257,7 +287,7 @@ bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<
         cmd->barrier(a.texture,resource_usage::shader_resource,resource_usage::copy_dest);
         for(std::uint32_t m=0;m<levels;++m)cmd->copy_buffer_to_texture(a.upload,placed[m],pitches[m]/4,mip_extent(atlas.stride,m),a.texture,m);
         cmd->barrier(a.texture,resource_usage::copy_dest,resource_usage::shader_resource);
-        if(!s.signal(runtime,a.completion))return false;
+        if(!s.signal(runtime,a.completion))return false;a.upload_completion=a.completion;
         a.header=atlas;a.valid=true;a.order=++s.order;a.anim_tick=0;
     }
     if(mi==s.meshes.end()){
@@ -270,19 +300,48 @@ bool Renderer::prepare(effect_runtime *runtime,const MeshHeader &mesh,std::span<
         if(!slot)return s.reject("mesh upload ring busy or resident pinned");
         mi=s.meshes.begin()+*slot;
         auto &m=*mi;m.valid=false;
-        // Upload heaps are GENERIC_READ on D3D12, including vertex/index reads.
+        const auto first=mesh.solid+mesh.cutout;
+        m.centers.resize(mesh.translucent/3);
+        for(std::size_t t=0;t<m.centers.size();++t)for(unsigned c=0;c<3;++c){double sum=0;
+            for(unsigned v=0;v<3;++v)sum+=frames::read<float>(vertices,std::size_t(first+t*3+v)*mesh.stride+c*4);
+            m.centers[t][c]=sum;}
+        translucent_order(m.centers,camera.forward,first,m.work,m.sorted);m.forward=camera.forward;
+        // Static geometry is staged once into GPU-local memory. Small, changing
+        // details remain in the completed upload ring, as before.
         if(mesh.count){
             if(!m.vertices.handle||m.capacity<vertices.size()){
                 release(d,m.vertices);m.capacity=0;
                 // Dynamic outlines change camera-scale width; reuse a bounded
                 // completed upload slot rather than allocating every frame.
-                const auto capacity=s.details?std::uint64_t(16380)*24:std::uint64_t(vertices.size());
-                if(!d->create_resource(resource_desc(capacity,memory_heap::upload,resource_usage::vertex_buffer),nullptr,resource_usage::cpu_access,&m.vertices))return s.reject("create vertex upload buffer");
+                const auto capacity=s.details?std::uint64_t(16380)*vertex_stride:std::uint64_t(vertices.size());
+                if(!d->create_resource(resource_desc(capacity,s.details?memory_heap::upload:memory_heap::default_,
+                    s.details?resource_usage::vertex_buffer:resource_usage::vertex_buffer|resource_usage::copy_dest),nullptr,
+                    s.details?resource_usage::cpu_access:resource_usage::vertex_buffer,&m.vertices))return s.reject("create vertex buffer");
                 m.capacity=capacity;
             }
-            if(!upload_bytes(d,m.vertices,vertices))return s.reject("map vertex upload buffer");
+            const auto index_bytes=std::uint64_t(m.sorted.size())*4;
+            if(index_bytes&&(!m.indices.handle||m.index_capacity<index_bytes)){
+                release(d,m.indices);m.index_capacity=0;
+                if(!d->create_resource(resource_desc(index_bytes,memory_heap::default_,resource_usage::index_buffer|resource_usage::copy_dest),nullptr,resource_usage::index_buffer,&m.indices))return s.reject("create translucent index buffer");
+                m.index_capacity=index_bytes;
+            }
+            if(s.details&&!upload_bytes(d,m.vertices,vertices))return s.reject("map detail vertex buffer");
+            const auto vertex_bytes=s.details?0:vertices.size(),total=vertex_bytes+index_bytes;
+            if(total){
+                if(!m.upload.handle||m.upload_capacity<total){release(d,m.upload);m.upload_capacity=0;
+                    if(!d->create_resource(resource_desc(total,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&m.upload))return s.reject("create mesh staging buffer");
+                    m.upload_capacity=total;}
+                void *mapped=nullptr;if(!d->map_buffer_region(m.upload,0,total,map_access::write_only,&mapped))return s.reject("map mesh staging buffer");
+                if(vertex_bytes)std::memcpy(mapped,vertices.data(),vertex_bytes);
+                if(index_bytes)std::memcpy(static_cast<std::uint8_t*>(mapped)+vertex_bytes,m.sorted.data(),index_bytes);
+                d->unmap_buffer_region(m.upload);auto *cmd=runtime->get_command_queue()->get_immediate_command_list();if(!cmd)return s.reject("mesh upload command list unavailable");
+                if(vertex_bytes){cmd->barrier(m.vertices,resource_usage::vertex_buffer,resource_usage::copy_dest);
+                    cmd->copy_buffer_region(m.upload,0,m.vertices,0,vertex_bytes);cmd->barrier(m.vertices,resource_usage::copy_dest,resource_usage::vertex_buffer);}
+                if(index_bytes){cmd->barrier(m.indices,resource_usage::index_buffer,resource_usage::copy_dest);
+                    cmd->copy_buffer_region(m.upload,vertex_bytes,m.indices,0,index_bytes);cmd->barrier(m.indices,resource_usage::copy_dest,resource_usage::index_buffer);}
+                if(!s.signal(runtime,m.completion))return false;m.upload_completion=m.completion;
+            }
         }
-        m.cpu.resize(mesh.count);if(!vertices.empty())std::memcpy(m.cpu.data(),vertices.data(),vertices.size());
         m.header=mesh;m.valid=true;m.order=++s.order;
     }
     if(!s.have_newest||!s.newest.same_content(mesh))s.newest_since=GetTickCount64();
@@ -302,27 +361,17 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
     auto ai=std::find_if(s.atlases.begin(),s.atlases.end(),[&](const Impl::Atlas&a){return a.valid&&context(a.header,mi->header)&&a.header.revision==scene.atlas_revision;});
     if(ai==s.atlases.end())return s.reject("captured atlas revision not resident");
     auto *d=runtime->get_device();const auto completed=d->get_completed_fence_value(s.fence_);Impl::Sort *sort=nullptr;
-    if(mi->header.translucent){
+    if(mi->header.translucent&&sort_view_changed(mi->forward,camera.forward)){
         const auto it=std::find_if(s.sorts.begin(),s.sorts.end(),[&](const Impl::Sort &a){return a.completion<=completed;});
-        if(it==s.sorts.end())return s.reject("translucent index upload ring busy");sort=&*it;
-        if(!sort->indices.handle&&!d->create_resource(resource_desc(std::uint64_t(max_vertices)*4,memory_heap::upload,resource_usage::index_buffer),nullptr,resource_usage::cpu_access,&sort->indices))return s.reject("create translucent index upload buffer");
-        const std::uint32_t first=mi->header.solid+mi->header.cutout,n=mi->header.translucent/3;
-        // Re-sort only when the mesh or the view moved enough to change the order of
-        // overlapping water/glass faces; a still camera reuses the last order.
-        auto &key=s.sort_key;double moved=0,turned=0;
-        for(unsigned c=0;c<3;++c){moved+=(camera.position[c]-key.position[c])*(camera.position[c]-key.position[c]);
-            turned+=double(camera.forward[c])*key.forward[c];}
-        if(!key.valid||key.revision!=mi->header.revision||key.session!=mi->header.session||moved>.0025||turned<.99999
-            ||s.sorted.size()!=std::size_t(n)*3){
-            std::vector<std::pair<double,std::uint32_t>> triangles;triangles.reserve(n);
-            for(std::uint32_t t=0;t<n;++t){double depth=0;for(unsigned v=0;v<3;++v)for(unsigned c=0;c<3;++c)
-                depth+=(double(mi->cpu[first+t*3+v].position[c])-camera.position[c])*camera.forward[c];triangles.emplace_back(depth,t);}
-            std::stable_sort(triangles.begin(),triangles.end(),[](const auto&a,const auto&b){return a.first>b.first;});
-            s.sorted.clear();s.sorted.reserve(std::size_t(n)*3);
-            for(const auto &[depth,t]:triangles)for(unsigned v=0;v<3;++v)s.sorted.push_back(first+t*3+v);
-            key={mi->header.revision,mi->header.session,camera.position,camera.forward,true};
+        // A busy staging ring keeps the resident index buffer and draws the whole
+        // mesh. Reading unchanged GPU data is safe even while previous draws run.
+        if(it!=s.sorts.end()){
+            sort=&*it;const auto bytes=std::uint64_t(mi->header.translucent)*4;
+            if(!sort->upload.handle||sort->capacity<bytes){release(d,sort->upload);sort->capacity=0;
+                if(!d->create_resource(resource_desc(bytes,memory_heap::upload,resource_usage::copy_source),nullptr,resource_usage::cpu_access,&sort->upload))return s.reject("create translucent staging buffer");sort->capacity=bytes;}
+            translucent_order(mi->centers,camera.forward,mi->header.solid+mi->header.cutout,mi->work,mi->sorted);
+            if(!upload_bytes(d,sort->upload,{reinterpret_cast<const std::uint8_t*>(mi->sorted.data()),mi->sorted.size()*4}))return s.reject("map translucent staging buffer");
         }
-        if(!upload_bytes(d,sort->indices,{reinterpret_cast<const std::uint8_t*>(s.sorted.data()),s.sorted.size()*4}))return s.reject("map translucent index upload buffer");
     }
     if(!destination&&!s.allocate_targets(runtime,w,h))return false;
     auto &surface=destination?*destination->impl_:s;
@@ -337,6 +386,9 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
     // Animated sprites (water, lava, fire, portals) advance in the resident atlas
     // before it is sampled; they never leave the native mesh for the RGB-D scene.
     if(!s.details&&animation)s.animate(runtime,cmd,*ai,*animation,animation_payload);
+    if(sort){cmd->barrier(mi->indices,resource_usage::index_buffer,resource_usage::copy_dest);
+        cmd->copy_buffer_region(sort->upload,0,mi->indices,0,std::uint64_t(mi->header.translucent)*4);
+        cmd->barrier(mi->indices,resource_usage::copy_dest,resource_usage::index_buffer);mi->forward=camera.forward;}
     if(!destination)for(auto r:s.targets)cmd->barrier(r,resource_usage::shader_resource,resource_usage::render_target);
     render_pass_render_target_desc rts[2]{};for(unsigned i=0;i<2;++i){rts[i].view=surface.rtvs[i];rts[i].load_op=destination?render_pass_load_op::load:render_pass_load_op::clear;}
     render_pass_depth_stencil_desc depth{};depth.view=surface.dsv;depth.depth_load_op=destination?render_pass_load_op::load:render_pass_load_op::clear;depth.clear_depth=1;
@@ -348,16 +400,15 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
     // texture to shader_resource; finish-effects restores it. The caller passes
     // that validated semantic binding on this SAME immediate command list.
     // Do not invent a barrier from an unknown native depth-stencil state here.
-    const resource_view shader_views[]={ai->view,host_depth};
-    descriptor_table_update texture{};texture.count=2;texture.type=descriptor_type::shader_resource_view;texture.descriptors=shader_views;
     descriptor_table_update sampler_update{};sampler_update.count=1;sampler_update.type=descriptor_type::sampler;sampler_update.descriptors=&s.point;
-    if(mi->header.count)cmd->bind_vertex_buffer(0,mi->vertices,0,24);
+    if(mi->header.count)cmd->bind_vertex_buffer(0,mi->vertices,0,mi->header.stride);
     const std::uint32_t counts[]={mi->header.solid,mi->header.cutout,mi->header.translucent};std::uint32_t first=0;
     for(unsigned pass=0;pass<3;++pass){if(counts[pass]){
-        cmd->bind_pipeline(pipeline_stage::all_graphics,s.pipelines[pass]);
+        cmd->bind_pipeline(pipeline_stage::all_graphics,s.pipelines[pass+(mi->header.stride==lit_vertex_stride?3:0)]);
         pc[19]=static_cast<float>(pass);cmd->push_constants(shader_stage::all_graphics,s.layout,0,0,32,pc.data());
-        cmd->push_descriptors(shader_stage::pixel,s.layout,1,texture);cmd->push_descriptors(shader_stage::pixel,s.layout,2,sampler_update);
-        if(pass==2){cmd->bind_index_buffer(sort->indices,0,4);cmd->draw_indexed(counts[pass],1,0,0,0);}
+        bind_block_textures(*cmd,s.layout,ai->view,host_depth,s.light_view,mi->header.stride==lit_vertex_stride);
+        cmd->push_descriptors(shader_stage::pixel,s.layout,2,sampler_update);
+        if(pass==2){cmd->bind_index_buffer(mi->indices,0,4);cmd->draw_indexed(counts[pass],1,0,0,0);}
         else cmd->draw(counts[pass],1,first,0);
     }first+=counts[pass];}
     cmd->end_render_pass();
@@ -371,7 +422,7 @@ bool Renderer::render(effect_runtime *runtime,command_list *cmd,const frames::Ho
             if(!s.detail_renderer)s.detail_renderer=std::make_unique<Renderer>(true);
             auto detail_scene=scene;detail_scene.mesh_revision=s.detail_mesh.header.revision;
             detail_scene.atlas_revision=s.detail_mesh.header.atlas_revision;detail_scene.mesh_session=s.detail_mesh.header.session;
-            const bool uploaded=s.detail_renderer->prepare(runtime,s.detail_mesh.header,s.detail_mesh.payload,s.detail_atlas.header,s.detail_atlas.payload,detail_scene);
+            const bool uploaded=s.detail_renderer->prepare(runtime,s.detail_mesh.header,s.detail_mesh.payload,s.detail_atlas.header,s.detail_atlas.payload,detail_scene,camera);
             const bool drawn=uploaded&&s.detail_renderer->render(runtime,cmd,camera,detail_scene,s.detail_mesh.header,w,h,host_depth,depth_mode,this);
             s.detail_peak_cracks=std::max(s.detail_peak_cracks,s.detail_mesh.header.solid);
             s.detail_peak_outlines=std::max(s.detail_peak_outlines,s.detail_mesh.header.translucent);
@@ -409,11 +460,12 @@ void Renderer::destroy(effect_runtime *runtime){
     if(s.detail_renderer){s.detail_renderer->destroy(runtime);s.detail_renderer.reset();}s.detail_mesh.close();s.detail_atlas.close();
     s.pending_mesh=nullptr;s.pending_atlas=nullptr;s.pending_sort=nullptr;s.pending_anim=nullptr;
     if(s.fence_.handle)runtime->get_command_queue()->wait_idle();s.destroy_targets(d);
-    for(auto &m:s.meshes){release(d,m.vertices);m={};}
+    for(auto &m:s.meshes){release(d,m.vertices);release(d,m.upload);release(d,m.indices);m={};}
     for(auto &a:s.atlases){release(d,a.view);release(d,a.texture);release(d,a.upload);a={};}
-    for(auto &a:s.sorts){release(d,a.indices);a={};}
+    for(auto &a:s.sorts){release(d,a.upload);a={};}
     for(auto &a:s.anim_uploads){release(d,a.buffer);a={};}
-    s.sort_key={};s.sorted.clear();
+    release(d,s.light_view);release(d,s.lightmap);s.light_header={};
+    for(auto &u:s.light_uploads){release(d,u.buffer);u={};}
     for(auto &p:s.pipelines){if(p.handle)d->destroy_pipeline(p);p={};}
     if(s.layout.handle)d->destroy_pipeline_layout(s.layout);if(s.point.handle)d->destroy_sampler(s.point);if(s.fence_.handle)d->destroy_fence(s.fence_);
     s.layout={};s.point={};s.fence_={};s.initialized=s.failed=s.have_newest=false;s.serial=s.order=0;s.failure=nullptr;

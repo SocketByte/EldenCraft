@@ -63,13 +63,55 @@ a distant edge cannot invalidate the entire target frame. These remain upright
 collision proxies, rather than per-bone weak-point hitboxes. Rejected shape
 diagnostics include the instance and authored dimensions. Native encounter,
 activity, phase protection, fresh identity, reach and cover checks still apply.
+Registered human NPC bosses such as Gideon use `PlayerIns` and its verified
+`CSPlayerDamageModule`, rather than `EnemyIns`. Their exact boss registration,
+hostile team, loaded NPC parameters and normal readiness checks admit the hitbox
+and native damage path. Unregistered player-shaped helpers do not qualify.
 Unregistered enemies qualify with native character type 5 or the large scripted
-enemy type 7. The Fire Giant's gauge belongs to its dormant second-phase
-character, so its fighting body (type 7) uses the ordinary lockable-enemy gates.
-The direct HP processor does not forward that body's loss to the gauge owner, so
-native damage mirrors the observed loss onto the only dormant registered gauge
-owner of the same model and map block, never below 1 HP. Receipts log it as
-`gauge_mirror`.
+enemy type 7. An authored boss body also qualifies through its exact current
+health-owner registration, while class, hostile team, loaded NPC parameters and
+readiness remain required. This admits scripted shared-health bodies without
+classifying unrelated helpers from proximity or a matching model.
+The [boss damage link inventory](src/boss_damage_links.rs) follows the native
+encounter identities and event setup documented in
+[enemy data](https://github.com/thefifthmatt/SoulsRandomizers/blob/master/diste/Base/enemy.txt)
+and [event templates](https://github.com/thefifthmatt/SoulsRandomizers/blob/master/diste/Base/events.txt).
+Fire Giant, Godfrey/Hoarah Loux, Beast Clergyman/Maliketh, Messmer and Consort
+Radahn use continuous-health phase pairs. Accepted body loss is mirrored only
+onto their exact dormant later-phase owner, never below 1 HP. An active boss's
+invincibility, hit-disable state or bad delta-time sample grants no dormant
+exception. Once the later phase activates, its normal native processor owns
+lethal damage. Receipts log dormant transfer as `gauge_mirror`.
+Godskin Duo, Dragonkin Soldier of Nokstella, Messmer's primary serpent,
+Putrescent Knight's linked body and Scadutree Avatar's three phase slots use
+registered active health controllers. Their bodies publish that current pool's
+health to Minecraft and forward accepted damage with the native processor and
+feedback, without applying encounter scaling twice. Where an authored immortal
+body has reached its observed native 1 HP floor, the live controller accepts the
+calculated hit instead; global/debug immortality grants no such supplement.
+Controller loss counts toward melee and world-damage acknowledgements even if
+the body itself could not lose HP. This path permits native lethal damage and
+logs `referred_damage`; it never uses a dormant owner's 1 HP floor.
+All transfers capture copied owner evidence before body feedback, subtract any
+loss already forwarded natively, and recheck the exact registration, instance,
+damage/HP modules, readiness, NPC identity and maximum HP afterward. Healing,
+phase resets, ambiguous owners or changed evidence invalidate the transfer.
+Rennala, God-Devouring Serpent/Rykard and Radagon/Elden Beast keep independent
+phase health bars. Godrick and other moveset changes remain native; Malenia
+keeps her same-actor health reset. No shared model alone establishes a health
+link. Reaction is followed by a fresh identity/health check before damage
+notification, so a retired actor or newly reset phase receives no old feedback.
+The regressions exercise link isolation, dormant/active handoff, shared-pool
+lethal feedback, immortality, health resets and retired-module cleanup using
+native-call stand-ins. Actual cutscenes and victory flags still need in-game
+verification.
+Native camera tilt and knockback, and Minecraft's host hurt animation/sound,
+treat continuous HP drain as one feedback episode. Each fresh HP sample still
+updates the baseline, but later drain ticks do not restart the hurt animation or
+reapply knockback. After 500 ms without another HP decrease, a new hit can start
+feedback. Character changes, invalid samples and publication gaps rebase the
+detectors without replaying missed damage; damage and healing remain independent
+of this presentation policy.
 The guest accepts the same player-relative +/-64 m coordinate window, with each
 entity extent still limited to 64 m. Large native HP pools use a capped 1024 HP
 Minecraft damage recipient; native health and each vanilla damage receipt keep
@@ -123,6 +165,10 @@ closes are logged. Delivered script results remain available for the owning NPC
 to consume. A bounded, same-player grace reset retains passive source rows while
 gameplay writes remain suspended; after readiness returns, a still-open native
 grace list can transfer to Minecraft.
+An offline grace reset can set the Lua proxy's `net_message` flag while the
+bonfire begin/sitting flags remain valid. That proxy flag alone does not cancel
+passive recovery; the offline session, live script, bonfire, load/exit state and
+bounded same-player reset checks still apply.
 Grace menus are identified by the common grace talk script (t000001000) or its
 grace-only Pass time row, independently of rest/bonfire flags, and their rules are
 reapplied when the menu is shown. Native levelling, flask and memorize-spell

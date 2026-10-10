@@ -171,8 +171,10 @@ public final class FrameExporter {
     float far;
     long frame;
     long captureNanos;
+
     /** MCPT +104: 0 no screen, 1 screen, 2 screen that takes typed text. */
     int guiState;
+
     boolean fullWorld;
     SceneCapture.Snapshot scene;
     float[] avatarInverse;
@@ -300,8 +302,10 @@ public final class FrameExporter {
     if (c == null) {
       c = ring[chosen] = new Capture();
     }
-    c.gpuSet = GpuTransport.acquire(w, h, full);
-    if (c.gpuSet < 0 && large) {
+    var hostPose = HostController.frame();
+    boolean avatarNeeded = full && scene != null && hostPose != null && !hostPose.firstPerson();
+    c.gpuSet = GpuTransport.acquire(w, h, full, avatarNeeded);
+    if (c.gpuSet < 0 && (!FramePipeline.readbackAllowed(c.gpuSet) || large)) {
       telemetryBusy++;
       report(now);
       return;
@@ -311,6 +315,7 @@ public final class FrameExporter {
             && (!full || GpuTransport.copyDepth(target.getDepthTexture(), c.gpuSet, 1)))) {
       GpuTransport.discard(c.gpuSet);
       c.gpuSet = -1;
+      if (large) return;
     }
     if (c.gpuSet >= 0) {
       // Readback buffers of another size must not survive into a later fallback frame.
@@ -333,7 +338,6 @@ public final class FrameExporter {
     c.aborted = false;
     c.busySince = now;
     c.pose = pose;
-    var hostPose = HostController.frame();
     c.viewMode = hostPose == null ? (pose.firstPerson() ? 0 : 1) : hostPose.viewMode();
     c.far = far;
     c.frame = ++frameCounter;

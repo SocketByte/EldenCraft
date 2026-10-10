@@ -9,6 +9,7 @@ import dev.eldencraft.bridge.*;
 import java.io.ByteArrayOutputStream;
 import java.nio.*;
 import java.util.*;
+import java.util.concurrent.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.model.geom.builders.UVPair;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -46,6 +47,18 @@ public final class BlockMeshClient {
   private static final BlockMeshHandoff HANDOFF = new BlockMeshHandoff();
   private static final BlockMeshChanges CHANGES = new BlockMeshChanges();
   private static final BlockMeshAnimation ANIMATION = new BlockMeshAnimation();
+  private static final ThreadPoolExecutor PAYLOAD_WORKER =
+      new ThreadPoolExecutor(
+          1,
+          1,
+          0,
+          TimeUnit.MILLISECONDS,
+          new ArrayBlockingQueue<>(1),
+          task -> {
+            var thread = new Thread(task, "EldenCraft mesh payload");
+            thread.setDaemon(true);
+            return thread;
+          });
   private static final long PID = ProcessHandle.current().pid();
   private static final int[] QUAD_TRIANGLES = {0, 1, 2, 0, 2, 3};
 
@@ -60,6 +73,7 @@ public final class BlockMeshClient {
       lightContext = 1,
       revision,
       atlasRevision,
+      lightRevision,
       sessionCounter = System.currentTimeMillis();
   private static final Set<Long> dirtySections = new HashSet<>();
   private static final Object LIGHT_LOCK = new Object();
@@ -238,7 +252,8 @@ public final class BlockMeshClient {
                 next.origin().map(),
                 ++sessionCounter,
                 next.origin().anchorId());
-        installed = build = null;
+        installed = null;
+        clearBuild();
         CHANGES.geometryChanged();
         atlasPublished = false;
         retryBuild = 0;
@@ -259,7 +274,8 @@ public final class BlockMeshClient {
         ANIMATION.clear();
         resetLightContext();
         atlasPublished = false;
-        installed = build = null;
+        installed = null;
+        clearBuild();
         CHANGES.geometryChanged();
         retryBuild = 0;
         invalidateHandoff();
@@ -320,6 +336,24 @@ public final class BlockMeshClient {
         atlasPublished = true;
       }
       phase = "mesh acknowledgement";
+      if (atlasPublished && relight && lightPixels != null) {
+        MAILBOX.lighting(
+            BlockMeshProtocol.header(
+                BlockMeshProtocol.LIGHT_MAGIC,
+                identity,
+                MAILBOX.now(),
+                ++lightRevision,
+                atlasRevision,
+                16,
+                16,
+                1024,
+                0,
+                0,
+                0,
+                true),
+            lightPixels);
+        relight = false;
+      }
       var resident = HANDOFF.select(MAILBOX.acknowledgement(identity));
       if (resident == null) displayed = null;
       else if (resident.mesh() == revision) displayed = installed;
@@ -334,7 +368,10 @@ public final class BlockMeshClient {
         invalidateHandoff();
         resident = null;
       }
-      if (!current && (build == null || !build.valid(window))) build = null;
+      if (!current && build != null && !build.valid(window)) {
+        build.cancelPayload();
+        build = null;
+      }
       phase = "block geometry";
       if ((!current || !HANDOFF.hasLatest())
           && build == null
@@ -343,13 +380,11 @@ public final class BlockMeshClient {
           && now >= retryBuild) build = new Build(client, window, installed);
       if (build != null) {
         try {
-          if (build.step(client) && (!HANDOFF.hasLatest() || HANDOFF.canPublishColor())) {
-            byte[] payload = build.payload(lightPixels);
-            int[] counts = build.counts();
-            boolean changed =
-                !HANDOFF.hasLatest()
-                    || BlockMeshHandoff.payloadChanged(publishedPayload, payload)
-                    || !Arrays.equals(publishedCounts, counts);
+          MeshPayload prepared = build.step(client) ? build.payload() : null;
+          if (prepared != null && (!HANDOFF.hasLatest() || HANDOFF.canPublishColor())) {
+            byte[] payload = prepared.bytes();
+            int[] counts = prepared.counts();
+            boolean changed = !HANDOFF.hasLatest() || prepared.changed();
             if (changed) {
               boolean replacing = HANDOFF.hasLatest();
               MAILBOX.mesh(
@@ -359,8 +394,8 @@ public final class BlockMeshClient {
                       MAILBOX.now(),
                       ++revision,
                       atlasRevision,
-                      payload.length / 24,
-                      24,
+                      payload.length / BlockMeshProtocol.LIT_STRIDE,
+                      BlockMeshProtocol.LIT_STRIDE,
                       payload.length,
                       counts[0],
                       counts[1],
@@ -379,7 +414,7 @@ public final class BlockMeshClient {
                   revision,
                   atlasRevision,
                   build.blocks,
-                  payload.length / 24,
+                  payload.length / BlockMeshProtocol.LIT_STRIDE,
                   build.chunks.size(),
                   resident != null);
             } else {
@@ -396,7 +431,7 @@ public final class BlockMeshClient {
           }
         } catch (UnsupportedOperationException unsupported) {
           fallback = unsupported.getMessage();
-          build = null;
+          clearBuild();
           installed = null;
           invalidateHandoff();
           resident = null;
@@ -404,33 +439,6 @@ public final class BlockMeshClient {
         }
       }
       current = installed != null && installed.valid(window) && installed.coversVisible(client);
-      if (current && relight && HANDOFF.canPublishColor()) {
-        byte[] payload = installed.payload(lightPixels);
-        if (BlockMeshHandoff.payloadChanged(publishedPayload, payload)) {
-          int[] counts = installed.counts();
-          MAILBOX.mesh(
-              BlockMeshProtocol.header(
-                  BlockMeshProtocol.MESH_MAGIC,
-                  identity,
-                  MAILBOX.now(),
-                  ++revision,
-                  atlasRevision,
-                  payload.length / 24,
-                  24,
-                  payload.length,
-                  counts[0],
-                  counts[1],
-                  counts[2],
-                  true),
-              payload);
-          publishedPayload = payload;
-          publishedCounts = counts;
-          HANDOFF.color(new BlockMeshHandoff.Revision(revision, atlasRevision, identity.session()));
-        }
-        relight = false;
-      }
-      // While one candidate is pending, relight remains set and lightPixels coalesces
-      // further changes. The next upload uses only the newest lightmap after promotion.
       retained =
           resident != null
               && displayed != null
@@ -512,12 +520,18 @@ public final class BlockMeshClient {
     clearLightPending();
   }
 
+  private static void clearBuild() {
+    if (build != null) build.cancelPayload();
+    build = null;
+  }
+
   private static void pause() {
     exclusion = Exclusion.NONE;
     if (context != null) resetLightContext();
     context = null;
     identity = null;
-    build = installed = null;
+    clearBuild();
+    installed = null;
     atlasPublished = false;
     invalidateHandoff();
     clearLightPending();
@@ -780,6 +794,7 @@ public final class BlockMeshClient {
     boolean collecting = true;
     long coverFrame = -1;
     boolean coverValue;
+    CompletableFuture<MeshPayload> payload;
 
     Build(Minecraft client, BlockMeshCoverage window, Build previous) {
       this.window = window;
@@ -1044,17 +1059,34 @@ public final class BlockMeshClient {
       return counts;
     }
 
-    byte[] payload(byte[] light) {
-      var all = ByteBuffer.allocate(vertices * 24).order(ByteOrder.LITTLE_ENDIAN);
-      for (int layer = 0; layer < 3; layer++)
-        for (var section : geometry.values()) {
-          var raw = ByteBuffer.wrap(section.layers[layer]).order(ByteOrder.LITTLE_ENDIAN);
-          while (raw.hasRemaining()) {
-            for (int i = 0; i < 5; i++) all.putFloat(raw.getFloat());
-            all.putInt(BlockMeshProtocol.litRgba(raw.getInt(), raw.getInt(), light));
-          }
+    MeshPayload payload() {
+      if (payload == null) {
+        // Geometry arrays are immutable after tessellation; only the render thread
+        // reads chunks. The worker joins/compares bytes and holds at most one queued job.
+        var sections = geometry.values().stream().map(Geometry::layers).toList();
+        byte[] previous = publishedPayload;
+        int[] oldCounts = publishedCounts;
+        var task = new CompletableFuture<MeshPayload>();
+        try {
+          PAYLOAD_WORKER.execute(
+              () -> {
+                if (task.isCancelled()) return;
+                try {
+                  task.complete(MeshPayload.assemble(sections, previous, oldCounts));
+                } catch (Throwable failure) {
+                  task.completeExceptionally(failure);
+                }
+              });
+          payload = task;
+        } catch (RejectedExecutionException busy) {
+          return null;
         }
-      return all.array();
+      }
+      return payload.isDone() ? payload.join() : null;
+    }
+
+    void cancelPayload() {
+      if (payload != null) payload.cancel(false);
     }
 
     private static ByteArrayOutputStream[] newOutputs() {
@@ -1119,6 +1151,8 @@ public final class BlockMeshClient {
 
   public static void close() {
     closed = true;
+    if (build != null) build.cancelPayload();
+    PAYLOAD_WORKER.shutdownNow();
     exclusion = Exclusion.NONE;
     build = installed = null;
     atlasPixels = lightPixels = null;

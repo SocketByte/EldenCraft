@@ -9,10 +9,12 @@ public final class BlockMeshProtocol {
       MESH_MAGIC = 0x424d4345,
       ATLAS_MAGIC = 0x41424345,
       ACK_MAGIC = 0x414d4345,
-      ANIM_MAGIC = 0x4e414345;
+      ANIM_MAGIC = 0x4e414345,
+      LIGHT_MAGIC = 0x4c4d4345;
   public static final int MESH_BYTES = 64 * 1024 * 1024,
       ATLAS_BYTES = HEADER + 90 * 1024 * 1024,
       STRIDE = 24,
+      LIT_STRIDE = 28,
       MAX_VERTICES = 2097152,
       MAX_MIPS = 13;
 
@@ -22,6 +24,8 @@ public final class BlockMeshProtocol {
 
   /** Animated sprite frames for the resident atlas: a region table, then RGBA8 pixels. */
   public static final int ANIM_BYTES = 4 * 1024 * 1024, ANIM_REGION = 16, MAX_ANIM_REGIONS = 4096;
+
+  public static final int LIGHT_BYTES = HEADER + 1024;
 
   /** One mip level dimension, clamped to a texel. */
   public static int mipExtent(int size, int level) {
@@ -101,8 +105,8 @@ public final class BlockMeshProtocol {
       if (a < 0
           || a > MAX_VERTICES
           || a % 3 != 0
-          || b != STRIDE
-          || bytes != a * STRIDE
+          || (b != STRIDE && b != LIT_STRIDE)
+          || bytes != a * b
           || bytes > MESH_BYTES - HEADER
           || solid < 0
           || cutout < 0
@@ -124,6 +128,9 @@ public final class BlockMeshProtocol {
           || solid != 0
           || cutout != 0
           || translucent != 0) throw new IllegalArgumentException("Atlas bounds");
+    } else if (magic == LIGHT_MAGIC) {
+      if (a != 16 || b != 16 || bytes != 1024 || solid != 0 || cutout != 0 || translucent != 0)
+        throw new IllegalArgumentException("Lightmap bounds");
     } else if (magic == ANIM_MAGIC) {
       if (a < 0
           || a > MAX_ANIM_REGIONS

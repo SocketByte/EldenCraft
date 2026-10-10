@@ -5,6 +5,7 @@ public final class FramePipeline {
   public record SceneKey(long pid, long epoch, long map, long anchor) {}
 
   public static final long MAX_AGE_NANOS = 250_000_000L;
+  public static final int GPU_UNAVAILABLE = -1, GPU_BUSY = -2;
 
   private FramePipeline() {}
 
@@ -20,13 +21,17 @@ public final class FramePipeline {
     return writtenFrame == 0 || newestAck >= writtenFrame;
   }
 
-  /** Picks the next reusable shared set after {@code start}, or -1 to fall back to readback. */
+  /** Picks the next reusable shared set, or GPU_BUSY to drop without CPU readback. */
   public static int gpuSet(long[] written, long newestAck, int start) {
     for (int i = 0; i < written.length; i++) {
       int s = (start + i) % written.length;
       if (gpuSetReusable(written[s], newestAck)) return s;
     }
-    return -1;
+    return GPU_BUSY;
+  }
+
+  public static boolean readbackAllowed(int gpuSet) {
+    return gpuSet == GPU_UNAVAILABLE;
   }
 
   public static int freeSlot(boolean[] busy, int start) {

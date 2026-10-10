@@ -18,6 +18,8 @@ final class WorldMailbox implements AutoCloseable {
   private long nextOpen, sequence, frame;
   private boolean failed;
   private WorldProtocol.Host retained;
+  private final dev.eldencraft.bridge.WorldPublication publication =
+      new dev.eldencraft.bridge.WorldPublication();
 
   private void initialize() {
     if (tick != null) return;
@@ -169,7 +171,7 @@ final class WorldMailbox implements AutoCloseable {
         }
         output = SharedMemory.create("Local\\EldenCraftWorldGuest", WorldProtocol.SIZE);
       }
-      byte[] body = json.toString().getBytes(StandardCharsets.UTF_8);
+      byte[] body = publication.encode(json, WorldProtocol.SIZE - 64);
       if (body.length > WorldProtocol.SIZE - 64)
         throw new IllegalArgumentException("World output size");
       var header = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN);
