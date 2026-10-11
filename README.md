@@ -393,7 +393,7 @@ EldenCraft is free and open source. If it made you laugh, die to the Tree Sentin
 with a wooden sword, or both, you can help keep it going:
 
 <p align="center">
-  <a href="https://buymeacoffee.com/socketbyte"><img alt="Buy me a coffee" src="https://img.shields.io/badge/Buy_me_a_coffee-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=black&labelColor=1b1a17&color=ffdd00"></a>
+  <a href="https://www.patreon.com/socketbyte"><img alt="Support on Patreon" src="https://img.shields.io/badge/Support_on_Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white&labelColor=1b1a17&color=FF424D"></a>
 </p>
 
 ## Credits and license
