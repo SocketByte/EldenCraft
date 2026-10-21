@@ -8,8 +8,8 @@
 //! stale latch can never fire later on a different prompt.
 //!
 //! Offsets and the code fingerprints guarding them are for the worldwide
-//! 2.7.1.0 executable; they follow Minecraft-Ring (MIT, siddoff/justbustin),
-//! which reverse engineered the same build. Any mismatch disables only this
+//! 2.7.2.0 executable; they follow Minecraft-Ring (MIT, siddoff/justbustin),
+//! which reverse engineered the 2.7.1.0 build. Any mismatch disables only this
 //! feature.
 use std::collections::VecDeque;
 #[cfg(windows)]
@@ -82,27 +82,27 @@ pub fn scripted_movement(player: &eldenring::cs::PlayerIns) -> bool {
 /// Code that reads and writes the fields above, by RVA.
 const FINGERPRINTS: [(usize, &[u8]); 4] = [
     (
-        0xA658A1,
+        0xA65D61,
         &[
             0x80, 0xBB, 0x88, 0, 0, 0, 0, 0x74, 0x09, 0x66, 0xC7, 0x83, 0x81, 0, 0, 0, 0x01, 0x01,
         ],
     ),
     (
-        0xA656CC,
+        0xA65B8C,
         &[
             0x80, 0xBB, 0x80, 0, 0, 0, 0, 0x74, 0x10, 0x66, 0xC7, 0x83, 0x80, 0, 0, 0, 0, 0, 0xC6,
             0x83, 0x82, 0, 0, 0, 0,
         ],
     ),
     (
-        0xA64FA0,
+        0xA65460,
         &[
             0x4C, 0x8B, 0xC1, 0x48, 0x85, 0xD2, 0x74, 0x61, 0x0F, 0xB6, 0x4A, 0x20, 0xF6, 0xC1,
             0x04, 0x74, 0x58, 0x41, 0x80, 0xB8, 0x81, 0, 0, 0, 0,
         ],
     ),
     (
-        0xA64E61,
+        0xA65321,
         &[
             0x38, 0x43, 0x28, 0x74, 0x51, 0x48, 0x8B, 0x4B, 0x20, 0x48, 0x85, 0xC9, 0x74, 0x48,
             0x0F, 0xB6, 0x41, 0x20, 0xA8, 0x08, 0x75, 0x40, 0xA8, 0x01, 0x74, 0x04, 0xC6, 0x43,

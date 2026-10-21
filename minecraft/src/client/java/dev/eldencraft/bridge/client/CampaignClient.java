@@ -62,6 +62,7 @@ public final class CampaignClient {
       var rules = CampaignConfig.load(configuration);
       CampaignCombat.validateRegistry(rules);
       CampaignConfig.install(rules);
+      CampaignEnchantments.initialize();
       CampaignBridge.initialize();
       CampaignShops.initialize();
       CampaignTutorial.initialize();

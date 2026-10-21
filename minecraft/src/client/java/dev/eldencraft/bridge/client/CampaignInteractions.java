@@ -54,12 +54,14 @@ public final class CampaignInteractions {
   }
 
   static boolean owned(Minecraft client) {
-    return client.gui.screen() instanceof InteractionScreen || CampaignEnderChest.owned(client);
+    return client.gui.screen() instanceof InteractionScreen
+        || client.gui.screen() instanceof CampaignPhysickScreen
+        || CampaignEnderChest.owned(client);
   }
 
   /** Custom screens handle extended Cancel themselves; vanilla containers retain ECHS Escape. */
   static boolean consumesEscape(net.minecraft.client.gui.screens.Screen screen) {
-    return screen instanceof InteractionScreen;
+    return screen instanceof InteractionScreen || screen instanceof CampaignPhysickScreen;
   }
 
   public static boolean ownsInput() {
@@ -152,6 +154,10 @@ public final class CampaignInteractions {
           client.gui.setScreen(null);
         else screen.update(menu);
       }
+      if (client.gui.screen() instanceof CampaignPhysickScreen screen
+          && (menu == null || screen.session() != s.session() || screen.token() != menu.token()))
+        client.gui.setScreen(null);
+      CampaignPhysick.graceOpened(client, s);
       if (menu == null) dismissedToken = 0;
       else if (client.gui.screen() == null
           && menu.token() != dismissedToken
@@ -165,7 +171,7 @@ public final class CampaignInteractions {
         var state = envelope(s, 0, "ui_state");
         state.addProperty("open", owned(client));
         state.addProperty("ready", ready);
-        write("interaction-ui.json", state);
+        CampaignBridge.publishState("interaction-ui.json", state);
       }
     }
   }
@@ -190,6 +196,8 @@ public final class CampaignInteractions {
       HostController.consumeEscape();
     if (client.gui.screen() instanceof InteractionScreen screen)
       screen.hostInput(pressed, input.buttons());
+    else if (client.gui.screen() instanceof CampaignPhysickScreen screen && (pressed & CANCEL) != 0)
+      screen.hostInput(pressed);
     else if (client.gui.screen() != null
         && !(client.gui.screen() instanceof net.minecraft.client.gui.screens.ChatScreen)
         && !HostChat.textScreen(client.gui.screen())) {
@@ -262,7 +270,8 @@ public final class CampaignInteractions {
       var state = envelope(s, 0, "ui_state");
       state.addProperty("open", false);
       state.addProperty("ready", false);
-      write("interaction-ui.json", state);
+      // Through the same writer as the heartbeat, so a queued heartbeat cannot land after it.
+      CampaignBridge.publishState("interaction-ui.json", state);
     }
     observed = null;
   }

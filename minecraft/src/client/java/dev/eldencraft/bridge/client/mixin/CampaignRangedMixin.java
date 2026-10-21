@@ -3,6 +3,7 @@ package dev.eldencraft.bridge.client.mixin;
 import dev.eldencraft.bridge.client.CampaignCombat;
 import dev.eldencraft.bridge.client.WorldProjectiles;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.*;
@@ -13,6 +14,21 @@ import org.spongepowered.asm.mixin.injection.callback.*;
 
 @Mixin(BowItem.class)
 abstract class CampaignBowMixin {
+  /**
+   * An empty bar cannot loose an arrow, so it cannot draw one either: otherwise a full draw ends in
+   * a release that silently fires nothing.
+   */
+  @Inject(method = "use", at = @At("HEAD"), cancellable = true)
+  private void eldencraft$exhaustedDraw(
+      Level level,
+      Player player,
+      InteractionHand hand,
+      CallbackInfoReturnable<InteractionResult> cir) {
+    if (!level.isClientSide()
+        && CampaignCombat.active(player)
+        && !CampaignCombat.canSpend(player, "bow")) cir.setReturnValue(InteractionResult.FAIL);
+  }
+
   @Inject(method = "releaseUsing", at = @At("HEAD"), cancellable = true)
   private void eldencraft$bowStamina(
       ItemStack stack,
@@ -23,7 +39,7 @@ abstract class CampaignBowMixin {
     if (entity instanceof Player player
         && !level.isClientSide()
         && CampaignCombat.active(player)
-        && WorldProjectiles.permitItem(player)
+        && WorldProjectiles.permitHeldItem(player)
         && !player.getProjectile(stack).isEmpty()
         && BowItem.getPowerForTime(stack.getUseDuration(entity) - remaining) >= .1f
         && !CampaignCombat.spend(player, "bow")) cir.setReturnValue(false);

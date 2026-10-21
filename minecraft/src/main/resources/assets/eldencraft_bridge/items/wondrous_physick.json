@@ -1,0 +1,20 @@
+{
+  "model": {
+    "type": "minecraft:condition",
+    "property": "minecraft:custom_model_data",
+    "index": 0,
+    "on_true": {
+      "type": "minecraft:model",
+      "model": "eldencraft_bridge:item/wondrous_physick",
+      "tints": [
+        {"type": "minecraft:constant", "value": -1},
+        {"type": "minecraft:custom_model_data", "index": 0, "default": -3612176},
+        {"type": "minecraft:custom_model_data", "index": 1, "default": -3612176}
+      ]
+    },
+    "on_false": {
+      "type": "minecraft:model",
+      "model": "eldencraft_bridge:item/wondrous_physick_empty"
+    }
+  }
+}

@@ -35,6 +35,7 @@ struct Core {
     chat_active: Option<unsafe extern "C" fn() -> u32>,
     chat_event: Option<unsafe extern "C" fn(u32, u32, u32) -> u32>,
     scene_camera: Option<unsafe extern "C" fn(*mut c_void, u32) -> u32>,
+    key_bindings: Option<unsafe extern "C" fn(*mut u32, u32) -> u32>,
 }
 
 /// Current core; old ones are leaked with their modules.
@@ -136,6 +137,7 @@ fn load_core(directory: &Path) -> Result<(), String> {
             chat_active: symbol(module, c"eldencraft_chat_active"),
             chat_event: symbol(module, c"eldencraft_chat_event"),
             scene_camera: symbol(module, c"eldencraft_scene_camera"),
+            key_bindings: symbol(module, c"eldencraft_key_bindings"),
         };
         if start(SELF_MODULE.load(Ordering::Acquire)) == 0 {
             return Err("core start failed".into());
@@ -322,6 +324,16 @@ pub extern "C" fn eldencraft_chat_active() -> u32 {
 pub extern "C" fn eldencraft_chat_event(kind: u32, code: u32, modifiers: u32) -> u32 {
     with_core(0, |core| {
         core.chat_event.map(|f| unsafe { f(kind, code, modifiers) })
+    })
+}
+/// Optional: 0 (no table) without a core, so the compositor keeps its built-in keys.
+///
+/// # Safety
+/// `out` must be null or point to `count` writable `u32`s, as for the core export.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn eldencraft_key_bindings(out: *mut u32, count: u32) -> u32 {
+    with_core(0, |core| {
+        core.key_bindings.map(|f| unsafe { f(out, count) })
     })
 }
 /// # Safety

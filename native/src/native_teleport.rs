@@ -21,9 +21,17 @@ unsafe extern "system" {
     fn GetWindowThreadProcessId(w: *mut c_void, p: *mut u32) -> u32;
 }
 
-pub const CLEARANCE_RAYS: usize = 59; // five support rays and 27 bidirectional lines
-const SET_POSITION: usize = 0x45fe70;
-const SYNC_POSITION: usize = 0x45c910;
+/// Three wall probes, one support ray and 27 bidirectional capsule lines.
+pub const CLEARANCE_RAYS: usize = 58;
+/// How far below the pearl's impact the landing may snap onto native ground.
+pub const SNAP_DEPTH: f64 = 3.0;
+/// Furthest the landing backs away from cover the pearl struck.
+pub const MAX_BACKOFF: f64 = 0.6;
+/// Clearance lines start this far above the support, so a walkable slope or
+/// a step under the capsule's rim does not count as an obstruction.
+const STEP: f64 = 0.35;
+const SET_POSITION: usize = 0x45ff50;
+const SYNC_POSITION: usize = 0x45c9f0;
 const PREFIXES: &[(usize, &[u8])] = &[
     (
         SET_POSITION,
@@ -35,12 +43,12 @@ const PREFIXES: &[(usize, &[u8])] = &[
     (
         SYNC_POSITION,
         &[
-            0x40, 0x53, 0x48, 0x83, 0xec, 0x40, 0x48, 0x8b, 0x05, 0xf3, 0x24, 0x80, 0x03, 0x48,
+            0x40, 0x53, 0x48, 0x83, 0xec, 0x40, 0x48, 0x8b, 0x05, 0x23, 0x54, 0x80, 0x03, 0x48,
             0x33, 0xc4, 0x48, 0x89, 0x44, 0x24, 0x30, 0x80, 0xb9, 0x91,
         ],
     ),
     (
-        0xc5d860,
+        0xc5dd20,
         &[
             0x40, 0x57, 0x48, 0x83, 0xec, 0x40, 0x48, 0xc7, 0x44, 0x24, 0x20, 0xfe, 0xff, 0xff,
             0xff, 0x48, 0x89, 0x5c, 0x24, 0x50,
@@ -73,7 +81,6 @@ struct Identity {
 }
 #[derive(Clone, Debug)]
 pub struct Clearance {
-    pub ground: Vec<([f64; 3], [f64; 3])>,
     pub lines: Vec<([f64; 3], [f64; 3])>,
 }
 fn distance(a: [f64; 3], b: [f64; 3]) -> f64 {
@@ -88,22 +95,23 @@ pub fn covers_destination(
     height: f64,
     radius: f64,
 ) -> bool {
-    let r = radius.max(0.30) + 0.03;
+    // Room for the landing to back away from cover and snap down to ground.
+    let r = radius.max(0.30) + 0.03 + MAX_BACKOFF;
     let h = height.max(1.80) + 0.03;
     wire::valid_box(known)
         && destination[0] - r >= known[0] + 0.01
         && destination[0] + r <= known[3] - 0.01
         && destination[2] - r >= known[2] + 0.01
         && destination[2] + r <= known[5] - 0.01
-        && destination[1] - 1.5 >= known[1]
+        && destination[1] - SNAP_DEPTH >= known[1]
         && destination[1] + h <= known[4] - 0.01
 }
 pub fn landing_bounds(destination: [f64; 3], height: f64, radius: f64) -> [f64; 6] {
-    let r = radius.max(0.30) + 0.05;
+    let r = radius.max(0.30) + 0.05 + MAX_BACKOFF;
     let h = height.max(1.80) + 0.05;
     [
         destination[0] - r,
-        destination[1] - 1.52,
+        destination[1] - SNAP_DEPTH - 0.02,
         destination[2] - r,
         destination[0] + r,
         destination[1] + h,
@@ -138,7 +146,7 @@ impl Clearance {
         let h = height.max(1.80) + 0.03;
         let bounds = [
             destination[0] - r,
-            destination[1] + 0.04,
+            destination[1] + STEP,
             destination[2] - r,
             destination[0] + r,
             destination[1] + h,
@@ -146,7 +154,7 @@ impl Clearance {
         ];
         if !wire::valid_box(known)
             || (0..3).any(|i| bounds[i] < known[i] + 0.01 || bounds[i + 3] > known[i + 3] - 0.01)
-            || destination[1] - 1.5 < known[1]
+            || destination[1] - 0.05 < known[1]
         {
             return Err("pearl destination outside verified terrain coverage");
         }
@@ -161,25 +169,6 @@ impl Clearance {
         {
             return Err("pearl destination capsule intersects Minecraft geometry");
         }
-        let ground = [
-            [0., 0.],
-            [r * 0.6, 0.],
-            [-r * 0.6, 0.],
-            [0., r * 0.6],
-            [0., -r * 0.6],
-        ]
-        .into_iter()
-        .map(|[x, z]| {
-            (
-                [
-                    destination[0] + x,
-                    destination[1] + 0.45,
-                    destination[2] + z,
-                ],
-                [0., -1.95, 0.],
-            )
-        })
-        .collect();
         let mut lines = Vec::with_capacity(27);
         let xs = [bounds[0], destination[0], bounds[3]];
         let ys = [bounds[1], (bounds[1] + bounds[4]) * 0.5, bounds[4]];
@@ -199,7 +188,38 @@ impl Clearance {
                 lines.push(([x, bounds[1], z], [x, bounds[4], z]));
             }
         }
-        Ok(Self { ground, lines })
+        Ok(Self { lines })
+    }
+}
+
+/// Horizontal unit vector from the impact back toward open air: the way the
+/// pearl came in, or toward the thrower for a straight drop.
+pub fn retreat(trajectory: &[[f64; 3]], feet: [f64; 3], impact: [f64; 3]) -> Option<[f64; 2]> {
+    let unit = |p: [f64; 3]| {
+        let (x, z) = (p[0] - impact[0], p[2] - impact[2]);
+        let length = (x * x + z * z).sqrt();
+        (length.is_finite() && length > 1e-3).then(|| [x / length, z / length])
+    };
+    trajectory
+        .iter()
+        .rev()
+        .find(|p| distance(**p, impact) > 0.05)
+        .and_then(|p| unit(*p))
+        .or_else(|| unit(feet))
+}
+
+/// How far the landing must move along the retreat so the capsule clears
+/// cover found `wall` metres beyond the impact (negative: behind it).
+pub fn backoff(walls: &[Option<f64>], radius: f64) -> Result<f64, &'static str> {
+    let needed = walls
+        .iter()
+        .flatten()
+        .map(|wall| radius.max(0.30) + 0.08 - wall)
+        .fold(0., f64::max);
+    if needed > MAX_BACKOFF {
+        Err("pearl landing is wedged against native cover")
+    } else {
+        Ok(needed)
     }
 }
 impl Sink {
@@ -254,27 +274,60 @@ impl Sink {
         {
             return Err("pearl player changed before relocation");
         }
+        let world = unsafe { self.rays.world() }?;
+        let filter = unsafe { self.rays.character_filter(world) }?;
+        let ray = |origin: [f64; 3], delta: [f64; 3]| {
+            let origin: [f64; 3] = std::array::from_fn(|i| origin[i] - scene.offset[i]);
+            unsafe { self.rays.ray(world, origin, delta, filter) }.map(|hit| {
+                hit.map(|h| {
+                    let point: [f64; 3] = std::array::from_fn(|i| h.point[i] + scene.offset[i]);
+                    (point, h.normal)
+                })
+            })
+        };
+        // A pearl that strikes a wall stops at its face: step back the way it
+        // came until the capsule clears, as vanilla's own push-out would.
+        let mut landing = destination;
+        if let Some(away) = retreat(&e.trajectory, scene.feet, destination) {
+            const REACH: f64 = 1.0;
+            let length = REACH + initial.radius.max(0.30) + 0.1;
+            let mut walls = [None; 3];
+            for (wall, height) in walls.iter_mut().zip([0.45, 0.95, 1.5]) {
+                let start = [
+                    destination[0] + away[0] * REACH,
+                    destination[1] + height,
+                    destination[2] + away[1] * REACH,
+                ];
+                let delta = [-away[0] * length, 0., -away[1] * length];
+                *wall = ray(start, delta)?.map(|(point, _)| {
+                    ((point[0] - start[0]).powi(2) + (point[2] - start[2]).powi(2)).sqrt() - REACH
+                });
+            }
+            let back = backoff(&walls, initial.radius)?;
+            landing[0] += away[0] * back;
+            landing[2] += away[1] * back;
+        }
+        // Then settle onto the ground below, as the player would fall there.
+        let Some((support, normal)) = ray(
+            [landing[0], landing[1] + 1.0, landing[2]],
+            [0., -(1.0 + SNAP_DEPTH), 0.],
+        )?
+        else {
+            return Err("pearl destination has no native support");
+        };
+        if normal[1] < 0.5 {
+            return Err("pearl native support is too steep");
+        }
+        landing[1] = support[1] + 0.02;
         let clearance = Clearance::prepare(
             scene.feet,
-            destination,
+            landing,
             e.position,
             initial.height,
             initial.radius,
             scene.terrain_bounds,
             blocks,
         )?;
-        let world = unsafe { self.rays.world() }?;
-        let filter = unsafe { self.rays.character_filter(world) }?;
-        for (origin, delta) in clearance.ground {
-            let origin = std::array::from_fn(|i| origin[i] - scene.offset[i]);
-            let Some(hit) = unsafe { self.rays.ray(world, origin, delta, filter) }? else {
-                return Err("pearl destination has no native support");
-            };
-            let gap = destination[1] - (hit.point[1] + scene.offset[1]);
-            if !(-0.04..=1.5).contains(&gap) || hit.normal[1] < 0.60 {
-                return Err("pearl native support is unsafe");
-            }
-        }
         for (a, b) in clearance.lines {
             for (a, b) in [(a, b), (b, a)] {
                 let origin = std::array::from_fn(|i| a[i] - scene.offset[i]);
@@ -295,7 +348,7 @@ impl Sink {
         {
             return Err("pearl player changed during clearance");
         }
-        let requested: [f64; 3] = std::array::from_fn(|i| destination[i] - scene.offset[i]);
+        let requested: [f64; 3] = std::array::from_fn(|i| landing[i] - scene.offset[i]);
         let value = Position([
             requested[0] as f32,
             requested[1] as f32,
@@ -412,9 +465,32 @@ mod tests {
         );
     }
     #[test]
+    fn pearl_retreats_the_way_it_came_or_toward_the_thrower() {
+        let impact = [10., 1., 0.];
+        let flight = [[0., 2., 0.], [5., 2., 0.], [9.5, 1.2, 0.], impact];
+        let away = retreat(&flight, [0.; 3], impact).unwrap();
+        assert!((away[0] + 1.).abs() < 1e-9 && away[1].abs() < 1e-9);
+        // A straight drop has no horizontal approach: back toward the thrower.
+        let drop = [[10., 5., 0.], [10., 3., 0.], impact];
+        let away = retreat(&drop, [10., 1., 4.], impact).unwrap();
+        assert!(away[0].abs() < 1e-9 && (away[1] - 1.).abs() < 1e-9);
+        assert!(retreat(&drop, impact, impact).is_none());
+    }
+    #[test]
+    fn pearl_backs_off_cover_only_as_far_as_the_capsule_needs() {
+        assert_eq!(backoff(&[None, None, None], 0.3), Ok(0.));
+        // Cover 1 m beyond the impact is already clear of a 0.3 m capsule.
+        assert_eq!(backoff(&[Some(1.), None, None], 0.3), Ok(0.));
+        // Cover right at the impact face needs the radius plus the margin.
+        let back = backoff(&[Some(0.), Some(0.1), None], 0.3).unwrap();
+        assert!((back - 0.38).abs() < 1e-9);
+        assert!(backoff(&[Some(-0.5), None, None], 0.3).is_err());
+    }
+    #[test]
     fn pearl_native_clearance_budget_is_fixed_and_capsule_dimensions_are_bounded() {
         let p = plan([2., 0., 2.], &[]).unwrap();
-        assert_eq!(p.ground.len() + p.lines.len() * 2, CLEARANCE_RAYS);
+        // Three wall probes and one support ray precede the capsule lines.
+        assert_eq!(4 + p.lines.len() * 2, CLEARANCE_RAYS);
         assert_eq!(std::mem::align_of::<Position>(), 16);
         assert_eq!(std::mem::size_of::<Position>(), 16);
         assert!(plan([f64::NAN, 0., 0.], &[]).is_err());

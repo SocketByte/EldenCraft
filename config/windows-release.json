@@ -2,8 +2,8 @@
   "schema_version": 1,
   "windows_min_build": 19041,
   "elden_ring": {
-    "product_version": "2.7.1.0",
-    "sha256": "1a3547101327f65d0c76da2f9190ac0aa66871ea42bae2aecc61e11a8b597891",
+    "product_version": "2.7.2.0",
+    "sha256": "f9118fea2cfd8fa3901e8060bfadb1552cb2471771ded8a5b662c4e298ffb328",
     "steam_app_id": "1245620"
   },
   "minecraft": {

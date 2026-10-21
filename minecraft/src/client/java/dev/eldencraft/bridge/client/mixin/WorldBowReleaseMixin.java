@@ -17,6 +17,6 @@ abstract class WorldBowReleaseMixin {
       LivingEntity player,
       int remaining,
       CallbackInfoReturnable<Boolean> cir) {
-    if (!WorldProjectiles.permitItem(player)) cir.setReturnValue(false);
+    if (!WorldProjectiles.permitHeldItem(player)) cir.setReturnValue(false);
   }
 }

@@ -194,6 +194,41 @@ public final class ProxyConformance {
         encoded.getFloat(176) == 3.25f && encoded.getInt(184) == 1,
         "actual damage and item wear preserved");
     check(encoded.getInt(192) == 20 && encoded.get(4095) == 0, "item length and unused zero");
+    check(
+        encoded.getInt(4) == 3 && encoded.getInt(196) == 0,
+        "v3 carries bounded enchantment metadata; old receipts default to none");
+    for (int shift : new int[] {0, 4, 8, 16, 20, 24, 28}) {
+      int packed = (3 << shift) | (2 << 12);
+      var enchanted =
+          new ProxyProtocol.Receipt(
+              1, 1, 1, 1, 1000, 1, 3, 0, 1, 20, "minecraft:iron_sword", packed);
+      var encodedAffinity =
+          ByteBuffer.wrap(
+                  ProxyProtocol.encodeReceipts(
+                      2, 1, 1000, 1234, true, 9, 555, 55, 42, List.of(enchanted)))
+              .order(ByteOrder.LITTLE_ENDIAN);
+      check(
+          encodedAffinity.getInt(196) == packed,
+          "each affinity and Looting retain exact strike evidence");
+    }
+    for (int packed :
+        new int[] {-1, 4, 0x11, 0x101, 0x110, 0x4000, 0x40000, 0x10001, 0x110000, 0x10000100})
+      rejectEncode(
+          List.of(
+              new ProxyProtocol.Receipt(
+                  1, 1, 1, 1, 1000, 1, 3, 0, 1, 20, "minecraft:iron_sword", packed)),
+          "invalid affinity metadata " + packed);
+    var affinityQueue = new ProxyReceipts();
+    affinityQueue.update(frame(1, 0, 0, 7, 42));
+    long affinitySession = affinityQueue.session();
+    affinityQueue.update(frame(2, affinitySession, 0, 7, 42));
+    check(
+        affinityQueue.add(
+                affinitySession,
+                new ProxyProtocol.Receipt(
+                    0, 1, 1, 1, 1000, 1, 3, 0, 1, 20, "minecraft:iron_sword", 0x3030))
+            && affinityQueue.snapshot().getFirst().enchantments() == 0x3030,
+        "receipt sequencing preserves affinity evidence until acknowledgement");
     rejectEncode(List.of(receipt(2), receipt(1)), "out of order");
     rejectEncode(Collections.nCopies(33, receipt(1)), "queue bound");
     rejectEncode(

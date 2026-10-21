@@ -28,6 +28,27 @@ public final class CampaignConformance {
     throw new AssertionError(message);
   }
 
+  /** Attack stamina is a share of the player's maximum by weapon family; stance rises by tier. */
+  private static void verifyWeaponStaminaAndStance(CampaignConfig rules) {
+    for (var family : List.of("sword", "spear", "axe"))
+      near(
+          rules.stamina.fraction(family),
+          rules.stamina.cost(family) / 100,
+          family + " cost is a percentage of the maximum");
+    near(rules.stamina.cost("stick"), rules.stamina.cost("other"), "unlisted items use 'other'");
+    for (var weapon : rules.weapons.entrySet())
+      check(
+          !rules.raw().getAsJsonObject("weapons").getAsJsonObject(weapon.getKey()).has("stamina"),
+          "no weapon carries its own stamina field");
+    near(rules.stanceDamage("minecraft:stick"), rules.stance.fallback(), "fallback stance");
+    check(
+        rules.stance.enabled() && rules.stance.recoverySeconds() > 0,
+        "stance is on in the shipped campaign");
+    check(
+        rules.stanceDamage("minecraft:mace") > rules.stanceDamage("minecraft:netherite_axe"),
+        "the mace is the heaviest stance hitter");
+  }
+
   private static void verifyGearStages(
       CampaignConfig rules, Map<String, CampaignShopCatalog.Offer> offers) {
     var stages =
@@ -166,6 +187,50 @@ public final class CampaignConformance {
         "out-of-order victory retains highest earned tier");
   }
 
+  /** As in Elden Ring: any stamina left pays for one more attack, and emptying it waits longer. */
+  private static void verifyExhaustion() {
+    var rules = new CampaignConfig.Stamina(Map.of("other", 20d), 20, .5, 4, 1.5, 5, .25, 2, .25);
+    near(rules.exhaustedDelaySeconds(), 1, "the exhausted delay multiplies the ordinary one");
+    var account = new CampaignStamina(100);
+    check(account.spend(90) && !account.exhausted(), "an affordable attack does not exhaust");
+    check(account.canSpend(40), "any stamina left allows one more attack");
+    check(account.spend(40), "the overdrawn attack goes through");
+    check(
+        account.current() == 0 && account.exhausted() && !account.guardReady(),
+        "the overdrawn attack empties the bar, exhausts it and lowers the guard");
+    check(!account.canSpend(1) && !account.spend(1), "an empty bar allows no further attack");
+    near(account.current(), 0, "a denied attack spends nothing");
+    account.tick(.75, false, rules);
+    near(account.current(), 0, "recovery waits longer than the ordinary delay");
+    check(account.exhausted(), "exhaustion lasts for the whole longer delay");
+    account.tick(.5, false, rules);
+    near(account.current(), 5, "recovery resumes once the exhausted delay has passed");
+    check(!account.exhausted() && account.guardReady(), "the longer delay covers one wait");
+    check(
+        account.spend(1) && !account.exhausted(), "an attack that leaves stamina does not exhaust");
+    account.tick(.5, false, rules);
+    near(account.current(), 4, "the ordinary delay applies again");
+    account.tick(.25, false, rules);
+    near(account.current(), 9, "and recovery follows it");
+    var exact = new CampaignStamina(50);
+    check(exact.spend(50) && exact.exhausted(), "spending exactly the rest also exhausts");
+    exact.rest();
+    check(!exact.exhausted() && exact.current() == 50, "resting clears exhaustion");
+    var guarded = new CampaignStamina(10);
+    guarded.guard(100, 1, rules);
+    check(
+        guarded.current() == 0 && !guarded.exhausted(),
+        "a broken guard keeps its own recovery and ordinary delay");
+    var sliver = new CampaignStamina(1);
+    sliver.spend(1 - 1e-12);
+    check(
+        sliver.current() == 0 && sliver.exhausted() && !sliver.canSpend(.5),
+        "a rounding sliver is an empty bar");
+    check(
+        CampaignStamina.allows(.01, 50) && !CampaignStamina.allows(0, 50),
+        "the client predicts attacks with the same rule");
+  }
+
   public static void main(String[] args) throws Exception {
     checks += CampaignExperienceConformance.verify();
     checks += CampaignHudConformance.verify();
@@ -176,8 +241,6 @@ public final class CampaignConformance {
         "all fifteen distinct remembrance encounters");
     near(rules.progression.health(0), 40, "starting Minecraft HP");
     near(rules.progression.health(15), 40 * 2314d / 828, "exact 60 Vigor endpoint");
-    near(rules.progression.stamina(0), 54, "configured opening stamina endpoint");
-    near(rules.progression.stamina(15), 103, "configured final remembrance stamina endpoint");
     near(rules.progression.health(99), rules.progression.health(15), "NG+ has no extra capacity");
     near(rules.progression.health(-1), 40, "lower cap");
     near(rules.progression.health(3), 40 * 1066d / 828, "fractional shares avoid rounding loss");
@@ -278,17 +341,19 @@ public final class CampaignConformance {
     account.tick(.5, false, rules.stamina);
     near(account.current(), 72, "regeneration delay");
     account.tick(.25, false, rules.stamina);
-    near(account.current(), 77, "regen after delay");
+    double regen = rules.stamina.regenPerSecond();
+    double held = 72 + regen * .25;
+    near(account.current(), held, "regen after delay");
     account.tick(1, true, rules.stamina);
-    near(account.current(), 77, "ranged load and guard pause regeneration");
-    check(!account.spend(78), "insufficient attack denied");
-    near(account.current(), 77, "denied attack does not spend");
+    near(account.current(), held, "ranged load and guard pause regeneration");
+    verifyExhaustion();
     account.capacity(130);
-    near(account.current(), 77, "capacity reward does not refill stamina");
-    // 77 stamina pays for 77 of the 154 a 100-damage guard costs: half is blocked.
+    near(account.current(), held, "capacity reward does not refill stamina");
+    // Stamina pays for its own share of what a 100-damage guard costs; the rest gets through.
+    double guardCost = rules.stamina.guardBase() + rules.stamina.guardPerDamage() * 100;
     near(
         CampaignStamina.absorbed(account.current(), 100, rules.stamina),
-        .5,
+        Math.min(1, held / guardCost),
         "low stamina absorbs only the share of the hit it can pay for");
     near(CampaignStamina.absorbed(200, 100, rules.stamina), 1, "covered guard blocks fully");
     near(CampaignStamina.absorbed(0, 100, rules.stamina), 0, "empty stamina blocks nothing");
@@ -298,23 +363,100 @@ public final class CampaignConformance {
     check(!account.guard(10, 1, rules.stamina), "an already broken guard does not break again");
     near(
         CampaignStamina.recoverySeconds(rules.stamina),
-        .75,
-        "guard-break cooldown matches stamina recovery");
+        rules.stamina.regenDelaySeconds()
+            + rules.stamina.guardRecovery() / regen
+            + rules.stamina.brokenShieldDelaySeconds(),
+        "guard-break cooldown matches stamina recovery and the shield delay");
     account.tick(.5, false, rules.stamina);
     check(!account.guardReady(), "delay before guard recovery");
     account.tick(.25, false, rules.stamina);
-    near(account.current(), 5, "guard threshold regeneration");
-    check(account.guardReady(), "guard recovers at fixed threshold");
+    near(account.current(), regen * .25, "guard threshold regeneration");
+    boolean recovered = regen * .25 >= rules.stamina.guardRecovery();
+    check(
+        account.guardReady() == (recovered && rules.stamina.brokenShieldDelaySeconds() <= 0),
+        "a guard broken by a hit stays down through the shield delay after recovery");
+    if (recovered) {
+      account.tick(rules.stamina.brokenShieldDelaySeconds(), false, rules.stamina);
+      check(account.guardReady(), "the shield can be raised once the shield delay has run");
+    }
+    var attacked = new CampaignStamina(10);
+    attacked.spend(10);
+    attacked.tick(rules.stamina.exhaustedDelaySeconds() + 1, false, rules.stamina);
+    check(attacked.guardReady(), "an exhausting attack adds no broken-guard shield delay");
     account.rest();
     near(account.current(), 130, "rest capacity cap");
     account.guard(4, 2, rules.stamina);
-    near(account.current(), 116, "multiple native guard events consume base per hit");
+    near(
+        account.current(),
+        130 - (rules.stamina.guardBase() * 2 + rules.stamina.guardPerDamage() * 4),
+        "multiple native guard events consume base per hit");
     account.tick(100, false, rules.stamina);
     near(account.current(), 130, "regeneration cannot overflow");
     check(account.spend(130), "spending the last stamina is allowed");
     check(
         !account.guardReady(), "an attack that exhausts stamina cannot buy one free shield block");
+    verifyWeaponStaminaAndStance(rules);
     var invalid = rules.raw();
+    invalid.getAsJsonObject("stamina").getAsJsonObject("costs").addProperty("sword", 101);
+    rejects(invalid, "a stamina share above 100 percent rejected");
+    invalid = rules.raw();
+    invalid.getAsJsonObject("stamina").getAsJsonObject("costs").addProperty("sword", -1);
+    rejects(invalid, "a negative stamina share rejected");
+    var raise = rules.raw();
+    raise.getAsJsonObject("stamina").remove("shieldRaiseSeconds");
+    check(
+        CampaignConfig.parse(raise).stamina.shieldRaiseTicks() == 0,
+        "an older file raises shields instantly");
+    raise.getAsJsonObject("stamina").remove("brokenShieldDelaySeconds");
+    near(
+        CampaignConfig.parse(raise).stamina.brokenShieldDelaySeconds(),
+        CampaignConfig.Stamina.DEFAULT_BROKEN_SHIELD_DELAY_SECONDS,
+        "an older file takes the default broken-guard shield delay");
+    raise.getAsJsonObject("stamina").addProperty("brokenShieldDelaySeconds", 6);
+    rejects(raise, "broken-guard shield delay 6 rejected");
+    raise.getAsJsonObject("stamina").addProperty("brokenShieldDelaySeconds", -.1);
+    rejects(raise, "negative broken-guard shield delay rejected");
+    raise.getAsJsonObject("stamina").addProperty("brokenShieldDelaySeconds", .1);
+    raise.getAsJsonObject("stamina").addProperty("shieldRaiseSeconds", 0);
+    check(
+        CampaignConfig.parse(raise).stamina.shieldRaiseTicks() == 0,
+        "a zero shield cast time blocks at once");
+    raise.getAsJsonObject("stamina").addProperty("shieldRaiseSeconds", .5);
+    check(
+        CampaignConfig.parse(raise).stamina.shieldRaiseTicks() == 10,
+        "the shield cast time rounds to ticks as vanilla does");
+    for (double outside : new double[] {-.05, 5.5}) {
+      raise.getAsJsonObject("stamina").addProperty("shieldRaiseSeconds", outside);
+      rejects(raise, "shield cast time " + outside + " rejected");
+    }
+    var exhaustion = rules.raw();
+    exhaustion.getAsJsonObject("stamina").remove("exhaustedDelayMultiplier");
+    check(
+        CampaignConfig.parse(exhaustion).stamina.exhaustedDelayMultiplier()
+            == CampaignConfig.Stamina.DEFAULT_EXHAUSTED_DELAY_MULTIPLIER,
+        "an older file doubles the delay after an exhausting attack");
+    exhaustion.getAsJsonObject("stamina").addProperty("exhaustedDelayMultiplier", 1);
+    check(
+        CampaignConfig.parse(exhaustion).stamina.exhaustedDelaySeconds()
+            == CampaignConfig.parse(exhaustion).stamina.regenDelaySeconds(),
+        "a multiplier of 1 keeps the ordinary delay");
+    for (double outside : new double[] {.5, 11}) {
+      exhaustion.getAsJsonObject("stamina").addProperty("exhaustedDelayMultiplier", outside);
+      rejects(exhaustion, "exhausted delay multiplier " + outside + " rejected");
+    }
+    invalid = rules.raw();
+    invalid
+        .getAsJsonObject("weapons")
+        .getAsJsonObject("minecraft:wooden_sword")
+        .addProperty("stance", -1);
+    rejects(invalid, "negative weapon stance rejected");
+    invalid = rules.raw();
+    invalid.getAsJsonObject("combat").getAsJsonObject("stance").addProperty("recoverySeconds", 0);
+    rejects(invalid, "stance recovery must be positive");
+    invalid = rules.raw();
+    invalid.getAsJsonObject("combat").getAsJsonObject("stance").addProperty("capacityScale", 0);
+    rejects(invalid, "stance capacity scale must be positive");
+    invalid = rules.raw();
     invalid
         .getAsJsonObject("weapons")
         .getAsJsonObject("minecraft:wooden_sword")

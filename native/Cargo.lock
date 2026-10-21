@@ -144,7 +144,7 @@ dependencies = [
 [[package]]
 name = "eldenring"
 version = "0.14.0"
-source = "git+https://github.com/vswarte/fromsoftware-rs?rev=59fbd3b3b7daaf14aca47c9f73530493dba6bc79#59fbd3b3b7daaf14aca47c9f73530493dba6bc79"
+source = "git+https://github.com/Dasaav-dsv/fromsoftware-rs?rev=5baf0dd2243e2affa8bc436d27d7305c2eab9490#5baf0dd2243e2affa8bc436d27d7305c2eab9490"
 dependencies = [
  "bitfield",
  "bitflags",
@@ -189,13 +189,13 @@ dependencies = [
  "memchr",
  "pelite",
  "smallvec",
- "windows-sys 0.61.2",
+ "windows-sys",
 ]
 
 [[package]]
 name = "fromsoftware-shared"
 version = "0.14.0"
-source = "git+https://github.com/vswarte/fromsoftware-rs?rev=59fbd3b3b7daaf14aca47c9f73530493dba6bc79#59fbd3b3b7daaf14aca47c9f73530493dba6bc79"
+source = "git+https://github.com/Dasaav-dsv/fromsoftware-rs?rev=5baf0dd2243e2affa8bc436d27d7305c2eab9490#5baf0dd2243e2affa8bc436d27d7305c2eab9490"
 dependencies = [
  "bitflags",
  "from-singleton",
@@ -211,7 +211,7 @@ dependencies = [
 [[package]]
 name = "fromsoftware-shared-macros"
 version = "0.14.0"
-source = "git+https://github.com/vswarte/fromsoftware-rs?rev=59fbd3b3b7daaf14aca47c9f73530493dba6bc79#59fbd3b3b7daaf14aca47c9f73530493dba6bc79"
+source = "git+https://github.com/Dasaav-dsv/fromsoftware-rs?rev=5baf0dd2243e2affa8bc436d27d7305c2eab9490#5baf0dd2243e2affa8bc436d27d7305c2eab9490"
 dependencies = [
  "inflections",
  "proc-macro2",
@@ -222,7 +222,7 @@ dependencies = [
 [[package]]
 name = "fromsoftware-shared-stl"
 version = "0.14.0"
-source = "git+https://github.com/vswarte/fromsoftware-rs?rev=59fbd3b3b7daaf14aca47c9f73530493dba6bc79#59fbd3b3b7daaf14aca47c9f73530493dba6bc79"
+source = "git+https://github.com/Dasaav-dsv/fromsoftware-rs?rev=5baf0dd2243e2affa8bc436d27d7305c2eab9490#5baf0dd2243e2affa8bc436d27d7305c2eab9490"
 
 [[package]]
 name = "fxhash"
@@ -275,7 +275,7 @@ dependencies = [
  "libc",
  "regex",
  "thiserror",
- "windows-sys 0.60.2",
+ "windows-sys",
 ]
 
 [[package]]
@@ -772,15 +772,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
 dependencies = [
  "windows-targets",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.61.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
-dependencies = [
- "windows-link 0.2.1",
 ]
 
 [[package]]

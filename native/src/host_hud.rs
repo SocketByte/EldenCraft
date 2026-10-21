@@ -20,18 +20,18 @@ use pelite::pe64::PeObject;
 use std::sync::OnceLock;
 
 // Polarity is verified in the supported worldwide executable: normal native
-// CSPlayerMenuCtrl reset (0x7c2390 -> 0x7c1fa0) sets permissions to9 (bits0+3).
+// CSPlayerMenuCtrl reset (0x7c2840 -> 0x7c2450) sets permissions to9 (bits0+3).
 // The getter returns bit3 directly, and the setter assigns only that bit.
 // Reserving the permission therefore clears it, rather than setting a guessed
 // "disable" flag. The SDK documents TAE54 DISABLE_START_INPUTS as its owner.
 const PAUSE_FINGERPRINTS: [(usize, &[u8]); 3] = [
-    (0x7c1fa0, &[0xc7, 0x41, 0x08, 0x09, 0, 0, 0, 0xc3]),
+    (0x7c2450, &[0xc7, 0x41, 0x08, 0x09, 0, 0, 0, 0xc3]),
     (
-        0x7c2620,
+        0x7c2ad0,
         &[0x8b, 0x41, 0x20, 0xc1, 0xe8, 0x03, 0x83, 0xe0, 0x01, 0xc3],
     ),
     (
-        0x7c2ab0,
+        0x7c2f60,
         &[
             0x83, 0x61, 0x20, 0xf7, 0x0f, 0xb6, 0xc2, 0x83, 0xe0, 0x01, 0xc1, 0xe0, 0x03, 0x09,
             0x41, 0x20, 0xc3,

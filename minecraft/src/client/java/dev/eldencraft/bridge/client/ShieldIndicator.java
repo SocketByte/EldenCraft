@@ -12,8 +12,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * Pixel shield beside the crosshair while a shield is held: faint when available, filling while
- * vanilla's raise delay runs, solid once it blocks, and red while a broken guard recovers.
+ * Pixel shield beside the crosshair while a shield is held: faint when available, filling while the
+ * configured raise delay runs, solid once it blocks, and red while a broken guard recovers. A raise
+ * delay of 0 turns it off.
  */
 public final class ShieldIndicator {
   // o = outline, x = fillable interior. Nine interior rows fill bottom-up.
@@ -65,6 +66,7 @@ public final class ShieldIndicator {
     var client = Minecraft.getInstance();
     var player = client.player;
     if (player == null
+        || !CampaignCombat.shieldIndicatorShown(player)
         || !CampaignCombat.active(player)
         || client.gui.hud.isHidden()
         || client.gui.screen() != null
@@ -98,7 +100,8 @@ public final class ShieldIndicator {
     } else if (using) {
       state = State.RAISING;
       var blocks = stack.get(DataComponents.BLOCKS_ATTACKS);
-      int delay = blocks == null ? 0 : blocks.blockDelayTicks();
+      int delay =
+          blocks == null ? 0 : CampaignCombat.shieldRaiseTicks(player, blocks.blockDelayTicks());
       progress = delay <= 0 ? 1 : player.getTicksUsingItem(partial) / delay;
     } else {
       state = State.IDLE;

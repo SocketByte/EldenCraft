@@ -40,6 +40,8 @@ pub struct Menu {
 #[derive(Clone, Debug, Serialize)]
 pub struct Subtitle {
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct State {
@@ -174,6 +176,7 @@ mod tests {
             menu: Some(menu),
             subtitle: Some(Subtitle {
                 text: "😀".repeat(MAX_TEXT),
+                speaker: None,
             }),
             input: Input {
                 seq: 3,

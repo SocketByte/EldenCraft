@@ -107,7 +107,8 @@ public final class ProxyReceipts {
             receipt.wearBefore(),
             receipt.wearAfter(),
             receipt.playerMaxHp(),
-            receipt.item()));
+            receipt.item(),
+            receipt.enchantments()));
     return true;
   }
 }

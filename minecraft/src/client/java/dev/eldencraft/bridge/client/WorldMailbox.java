@@ -18,6 +18,10 @@ final class WorldMailbox implements AutoCloseable {
   private long nextOpen, sequence, frame;
   private boolean failed;
   private WorldProtocol.Host retained;
+
+  /** The newest terrain decoded here, reported to the host so it can stop resending it. */
+  private WorldProtocol.Terrain terrain;
+
   private final dev.eldencraft.bridge.WorldPublication publication =
       new dev.eldencraft.bridge.WorldPublication();
 
@@ -65,6 +69,17 @@ final class WorldMailbox implements AutoCloseable {
     lastError =
         linker.downcallHandle(
             lib.find("GetLastError").orElseThrow(), FunctionDescriptor.of(ValueLayout.JAVA_INT));
+  }
+
+  /** {@code [epoch, map, revision]} of the decoded terrain, when it came from {@code host}. */
+  com.google.gson.JsonArray terrainReport(WorldProtocol.Host host) {
+    var cached = terrain;
+    if (cached == null || host == null || cached.pid() != host.pid()) return null;
+    var report = new com.google.gson.JsonArray();
+    report.add(cached.epoch());
+    report.add(cached.map());
+    report.add(cached.revision());
+    return report;
   }
 
   long now() {
@@ -118,11 +133,12 @@ final class WorldMailbox implements AutoCloseable {
         VarHandle.fullFence();
         if (before != (long) SEQ.getVolatile(view, 8L)
             || ByteBuffer.wrap(copy).order(ByteOrder.LITTLE_ENDIAN).getLong(8) != before) continue;
-        var host = WorldProtocol.decode(copy, now());
+        var host = WorldProtocol.decode(copy, now(), terrain);
         if (!ProcessHandle.of(host.pid()).map(ProcessHandle::isAlive).orElse(false)) {
           closeInput();
           return null;
         }
+        terrain = WorldProtocol.Terrain.of(host);
         retained = host.active() ? host : null;
         return host;
       }

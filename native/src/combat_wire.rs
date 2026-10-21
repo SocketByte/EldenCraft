@@ -199,7 +199,33 @@ pub struct Receipt {
     pub durability_before: i32,
     pub durability_after: i32,
     pub guest_max_hp: f32,
+    /// Poison, bleeding, frostbite, Looting, fire, lightning, magic and holy levels
+    /// occupy successive nibbles. Version 1 receipts have no enchantments,
+    /// version 2 has only the low four nibbles and version 3 has all eight.
+    pub enchantments: u32,
     pub item: String,
+}
+/// Nibble of each affinity kind: statuses Poison, Bleeding and Frostbite,
+/// then elements Fire, Lightning, Magic and Holy. Nibble 3 is Looting.
+const AFFINITY_NIBBLES: [u32; 7] = [0, 1, 2, 4, 5, 6, 7];
+/// Kinds below this index are native statuses; the rest are elements.
+pub const FIRST_ELEMENT: usize = 3;
+pub fn valid_enchantments(value: u32) -> bool {
+    (0..8).all(|i| (value >> (i * 4)) & 15 <= 3)
+        && AFFINITY_NIBBLES
+            .iter()
+            .filter(|i| (value >> (*i * 4)) & 15 != 0)
+            .count()
+            <= 1
+}
+pub fn affinity(value: u32) -> Option<(usize, u32)> {
+    AFFINITY_NIBBLES.iter().enumerate().find_map(|(kind, i)| {
+        let level = (value >> (i * 4)) & 15;
+        (level > 0).then_some((kind, level))
+    })
+}
+pub fn looting(value: u32) -> u32 {
+    (value >> 12) & 15
 }
 #[derive(Clone, Debug)]
 pub struct Damage {
@@ -215,7 +241,7 @@ pub struct Damage {
     pub receipts: Vec<Receipt>,
 }
 pub fn decode_damage(b: &[u8], now: u64) -> Result<Damage, &'static str> {
-    if b.len() != BYTES || n32(b, 0) != DAMAGE_MAGIC || n32(b, 4) != 1 {
+    if b.len() != BYTES || n32(b, 0) != DAMAGE_MAGIC || !matches!(n32(b, 4), 1..=3) {
         return Err("damage header mismatch");
     }
     let sequence = n64(b, 8);
@@ -260,6 +286,7 @@ pub fn decode_damage(b: &[u8], now: u64) -> Result<Damage, &'static str> {
         let after = n32(b, at + 56) as i32;
         let maximum = nf(b, at + 60);
         let length = n32(b, at + 64) as usize;
+        let enchantments = n32(b, at + 68);
         // Expired entries remain decodable so the host can reject and acknowledge them.
         if receipt <= previous
             || empty_handle(target)
@@ -275,7 +302,9 @@ pub fn decode_damage(b: &[u8], now: u64) -> Result<Damage, &'static str> {
             || !finite(maximum, 1., 2048.)
             || length == 0
             || length > 40
-            || !zero(&b[at + 68..at + 72])
+            || (n32(b, 4) == 1 && enchantments != 0)
+            || (n32(b, 4) == 2 && enchantments & 0xffff_0000 != 0)
+            || !valid_enchantments(enchantments)
             || !zero(&b[at + 72 + length..at + 112])
         {
             return Err("damage receipt rejected");
@@ -296,6 +325,7 @@ pub fn decode_damage(b: &[u8], now: u64) -> Result<Damage, &'static str> {
             durability_before: before,
             durability_after: after,
             guest_max_hp: maximum,
+            enchantments,
             item: item.to_owned(),
         });
         previous = receipt;
@@ -408,6 +438,69 @@ mod tests {
         put32(&mut b, 192, 20);
         b[200..220].copy_from_slice(b"minecraft:iron_sword");
         b
+    }
+    #[test]
+    fn enchantments_require_bounded_levels_and_a_single_affinity() {
+        let mut b = wire();
+        for levels in [0, 1, 3, 0x20, 0x300, 0x1000, 0x3003, 0x3300] {
+            assert!(valid_enchantments(levels));
+            put32(&mut b, 196, levels);
+            for version in [2, 3] {
+                put32(&mut b, 4, version);
+                assert_eq!(
+                    decode_damage(&b, 1000).unwrap().receipts[0].enchantments,
+                    levels
+                );
+            }
+            put32(&mut b, 4, 1);
+            assert_eq!(decode_damage(&b, 1000).is_ok(), levels == 0);
+        }
+        // Elements occupy the upper nibbles, which only version 3 carries.
+        for levels in [0x1_0000, 0x3_3000, 0x20_0000, 0x300_0000, 0x3000_2000] {
+            assert!(valid_enchantments(levels));
+            put32(&mut b, 196, levels);
+            put32(&mut b, 4, 3);
+            assert_eq!(
+                decode_damage(&b, 1000).unwrap().receipts[0].enchantments,
+                levels
+            );
+            put32(&mut b, 4, 2);
+            assert!(decode_damage(&b, 1000).is_err());
+        }
+        for levels in [
+            4,
+            0x40,
+            0x400,
+            0x4000,
+            0x11,
+            0x101,
+            0x110,
+            0x4_0000,
+            0x1_0001,
+            0x11_0000,
+            0x1000_0100,
+            u32::MAX,
+        ] {
+            assert!(!valid_enchantments(levels));
+            put32(&mut b, 4, 3);
+            put32(&mut b, 196, levels);
+            assert!(decode_damage(&b, 1000).is_err());
+        }
+        assert_eq!(affinity(0x3020), Some((1, 2)));
+        assert_eq!(looting(0x3020), 3);
+        assert_eq!(affinity(0x3000), None);
+        for (levels, kind) in [
+            (0x1_0000, 3),
+            (0x10_0000, 4),
+            (0x100_0000, 5),
+            (0x1000_0000, 6),
+        ] {
+            assert_eq!(affinity(levels | 0x2000), Some((kind, 1)));
+            assert!(kind >= FIRST_ELEMENT);
+        }
+        put32(&mut b, 4, 4);
+        put32(&mut b, 196, 0);
+        assert!(decode_damage(&b, 1000).is_err());
     }
     #[test]
     fn wire_bounds_and_reserved_bytes() {

@@ -20,7 +20,8 @@
       "trail": "#BCC475",
       "border": "#726C47",
       "background": "#172015",
-      "text": "#DBE7CD"
+      "text": "#DBE7CD",
+      "depleted": "#D8392B"
     },
     "bossBar": {
       "enabled": true,
@@ -39,94 +40,122 @@
     }
   },
   "combat": {
-    "nativeDamageScale": 36,
+    "nativeDamageScale": 32,
     "explosionDamageScale": 0.595,
     "lavaDamageScale": 0.075,
-    "crossbowBaseDamage": 6,
-    "bowBaseDamage": 3,
+    "crossbowBaseDamage": 4,
+    "bowBaseDamage": 2,
     "nativeIncomingDamageScale": 1,
-    "nativeEnemyDamageMultipliers": {}
+    "nativeEnemyDamageMultipliers": {},
+    "stance": {
+      "enabled": true,
+      "default": 6,
+      "projectile": 10,
+      "explosion": 40,
+      "recoverySeconds": 6,
+      "capacityScale": 1
+    }
   },
   "weapons": {
     "minecraft:wooden_sword": {
-      "damage": 4,
-      "attackSpeed": 1.6
+      "damage": 3,
+      "attackSpeed": 1.6,
+      "stance": 8
     },
     "minecraft:wooden_axe": {
       "damage": 6,
-      "attackSpeed": 0.8
+      "attackSpeed": 0.8,
+      "stance": 16
     },
     "minecraft:stone_sword": {
-      "damage": 5,
-      "attackSpeed": 1.6
+      "damage": 4,
+      "attackSpeed": 1.6,
+      "stance": 8
     },
     "minecraft:stone_axe": {
       "damage": 8,
-      "attackSpeed": 0.8
+      "attackSpeed": 0.8,
+      "stance": 16
     },
     "minecraft:copper_sword": {
-      "damage": 6,
-      "attackSpeed": 1.6
+      "damage": 5,
+      "attackSpeed": 1.6,
+      "stance": 8
     },
     "minecraft:copper_axe": {
       "damage": 10,
-      "attackSpeed": 0.8
+      "attackSpeed": 0.8,
+      "stance": 16
     },
     "minecraft:iron_sword": {
-      "damage": 9,
-      "attackSpeed": 1.6
+      "damage": 7,
+      "attackSpeed": 1.6,
+      "stance": 8
     },
     "minecraft:iron_axe": {
-      "damage": 15,
-      "attackSpeed": 0.9
+      "damage": 14,
+      "attackSpeed": 0.9,
+      "stance": 16
     },
     "minecraft:diamond_sword": {
       "damage": 12.675,
-      "attackSpeed": 1.6
+      "attackSpeed": 1.6,
+      "stance": 8
     },
     "minecraft:diamond_axe": {
       "damage": 20.475,
-      "attackSpeed": 1
+      "attackSpeed": 1,
+      "stance": 16
     },
     "minecraft:netherite_sword": {
       "damage": 15.6,
-      "attackSpeed": 1.6
+      "attackSpeed": 1.6,
+      "stance": 8
     },
     "minecraft:netherite_axe": {
       "damage": 23.725,
-      "attackSpeed": 1
+      "attackSpeed": 1,
+      "stance": 16
     },
     "minecraft:wooden_spear": {
       "damage": 5,
-      "attackSpeed": 1.0
+      "attackSpeed": 1.0,
+      "stance": 10
     },
     "minecraft:stone_spear": {
       "damage": 6,
-      "attackSpeed": 1.0
+      "attackSpeed": 1.0,
+      "stance": 10
     },
     "minecraft:copper_spear": {
       "damage": 7,
-      "attackSpeed": 1.0
+      "attackSpeed": 1.0,
+      "stance": 10
     },
     "minecraft:golden_spear": {
       "damage": 8,
-      "attackSpeed": 1.0
+      "attackSpeed": 1.0,
+      "stance": 10
     },
     "minecraft:iron_spear": {
       "damage": 10,
-      "attackSpeed": 1.0
+      "attackSpeed": 1.0,
+      "stance": 10
     },
     "minecraft:diamond_spear": {
       "damage": 13.65,
-      "attackSpeed": 1.0
+      "attackSpeed": 1.0,
+      "stance": 10
     },
     "minecraft:netherite_spear": {
       "damage": 18.525,
-      "attackSpeed": 1.0
+      "attackSpeed": 1.0,
+      "stance": 10
     },
     "minecraft:mace": {
       "damage": 6,
-      "attackSpeed": 0.6
+      "attackSpeed": 0.6,
+      "stance": 35
     }
   },
   "armors": {
@@ -293,107 +322,48 @@
       }
     ],
     "staminaCurve": [
-      {
-        "level": 10,
-        "value": 54
-      },
-      {
-        "level": 11,
-        "value": 58
-      },
-      {
-        "level": 12,
-        "value": 62
-      },
-      {
-        "level": 13,
-        "value": 66
-      },
-      {
-        "level": 14,
-        "value": 70
-      },
-      {
-        "level": 15,
-        "value": 74
-      },
-      {
-        "level": 16,
-        "value": 78
-      },
-      {
-        "level": 17,
-        "value": 80
-      },
-      {
-        "level": 18,
-        "value": 82
-      },
-      {
-        "level": 19,
-        "value": 84
-      },
-      {
-        "level": 20,
-        "value": 86
-      },
-      {
-        "level": 21,
-        "value": 88
-      },
-      {
-        "level": 22,
-        "value": 90
-      },
-      {
-        "level": 23,
-        "value": 92
-      },
-      {
-        "level": 24,
-        "value": 94
-      },
-      {
-        "level": 25,
-        "value": 96
-      },
-      {
-        "level": 26,
-        "value": 98
-      },
-      {
-        "level": 27,
-        "value": 100
-      },
-      {
-        "level": 28,
-        "value": 101
-      },
-      {
-        "level": 29,
-        "value": 102
-      },
-      {
-        "level": 30,
-        "value": 103
-      }
+      { "level": 10, "value": 59 },
+      { "level": 11, "value": 73 },
+      { "level": 12, "value": 85 },
+      { "level": 13, "value": 96 },
+      { "level": 14, "value": 106 },
+      { "level": 15, "value": 114 },
+      { "level": 16, "value": 122 },
+      { "level": 17, "value": 129 },
+      { "level": 18, "value": 134 },
+      { "level": 19, "value": 140 },
+      { "level": 20, "value": 144 },
+      { "level": 21, "value": 149 },
+      { "level": 22, "value": 152 },
+      { "level": 23, "value": 155 },
+      { "level": 24, "value": 158 },
+      { "level": 25, "value": 161 },
+      { "level": 26, "value": 164 },
+      { "level": 27, "value": 166 },
+      { "level": 28, "value": 167 },
+      { "level": 29, "value": 168 },
+      { "level": 30, "value": 169 }
     ]
   },
   "stamina": {
     "costs": {
-      "sword": 12,
-      "axe": 24,
-      "bow": 24,
-      "crossbow": 24,
-      "other": 12,
-      "spear": 18,
-      "mace": 28
+
+      "sword": 25,
+      "spear": 25,
+      "axe": 50,
+      "mace": 60,
+      "bow": 20,
+      "crossbow": 25,
+      "other": 25
     },
-    "regenPerSecond": 20,
+    "regenPerSecond": 30,
     "regenDelaySeconds": 0.5,
     "guardBase": 4,
     "guardPerDamage": 1.5,
-    "guardRecovery": 5
+    "guardRecovery": 5,
+    "shieldRaiseSeconds": 0.15,
+    "brokenShieldDelaySeconds": 0.05,
+    "exhaustedDelayMultiplier": 2
   },
   "mining": {
     "allowedBlocks": [
@@ -575,6 +545,10 @@
         {
           "item": "minecraft:copper_spear",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 500
@@ -605,10 +579,6 @@
           "count": 32
         },
         {
-          "item": "minecraft:lapis_lazuli",
-          "count": 12
-        },
-        {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
         },
@@ -620,6 +590,10 @@
           "item": "minecraft:potion",
           "count": 1,
           "potion": "minecraft:strong_healing"
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 600
@@ -657,6 +631,10 @@
           "item": "minecraft:potion",
           "count": 1,
           "potion": "minecraft:strength"
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 800
@@ -681,6 +659,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 700
@@ -709,6 +691,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 900
@@ -731,12 +717,12 @@
           "count": 6
         },
         {
-          "item": "minecraft:lapis_lazuli",
-          "count": 24
-        },
-        {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 1000
@@ -765,6 +751,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 1000
@@ -826,6 +816,10 @@
           "item": "minecraft:lingering_potion",
           "count": 1,
           "potion": "minecraft:weakness"
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 1200
@@ -842,6 +836,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 12
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 1500
@@ -886,6 +884,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 1600
@@ -918,6 +920,10 @@
         {
           "item": "minecraft:netherite_spear",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 1800
@@ -942,6 +948,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 6
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 1800
@@ -966,6 +976,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 12
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 2000
@@ -994,6 +1008,10 @@
         {
           "item": "minecraft:enchanted_golden_apple",
           "count": 24
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 2400
@@ -1006,6 +1024,10 @@
         {
           "item": "minecraft:elytra",
           "count": 1
+        },
+        {
+          "item": "minecraft:lapis_lazuli",
+          "count": 9
         }
       ],
       "experience": 3000
@@ -1284,10 +1306,6 @@
           "count": 16
         },
         {
-          "item": "minecraft:lapis_lazuli",
-          "count": 8
-        },
-        {
           "item": "minecraft:golden_apple",
           "count": 1
         }
@@ -1305,10 +1323,6 @@
         },
         {
           "item": "minecraft:bread",
-          "count": 8
-        },
-        {
-          "item": "minecraft:lapis_lazuli",
           "count": 8
         },
         {
@@ -1760,10 +1774,6 @@
           "count": 24
         },
         {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
-        },
-        {
           "item": "minecraft:golden_apple",
           "count": 1
         }
@@ -1786,10 +1796,6 @@
         {
           "item": "minecraft:cooked_beef",
           "count": 12
-        },
-        {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
         },
         {
           "item": "minecraft:golden_apple",
@@ -2584,10 +2590,6 @@
           "count": 24
         },
         {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
-        },
-        {
           "item": "minecraft:golden_apple",
           "count": 1
         }
@@ -2732,10 +2734,6 @@
           "count": 24
         },
         {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
-        },
-        {
           "item": "minecraft:golden_apple",
           "count": 1
         }
@@ -2758,10 +2756,6 @@
         {
           "item": "minecraft:cooked_beef",
           "count": 12
-        },
-        {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
         },
         {
           "item": "minecraft:golden_apple",
@@ -2810,10 +2804,6 @@
         {
           "item": "minecraft:cooked_beef",
           "count": 12
-        },
-        {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
         },
         {
           "item": "minecraft:golden_apple",
@@ -3032,10 +3022,6 @@
           "count": 24
         },
         {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
-        },
-        {
           "item": "minecraft:golden_apple",
           "count": 1
         }
@@ -3250,10 +3236,6 @@
         {
           "item": "minecraft:cooked_beef",
           "count": 12
-        },
-        {
-          "item": "minecraft:lapis_lazuli",
-          "count": 16
         },
         {
           "item": "minecraft:golden_apple",
@@ -4849,10 +4831,7 @@
           "price": 1500,
           "stock": 12,
           "unlock_any": [
-            "rennala",
-            "radahn",
-            "morgott",
-            "maliketh"
+            "elden_beast"
           ],
           "unlock_all": []
         },

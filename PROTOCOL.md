@@ -18,6 +18,19 @@ below are the source of truth for their layouts, version numbers and validation.
 | ECNH | Shared Nether state and terrain layout | [Nether header](compositor/include/nether_protocol.hpp) |
 | Campaign JSON | Native victories, capacities, wallet, merchant context and saved purchases | [Native runtime](native/src/campaign_runtime.rs), [guest bridge](minecraft/src/client/java/dev/eldencraft/bridge/client/CampaignBridge.java) |
 
+Combat ECTG target pages retain version 1. ECDM damage pages use version 3;
+native readers also accept version 2 with zero upper 16 bits and version 1 only
+with zero enchantment metadata.
+Each 112-byte receipt stores `enchantments` as a little-endian u32 at offset 68.
+Its eight nibbles hold Poison, Bleeding, Frostbite, Looting, Fire, Lightning,
+Magic and Holy levels respectively, each in 0–3. At most one affinity nibble
+(every nibble except Looting) may be nonzero.
+The integrated server copies the striking weapon before wear and binds these
+levels to the accepted damage receipt. Native validates the current character's
+whetblade unlock before applying status buildup, after confirmed native HP loss,
+or before scaling the hit by an element and the target's authored absorption.
+Replay, stale-target and session rejection apply to the entire receipt.
+
 ## Ownership and validation
 
 Readers copy and validate a publication before using it. Each transport carries
@@ -55,9 +68,13 @@ an acknowledgement never covers a future frame that has not been published.
 Both games load the same startup configuration described in
 [campaign configuration](docs/campaign-configuration.md). Publications use UTF-8
 JSON files under `ELDENCRAFT_CAMPAIGN_DIR`, bounded to 128 KiB and replaced
-atomically after flushing. They contain values and opaque identities, never
-game pointers. Native object access remains on the game thread; its worker
-handles files, transaction intents and save witnesses.
+atomically. Requests and native state are flushed before the rename. The guest's
+per-tick state (`campaign-combat.json`, `campaign-healing.json` and
+`interaction-ui.json`) is superseded every tick, so a background writer replaces it
+without flushing and keeps only the newest body per file; the game threads never
+wait on the disk. They contain values and opaque identities, never game pointers.
+Native object access remains on the game thread; its worker handles files,
+transaction intents and save witnesses.
 
 `campaign-host.json` carries `version: 1`, process `pid`, campaign `session`,
 monotonic `seq`, epoch `timestamp_ms`, `active`, `character`, `runes`, current
@@ -65,7 +82,10 @@ and maximum `hp`/`stamina`, unique `defeated` IDs, optional `merchant` and `ack`
 The Minecraft reader cross-checks the ECHS publisher PID and rejects regressing
 sequences, impossible capacities and stale or dead publications. A merchant
 contains `{id,name,token}`; a purchase acknowledgement contains
-`{id,status,amount}`. A context token changes for each native Purchase command.
+`{id,status,amount}` with optional bounded `reason` (up to 512 characters, no
+control characters). Missing or empty reasons retain generic feedback; failure
+reasons appear in the shop status and Minecraft support log. A context token
+changes for each native Purchase command.
 Optional `dead` explicitly identifies verified native death; ordinary inactive
 snapshots cannot trigger death recovery. Character transitions renew the session.
 Optional `identity_ready` verifies that the current healthy offline player's save
@@ -79,6 +99,27 @@ healthy offline save is admitted after an observed unloaded title state, so
 reopening the same character shows the multipage guide again. Focus loss, death,
 grace rests and map warps retain it. Readers accept absent metadata as zero;
 this sequence does not change campaign sessions, claims or purchase journals.
+
+Optional `warp` counts completed native warps of a character that was already in
+the world: fast travel, waygates and other teleports. It advances once, when the
+character is active again after `GameMan` requested the warp. Loading a save from
+the title screen and online transitions do not advance it. Minecraft takes the
+first value it sees in a session as its baseline and refills the Wondrous Physick
+on every later increase. Readers accept absent metadata as zero.
+
+Optional `whetblades` lists acquired native key items for the current character:
+`iron`, `red_hot`, `sanctified`, `glintstone`, `black` (at most five unique entries).
+Absent metadata unlocks no status affinity. Unknown, duplicate or incorrectly
+typed entries invalidate the publication. Black unlocks Poison/Bleeding;
+Glintstone unlocks Frostbite. Native inventories own acquisition; guest menus
+and native hit processing independently enforce the unlocks.
+
+Optional `physick` is true when the character owns the Flask of Wondrous Physick
+(Goods 250 or 251). Optional `tears` lists owned Crystal Tears, one entry per
+native copy (Goods 11000-11031): `crimson`, `cerulean` and `ruptured` may appear
+twice, every other base-game tear once. Unknown names or extra copies invalidate
+the publication. Inactive snapshots publish neither, so Minecraft keeps the last
+active observation of the same character for grace menus; tears are never lost.
 
 Optional `bosses_active` contains `{id,name,hp,max_hp}` records for the native
 frontend manager's registered boss encounters (up to three slots). `id` is an
@@ -107,8 +148,11 @@ in the saved journal. `close_shop` requires the current merchant token.
 stamina, shield readiness and item use. Native accepts a matching observation
 for at most 250 ms. Incoming native HP damage uses the fixed configured
 HP-to-Minecraft-unit conversion and `damage * (1 - armor / 100)`. `armor` is
-the additive percentage-point total of intact, correctly equipped configured
-pieces, capped at 100; inventory and hand-held armor do not count. The legacy
+the combined reduction from intact, correctly equipped configured armor and
+Protection: `100 * (1 - (1 - armorTotal / 100) * (1 - 0.04 * protectionLevels))`.
+Armor totals cap at 100; Protection levels cap at 20. Inventory and hand-held
+armor do not count. Ordinary Minecraft hits retain their vanilla Protection
+pass, so this combined value is used only by native hits. The legacy
 `toughness` field remains accepted but does not affect mitigation. Guard events publish
 cumulative `guard_seq` and raw `guard_damage`; Minecraft acknowledges only
 consumed values. Native subtracts unacknowledged expenditure when authorizing
@@ -122,7 +166,7 @@ missing receipt, hidden guest HUD or closed bridge releases visibility ownership
 Registration, names and health remain available for future boss publications.
 
 Native attack events additionally publish up to 64 increasing
-`damage_events: [{seq,raw_damage,blocked,absorbed?,totem?}]`. Minecraft applies
+`damage_events: [{seq,raw_damage,blocked,absorbed?,totem?,bubble?}]`. Minecraft applies
 ordinary armor or shield durability once per event and acknowledges `damage_ack`.
 A new native session establishes a baseline instead of replaying earlier damage.
 
@@ -141,6 +185,21 @@ animation); the regeneration it grants reaches native HP through
 `campaign-healing.json`. Blocked events never spend absorption or a totem, and
 both fields are optional for older hosts. Minecraft hazards already resolved by
 the integrated server use vanilla's totem and absorption directly.
+
+Optional `physick: {affinity?, bubble?, drink?}` carries the Wondrous Physick
+effects the paired player is under. `affinity` holds seven multipliers in the
+combat wire's affinity order (poison, bleeding, frostbite, fire, lightning,
+magic, holy); native scales status buildup and the elemental part of a split hit
+by them, clamped to `1..=1.5`, and treats missing or invalid entries as 1.
+`bubble:true` is an unspent Opaline Bubbletear: the next open native hit loses
+90% after armor and resistance, and its event is marked `bubble:true` so
+Minecraft removes the effect. Unacknowledged bubble events count as spent.
+`unflinching:true` is a Leaden Hardtear: native hits keep their camera tilt but
+queue no knockback.
+`drink: {id, tears}` is republished for two seconds after the flask is drunk;
+native applies the own SpEffect of each listed `speckled`, `twiggy` or
+`purifying` tear the character owns, once per drink `id`. The SpEffect comes from
+the tear's EquipParamGoods row (`refCategory` 2) and must exist in SpEffectParam.
 
 `experience_seq` and `experience_total` are cumulative confirmed lethal-hit XP
 observations. Minecraft stores its checkpoint and awarded XP in the same player
@@ -179,6 +238,27 @@ and 2). The session starts with that event and ends when the screen closes;
 characters and editing keys then go to the screen, and ECHS keyboard input is
 not applied to it.
 
+## Key bindings
+
+Minecraft writes `keybinds.json` to the campaign directory whenever a binding
+changes. The version-1 object maps action names (`attack`, `use`, `inventory`,
+`hotbar_1`–`hotbar_9`, `jump`, `sneak`, `sprint`, `forward`, `backward`, `left`,
+`right`, `drop`, `swap_hands`, `torrent`, `interact`, `perspective`) to
+`{"type":"key"|"mouse"|"none","code":n}`. Key codes are Minecraft 26.3's SDL
+scancodes (USB HID usages); mouse codes are SDL's 1-based buttons. Native
+rereads the file when its timestamp or size changes, resolves character keys
+through the active Windows layout's set-1 scancodes and every other key by
+fixed meaning, and keeps its built-in key for any action that is missing or
+malformed. Escape is never rebound.
+
+The resulting table, in ECHS button order followed by interaction and view, is
+both what native samples and what the compositor reads through the optional
+`eldencraft_key_bindings(out, count)` export (loader-forwarded; it returns the
+table length, 25, or 0 without a core). While a Minecraft screen is open, the
+compositor still reports the left and right mouse buttons as bits 0 and 1, and
+menu navigation also accepts the bound interaction and movement keys beside
+Enter and the arrows.
+
 ## Weather
 
 ECHS v2's extension word at byte 160 carries `RUNES_VALID` (1, balance at 164)
@@ -209,7 +289,8 @@ display markup. The optional choice action `ender_chest` is valid only in grace
 menus. It opens the paired Minecraft player's persistent vanilla Ender Chest;
 it sends no native selection and keeps the grace result context open underneath.
 Merchant Purchase rows (text 20000010) are published as `Shop` with their
-original row ID; Sell rows (20000011) are omitted. A subtitle contains `{text}`.
+original row ID; Sell rows (20000011) are omitted. A subtitle contains `{text}` and the optional speaker name `{speaker}`. A long speech
+publishes each text as the game turns to it.
 
 `interaction-ui.json` carries `action:"ui_state"`, `token:0`, `ready` and `open`
 every 100 ms. Its separate mailbox prevents a heartbeat from overwriting a
@@ -387,6 +468,21 @@ reflects each line around its center and reverses emitted quad winding, retainin
 vanilla glyph UVs, colors, lighting and depth. These corrections run only during
 the world pass, which ends after world capture and before avatar, hand and GUI
 rendering. Scene projection metadata and world geometry retain their alignment.
+
+## Shared-world terrain
+
+Each shared-world host frame carries the sampled terrain: `terrain_revision`,
+`terrain_ready`, `terrain_bounds`, up to 4096 `terrain_boxes` and their
+`terrain_materials`. Every change to the published boxes or coverage advances the
+revision. The guest publication reports the terrain it has decoded as
+`terrain_cache: [epoch, map, revision]` for the host process it read. While that
+equals the current epoch, map and revision, the host sends `terrain_omitted:
+true` with empty box and material arrays instead of repeating them. The reader
+fills them from its own copy only when that copy came from the same host PID,
+epoch, map and revision; any other omitted frame is rejected as malformed. A new
+revision, epoch, map or host, or a guest that stops reporting, receives full
+frames again. Hosts always set `terrain_omitted`; readers treat it as false when
+absent.
 
 ## Placed-block colliders
 

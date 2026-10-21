@@ -307,6 +307,7 @@ struct NativeExports {
     std::uint32_t(*chat_active)(){};
     std::uint32_t(*chat_event)(std::uint32_t,std::uint32_t,std::uint32_t){};
     std::uint32_t(*scene_camera)(void *,std::uint32_t){};
+    std::uint32_t(*key_bindings)(std::uint32_t *,std::uint32_t){};
 };
 const NativeExports &native() {
     static NativeExports exports;
@@ -322,6 +323,7 @@ const NativeExports &native() {
             exports.chat_active=reinterpret_cast<std::uint32_t(*)()>(GetProcAddress(module,"eldencraft_chat_active"));
             exports.chat_event=reinterpret_cast<std::uint32_t(*)(std::uint32_t,std::uint32_t,std::uint32_t)>(GetProcAddress(module,"eldencraft_chat_event"));
             exports.scene_camera=reinterpret_cast<std::uint32_t(*)(void *,std::uint32_t)>(GetProcAddress(module,"eldencraft_scene_camera"));
+            exports.key_bindings=reinterpret_cast<std::uint32_t(*)(std::uint32_t *,std::uint32_t)>(GetProcAddress(module,"eldencraft_key_bindings"));
         }
     }
     return exports;
@@ -355,13 +357,23 @@ void capture_gui_input(effect_runtime *runtime,bool active) {
     if(!exports.gui_open || !exports.overlay_input) return;
     float x=0.5f,y=0.5f; std::int16_t wheel=0;
     if(!cursor_position(runtime,x,y,wheel)) return;
-    // Exact ECHS order; Y (bit 22) whistles for Torrent. is_key_down accepts virtual
-    // keys, including mouse buttons, and avoids v6.8's inconsistent mouse-button
-    // index documentation.
-    constexpr std::array<std::uint32_t,23> keys={VK_LBUTTON,VK_RBUTTON,'E',VK_ESCAPE,
-        '1','2','3','4','5','6','7','8','9',VK_SPACE,VK_SHIFT,VK_CONTROL,'W','S','A','D','Q','F','Y'};
+    // Exact ECHS order, then interaction (23) and view (24), as Minecraft binds them:
+    // native's table, or these built-in keys from a core without one. Bit 22 whistles
+    // for Torrent. A zero key is unbound. is_key_down accepts virtual keys, including
+    // mouse buttons, and avoids v6.8's inconsistent mouse-button index documentation.
+    constexpr std::size_t gameplay_keys=23;
+    std::array<std::uint32_t,25> keys={VK_LBUTTON,VK_RBUTTON,'E',VK_ESCAPE,
+        '1','2','3','4','5','6','7','8','9',VK_SPACE,VK_SHIFT,VK_CONTROL,'W','S','A','D','Q','F','Y',
+        'R',VK_F5};
+    if(exports.key_bindings){
+        std::array<std::uint32_t,25> bound{};
+        if(exports.key_bindings(bound.data(),static_cast<std::uint32_t>(bound.size()))>=bound.size())keys=bound;
+    }
+    // A Minecraft screen takes mouse clicks, whatever attack and use are bound to.
+    if(exports.gui_open()!=0){keys[0]=VK_LBUTTON;keys[1]=VK_RBUTTON;}
+    const auto down=[&](std::uint32_t key){return key!=0&&runtime->is_key_down(key);};
     std::uint32_t buttons=0;
-    for(std::size_t i=0;i<keys.size();++i) if(runtime->is_key_down(keys[i])) buttons|=1u<<i;
+    for(std::size_t i=0;i<gameplay_keys;++i) if(down(keys[i])) buttons|=1u<<i;
     exports.overlay_input(buttons,x,y,std::clamp<std::int32_t>(wheel,-16,16)); // Already wheel notches, not Win32 120-unit deltas.
     // Separate optional menu ABI; ECHS's gameplay bits stay compatible with
     // older cores/readers. Include M even during gameplay so the Minecraft map
@@ -370,12 +382,12 @@ void capture_gui_input(effect_runtime *runtime,bool active) {
     if(exports.menu_input){
         const auto held=[&](std::uint32_t key){return runtime->is_key_down(key);};
         std::uint32_t menu=0;
-        if(held(VK_RETURN)||held('R'))menu|=1u;
+        if(held(VK_RETURN)||down(keys[23]))menu|=1u;
         if(held(VK_ESCAPE))menu|=1u<<1;
-        if(held(VK_UP)||held('W'))menu|=1u<<2;
-        if(held(VK_DOWN)||held('S'))menu|=1u<<3;
-        if(held(VK_LEFT)||held('A'))menu|=1u<<4;
-        if(held(VK_RIGHT)||held('D'))menu|=1u<<5;
+        if(held(VK_UP)||down(keys[16]))menu|=1u<<2;
+        if(held(VK_DOWN)||down(keys[17]))menu|=1u<<3;
+        if(held(VK_LEFT)||down(keys[18]))menu|=1u<<4;
+        if(held(VK_RIGHT)||down(keys[19]))menu|=1u<<5;
         if(held('M'))menu|=1u<<6;
         if(held(VK_TAB))menu|=1u<<7;
         if(held(VK_OEM_PLUS)||held(VK_ADD)||held(VK_PRIOR))menu|=1u<<8;

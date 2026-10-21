@@ -125,8 +125,8 @@ virtual environment cannot hide metadata that CI's locked setup would reject.
 
 ```powershell
 uv lock
-git tag v0.25.5
-git push origin v0.25.5
+git tag v0.26.0
+git push origin v0.26.0
 ```
 
 `.github/workflows/release.yml` rejects a tag that differs from those versions,

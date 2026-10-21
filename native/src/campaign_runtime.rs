@@ -2,9 +2,9 @@
 //! the worker owns JSON, durable transaction intents and native-save witnesses.
 use crate::campaign::*;
 use eldenring::cs::{
-    CSEventFlagMan, CSEzStateTalkEvent, CSMenuManImp, CSSessionManager, EquipParamGoods,
+    CSEventFlagMan, CSEzStateTalkEvent, CSMenuManImp, CSSessionManager, ChrInsExt, EquipParamGoods,
     FieldInsHandle, GameDataMan, GameMan, ItemCategory, ItemId, ItemLotParam_map, LobbyState,
-    MenuType, PlayerIns, ProtocolState, SoloParamRepository, WorldChrMan,
+    MenuType, NpcParam, PlayerIns, ProtocolState, SoloParamRepository, SpEffectParam, WorldChrMan,
 };
 use eldenring::ez_state::EzStateEvent;
 use fromsoftware_shared::{FromStatic, program::Program};
@@ -40,6 +40,338 @@ static DAMAGE_SEQ: AtomicU64 = AtomicU64::new(0);
 static EXPERIENCE_SEQ: AtomicU64 = AtomicU64::new(0);
 static EXPERIENCE_TOTAL: AtomicU64 = AtomicU64::new(0);
 static LOOT: Mutex<LootLog> = Mutex::new(LootLog::new());
+static KILLS: Mutex<KillAttribution> = Mutex::new(KillAttribution::new());
+
+#[cfg(test)]
+mod enchantment_kill_tests {
+    use super::*;
+    fn handle(id: u32) -> FieldInsHandle {
+        FieldInsHandle {
+            selector: eldenring::cs::FieldInsSelector(id),
+            block_id: eldenring::cs::BlockId(4),
+        }
+    }
+    fn profile(id: u32) -> KillProfile {
+        KillProfile {
+            target: handle(id),
+            instance: id as usize * 16,
+            character_id: 123,
+            npc_param_id: 456,
+            runes: 25,
+            generation: 1,
+        }
+    }
+    fn pending(id: u32) -> PendingKill {
+        PendingKill {
+            profile: profile(id),
+            looting: 3,
+            timestamp: 1000,
+            receipt: crate::native_damage::Receipt {
+                source: handle(1),
+                target: handle(id),
+                requested_damage: 10,
+                hp_before: 100,
+                max_hp_before: 100,
+                hp_after_processor: 90,
+                hp_after: 90,
+                actual_delta: 10,
+                killed: false,
+                boss: false,
+                position: [0.; 3],
+                last_hit_by: handle(1),
+                protection_before: crate::native_damage::ProtectionObservation {
+                    all_no_dead: Some(false),
+                    all_no_damage: Some(false),
+                    character_debug_no_dead: false,
+                    character_debug_no_damage: false,
+                    character_no_dead_state: false,
+                    animation_immortality: false,
+                },
+                feedback_dispatched: true,
+                post_feedback: None,
+                gauge_mirror: None,
+                referred_damage: None,
+                affinity: None,
+                element: None,
+            },
+        }
+    }
+    #[test]
+    fn looting_awards_are_bounded_scaled_and_round_only_after_level() {
+        assert_eq!(scaled_looting_reward(1000, 1., 0), 0);
+        assert_eq!(scaled_looting_reward(1000, 1., 1), 100);
+        assert_eq!(scaled_looting_reward(1000, 1., 3), 300);
+        assert_eq!(scaled_looting_reward(1000, 2.5, 3), 750);
+        assert_eq!(scaled_looting_reward(25, 1., 3), 8);
+        assert_eq!(scaled_looting_reward(u32::MAX, 1000., 3), 999999999);
+        for (factor, level) in [
+            (f64::NAN, 1),
+            (f64::INFINITY, 1),
+            (-1., 1),
+            (1001., 1),
+            (1., 4),
+        ] {
+            assert_eq!(scaled_looting_reward(1000, factor, level), 0);
+        }
+    }
+    #[test]
+    fn attributed_native_death_is_once_per_instance_generation_and_pairing() {
+        let mut kills = KillAttribution::new();
+        kills.admit((1, "save-a".into()));
+        assert!(kills.complete(profile(7)));
+        assert!(
+            !kills.complete(profile(7)),
+            "immediate death cannot repeat as a delayed poll"
+        );
+        let next = KillProfile {
+            generation: 2,
+            ..profile(7)
+        };
+        assert!(
+            kills.complete(next),
+            "a respawn's new host generation may award a new kill"
+        );
+        kills.pending.push_back(pending(8));
+        kills.admit((1, "save-a".into()));
+        assert_eq!(kills.pending.len(), 1);
+        assert!(!kills.complete(next));
+        kills.admit((2, "save-a".into()));
+        assert!(kills.pending.is_empty());
+        assert!(kills.complete(profile(7)));
+        kills.admit((2, "save-b".into()));
+        assert!(kills.completed.is_empty());
+    }
+    #[test]
+    fn accepted_world_or_projectile_hit_supersedes_only_its_target_melee_attribution() {
+        let mut kills = KillAttribution::new();
+        kills.pending.push_back(pending(7));
+        kills.pending.push_back(pending(8));
+        kills.cancel(handle(7));
+        assert_eq!(kills.pending.len(), 1);
+        assert_eq!(kills.pending[0].profile.target, handle(8));
+        kills.cancel(handle(7));
+        assert_eq!(kills.pending.len(), 1);
+        kills.cancel(handle(8));
+        assert!(
+            kills.pending.is_empty(),
+            "later world kill cannot repeat the old melee reward"
+        );
+    }
+}
+
+/// Copied tokens only; every later observation resolves the handle afresh.
+#[derive(Clone, Copy, Debug)]
+pub struct KillProfile {
+    target: FieldInsHandle,
+    instance: usize,
+    character_id: u32,
+    npc_param_id: i32,
+    runes: u32,
+    generation: u64,
+}
+struct PendingKill {
+    profile: KillProfile,
+    receipt: crate::native_damage::Receipt,
+    looting: u32,
+    timestamp: u64,
+}
+struct KillAttribution {
+    context: Option<(u64, String)>,
+    pending: VecDeque<PendingKill>,
+    completed: VecDeque<(FieldInsHandle, usize, u64)>,
+}
+impl KillAttribution {
+    const fn new() -> Self {
+        Self {
+            context: None,
+            pending: VecDeque::new(),
+            completed: VecDeque::new(),
+        }
+    }
+    fn admit(&mut self, context: (u64, String)) {
+        if self.context.as_ref() != Some(&context) {
+            *self = Self::new();
+            self.context = Some(context);
+        }
+    }
+    fn complete(&mut self, profile: KillProfile) -> bool {
+        let key = (profile.target, profile.instance, profile.generation);
+        if self.completed.contains(&key) {
+            return false;
+        }
+        self.completed.push_back(key);
+        while self.completed.len() > 128 {
+            self.completed.pop_front();
+        }
+        true
+    }
+    fn cancel(&mut self, target: FieldInsHandle) {
+        self.pending.retain(|hit| hit.profile.target != target);
+    }
+}
+fn scaled_looting_reward(base: u32, multiplier: f64, level: u32) -> u32 {
+    if !multiplier.is_finite() || !(0. ..=1000.).contains(&multiplier) || level > 3 {
+        return 0;
+    }
+    (base as f64 * multiplier * level as f64 / 10.)
+        .round()
+        .clamp(0., 999999999.) as u32
+}
+/// The NPC's authored award and active area/NG scaling, independent of wallet changes.
+pub unsafe fn kill_profile(target: FieldInsHandle) -> Option<KillProfile> {
+    let world = unsafe { WorldChrMan::instance() }.ok()?;
+    let chr = world.chr_ins_by_handle(&target)?;
+    if chr.field_ins_handle != target
+        || chr.modules.data.hp <= 0
+        || crate::combat_targets::readiness_rejection(chr).is_some()
+    {
+        return None;
+    }
+    let repo = unsafe { SoloParamRepository::instance() }.ok()?;
+    let npc = repo.get::<NpcParam>(chr.npc_param_id as u32)?;
+    let mut multiplier = 1_f64;
+    // Paramdef's haveSoulRate applies when souls leave the enemy; soulRate
+    // belongs to the recipient. The bonus uses the enemy's authored reward.
+    for effect in chr.special_effect.entries().take(128) {
+        let Some(param) = effect.param_data else {
+            continue;
+        };
+        let factor = unsafe { param.as_ref() }.have_soul_rate() as f64;
+        if !factor.is_finite() || !(0. ..=1000.).contains(&factor) {
+            return None;
+        }
+        multiplier *= factor;
+        if !multiplier.is_finite() || multiplier > 1000. {
+            return None;
+        }
+    }
+    Some(KillProfile {
+        target,
+        instance: chr as *const _ as usize,
+        character_id: chr.character_id,
+        npc_param_id: chr.npc_param_id,
+        runes: (npc.get_soul() as f64 * multiplier)
+            .round()
+            .clamp(0., 999999999.) as u32,
+        generation: 0,
+    })
+}
+pub fn record_melee_hit(
+    receipt: &crate::native_damage::Receipt,
+    profile: Option<KillProfile>,
+    levels: u32,
+    generation: u64,
+) {
+    let Some(context) = CURRENT.lock().ok().and_then(|v| v.clone()) else {
+        return;
+    };
+    let Some(mut profile) = profile.filter(|p| p.target == receipt.target) else {
+        record_kill(receipt);
+        return;
+    };
+    if receipt.applied_delta() <= 0 {
+        return;
+    }
+    profile.generation = generation;
+    let looting = crate::combat_wire::looting(levels);
+    let Ok(mut kills) = KILLS.lock() else {
+        return;
+    };
+    kills.admit(context);
+    kills.cancel(profile.target);
+    if receipt.killed {
+        let newly_killed = kills.complete(profile);
+        drop(kills);
+        if newly_killed {
+            record_kill(receipt);
+            award_looting(scaled_looting_reward(profile.runes, 1., looting));
+        }
+    } else {
+        kills.pending.push_back(PendingKill {
+            profile,
+            receipt: *receipt,
+            looting,
+            timestamp: epoch(),
+        });
+        while kills.pending.len() > 64 {
+            kills.pending.pop_front();
+        }
+    }
+}
+fn award_looting(amount: u32) {
+    if amount == 0 || fresh_combat().is_none() {
+        return;
+    }
+    let Some(context) = CURRENT.lock().ok().and_then(|v| v.clone()) else {
+        return;
+    };
+    if !unsafe { identity_observed(&context.1) } {
+        return;
+    }
+    if let Ok(data) = unsafe { GameDataMan::instance_mut() } {
+        let pg = &mut data.main_player_game_data;
+        pg.rune_count = pg.rune_count.saturating_add(amount).min(999999999);
+    }
+}
+/// Poison and deferred native death animations can complete after the hit receipt.
+/// Require the same native instance and native source credit; do not infer a kill
+/// from an actor vanishing or from a rune pickup, shop payment or wallet decrease.
+unsafe fn poll_attributed_kills() {
+    if fresh_combat().is_none() {
+        return;
+    }
+    let Some(context) = CURRENT.lock().ok().and_then(|v| v.clone()) else {
+        return;
+    };
+    if !unsafe { identity_observed(&context.1) } {
+        return;
+    }
+    let now = epoch();
+    let completed = {
+        let Ok(world) = (unsafe { WorldChrMan::instance() }) else {
+            return;
+        };
+        let Ok(mut kills) = KILLS.lock() else {
+            return;
+        };
+        kills.admit(context);
+        let mut finished = Vec::new();
+        let pending = std::mem::take(&mut kills.pending);
+        for mut hit in pending {
+            if now < hit.timestamp || now - hit.timestamp > 120000 {
+                continue;
+            }
+            let Some(chr) = world.chr_ins_by_handle(&hit.profile.target) else {
+                continue;
+            };
+            if chr.field_ins_handle != hit.profile.target
+                || chr as *const _ as usize != hit.profile.instance
+                || chr.character_id != hit.profile.character_id
+                || chr.npc_param_id != hit.profile.npc_param_id
+                || chr.modules.data.max_hp != hit.receipt.max_hp_before
+                || chr.modules.data.hp > hit.receipt.hp_after
+            {
+                continue;
+            }
+            if chr.modules.data.hp <= 0 || chr.chr_flags1c5.death_flag() {
+                if chr.last_hit_by == hit.receipt.source && kills.complete(hit.profile) {
+                    hit.receipt.killed = true;
+                    hit.receipt.hp_after = chr.modules.data.hp;
+                    let at = chr.modules.physics.position;
+                    hit.receipt.position = [at.0, at.1, at.2];
+                    finished.push(hit);
+                }
+            } else {
+                kills.pending.push_back(hit);
+            }
+        }
+        finished
+    };
+    for hit in completed {
+        record_kill(&hit.receipt);
+        award_looting(scaled_looting_reward(hit.profile.runes, 1., hit.looting));
+    }
+}
 
 /// One confirmed ordinary (non-boss) kill. Minecraft rolls its configured drop
 /// table once per sequence and saves its cursor with the delivered items.
@@ -88,6 +420,13 @@ impl LootLog {
 }
 
 pub fn record_kill(receipt: &crate::native_damage::Receipt) {
+    // A later genuine guest projectile/environment hit supersedes a melee
+    // weapon's attribution, even when that later hit is not immediately lethal.
+    if receipt.applied_delta() > 0
+        && let Ok(mut kills) = KILLS.lock()
+    {
+        kills.cancel(receipt.target);
+    }
     let Some(c) = CONFIG.get().filter(|c| c.enabled) else {
         return;
     };
@@ -131,11 +470,14 @@ struct DamageEvent {
     /// A held totem of undying saved the player from this hit.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     totem: bool,
+    /// An Opaline Bubbletear took most of this hit and is now spent.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    bubble: bool,
 }
 fn is_zero(value: &f64) -> bool {
     *value == 0.
 }
-fn record_damage(raw: f64, blocked: bool, absorbed: f64, totem: bool) {
+fn record_damage(raw: f64, blocked: bool, absorbed: f64, totem: bool, bubble: bool) {
     if let Ok(mut events) = DAMAGE_EVENTS.lock() {
         let seq = DAMAGE_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
         events.push_back(DamageEvent {
@@ -144,26 +486,32 @@ fn record_damage(raw: f64, blocked: bool, absorbed: f64, totem: bool) {
             blocked,
             absorbed,
             totem,
+            bubble,
         });
         while events.len() > 64 {
             events.pop_front();
         }
     }
 }
-/// Absorption and totems that hits after Minecraft's last applied event have
-/// already spent: Minecraft's published balance does not include them yet.
-fn unacknowledged(ack: u64) -> (f64, u64) {
+/// Absorption, totems and Opaline bubbles that hits after Minecraft's last
+/// applied event have already spent: Minecraft's published balance does not
+/// include them yet.
+fn unacknowledged(ack: u64) -> (f64, u64, u64) {
     DAMAGE_EVENTS
         .lock()
         .map(|events| {
-            events
-                .iter()
-                .filter(|e| e.seq > ack)
-                .fold((0., 0), |(absorbed, totems), e| {
-                    (absorbed + e.absorbed, totems + u64::from(e.totem))
-                })
+            events.iter().filter(|e| e.seq > ack).fold(
+                (0., 0, 0),
+                |(absorbed, totems, bubbles), e| {
+                    (
+                        absorbed + e.absorbed,
+                        totems + u64::from(e.totem),
+                        bubbles + u64::from(e.bubble),
+                    )
+                },
+            )
         })
-        .unwrap_or((f64::INFINITY, u64::MAX))
+        .unwrap_or((f64::INFINITY, u64::MAX, u64::MAX))
 }
 fn damage_events() -> Vec<DamageEvent> {
     DAMAGE_EVENTS
@@ -175,11 +523,253 @@ pub fn enabled() -> bool {
     CONFIG.get().is_some_and(|c| c.enabled)
 }
 
+/// Stance damage one Minecraft melee hit with `item` deals, or None when stance is switched off
+/// (every hit then staggers, as before).
+pub fn melee_stance(item: &str) -> Option<f32> {
+    CONFIG
+        .get()
+        .filter(|c| c.enabled && c.combat.stance.enabled)
+        .map(|c| c.melee_stance(item) as f32)
+}
+
+/// Stance damage of a hazard or projectile hit reported by the world bridge.
+pub fn world_stance(kind: &str) -> Option<f32> {
+    CONFIG
+        .get()
+        .filter(|c| c.enabled && c.combat.stance.enabled)
+        .map(|c| {
+            (match kind {
+                "explosion" => c.combat.stance.explosion,
+                "projectile" => c.combat.stance.projectile,
+                _ => c.combat.stance.fallback,
+            }) as f32
+        })
+}
+
+/// The shared enemy stance rules, when the campaign has stance enabled.
+pub fn stance_rules() -> Option<crate::campaign::StanceRules> {
+    CONFIG
+        .get()
+        .filter(|c| c.enabled && c.combat.stance.enabled)
+        .map(|c| c.combat.stance.clone())
+}
+
 pub fn damage_scale() -> Option<f32> {
     CONFIG
         .get()
         .filter(|c| c.enabled)
         .map(|c| c.combat.native_damage_scale)
+}
+// Goods IDs independently corroborated by the local Grand Archives item list.
+// Unlocks are observations of the currently paired character, never guest claims.
+const WHETBLADES: [(&str, u32); 5] = [
+    ("iron", 8970),
+    ("red_hot", 8971),
+    ("sanctified", 8972),
+    ("glintstone", 8973),
+    ("black", 8974),
+];
+// Flask of Wondrous Physick, filled and empty. Goods IDs and every tear's
+// SpEffect reference were read from the installed regulation (11711000);
+// names are from Paramdex ER/Names/EquipParamGoods.txt.
+const PHYSICK_FLASKS: [u32; 2] = [250, 251];
+// Every base-game Crystal Tear, one entry per native copy. Crimson, Cerulean
+// and Ruptured exist twice, so a mixture may hold both copies.
+const PHYSICK_TEARS: [(&str, u32); 32] = [
+    ("crimsonspill", 11000),
+    ("greenspill", 11001),
+    ("crimson", 11002),
+    ("crimson", 11003),
+    ("cerulean", 11004),
+    ("cerulean", 11005),
+    ("speckled", 11006),
+    ("crimson_bubble", 11007),
+    ("opaline_bubble", 11008),
+    ("crimsonburst", 11009),
+    ("greenburst", 11010),
+    ("opaline_hard", 11011),
+    ("winged", 11012),
+    ("thorny", 11013),
+    ("spiked", 11014),
+    ("windy", 11015),
+    ("ruptured", 11016),
+    ("ruptured", 11017),
+    ("leaden", 11018),
+    ("twiggy", 11019),
+    ("crimsonwhorl", 11020),
+    ("strength_knot", 11021),
+    ("dexterity_knot", 11022),
+    ("intelligence_knot", 11023),
+    ("faith_knot", 11024),
+    ("cerulean_hidden", 11025),
+    ("stonebarb", 11026),
+    ("purifying", 11027),
+    ("flame_shrouding", 11028),
+    ("magic_shrouding", 11029),
+    ("lightning_shrouding", 11030),
+    ("holy_shrouding", 11031),
+];
+/// Tears whose effect lives only in Elden Ring: the rune wallet, native status
+/// buildup and Mohg's Nihil. Drinking them applies the tear's own SpEffect.
+const NATIVE_PHYSICK_TEARS: [&str; 3] = ["speckled", "twiggy", "purifying"];
+/// Whetblades, the Wondrous Physick flask and Crystal Tears from a single pass over the
+/// inventory and storage, rather than one full pass per Goods ID.
+struct OwnedGoods {
+    whetblades: Vec<String>,
+    physick: bool,
+    tears: Vec<String>,
+}
+impl OwnedGoods {
+    fn scan(pg: &eldenring::cs::PlayerGameData) -> Self {
+        let ids: Vec<u32> = WHETBLADES
+            .iter()
+            .map(|(_, id)| *id)
+            .chain(PHYSICK_FLASKS)
+            .chain(PHYSICK_TEARS.iter().map(|(_, id)| *id))
+            .collect();
+        let wanted: Vec<Option<ItemId>> = ids
+            .iter()
+            .map(|id| ItemId::new(ItemCategory::Goods, *id).ok())
+            .collect();
+        let mut owned = vec![0u64; ids.len()];
+        let storage = pg.storage.as_ref().map(|s| s.items_data.items());
+        for item in pg
+            .equipment
+            .equip_inventory_data
+            .items_data
+            .items()
+            .chain(storage.into_iter().flatten())
+        {
+            for (slot, id) in wanted.iter().enumerate() {
+                if *id == Some(item.item_id) {
+                    owned[slot] += item.quantity as u64;
+                }
+            }
+        }
+        Self::from_counts(|id| {
+            ids.iter()
+                .zip(&owned)
+                .filter(|(owned_id, _)| **owned_id == id)
+                .map(|(_, quantity)| *quantity)
+                .sum()
+        })
+    }
+    /// The same selection as one `native_quantity` call per Goods ID.
+    fn from_counts(quantity: impl Fn(u32) -> u64) -> Self {
+        Self {
+            whetblades: WHETBLADES
+                .iter()
+                .filter(|(_, id)| quantity(*id) > 0)
+                .map(|(name, _)| (*name).to_owned())
+                .collect(),
+            physick: PHYSICK_FLASKS.iter().any(|id| quantity(*id) > 0),
+            tears: PHYSICK_TEARS
+                .iter()
+                .filter(|(_, id)| quantity(*id) > 0)
+                .map(|(name, _)| (*name).to_owned())
+                .collect(),
+        }
+    }
+}
+#[cfg(test)]
+mod owned_goods_tests {
+    use super::OwnedGoods;
+
+    #[test]
+    fn one_pass_selects_like_one_lookup_per_goods_id() {
+        let goods = OwnedGoods::from_counts(|id| match id {
+            8971 | 8974 | 11002 | 11003 | 11013 => 1,
+            251 => 2,
+            _ => 0,
+        });
+        assert_eq!(goods.whetblades, ["red_hot", "black"]);
+        assert!(goods.physick, "either flask state counts");
+        assert_eq!(goods.tears, ["crimson", "crimson", "thorny"]);
+        let none = OwnedGoods::from_counts(|_| 0);
+        assert!(none.whetblades.is_empty() && !none.physick && none.tears.is_empty());
+    }
+}
+/// One name per owned native copy, in Goods ID order.
+fn owned_tears(pg: &eldenring::cs::PlayerGameData) -> Vec<String> {
+    OwnedGoods::scan(pg).tears
+}
+/// The SpEffect the native tear's Goods row applies when Elden Ring mixes it.
+/// Rows are verified rather than trusted: wrong category or a missing effect
+/// row refuses the tear instead of applying an unrelated effect.
+fn native_tear_speffect(name: &str) -> Option<i32> {
+    if !NATIVE_PHYSICK_TEARS.contains(&name) {
+        return None;
+    }
+    let (_, goods) = PHYSICK_TEARS.iter().find(|(n, _)| *n == name)?;
+    let repo = unsafe { SoloParamRepository::instance() }.ok()?;
+    let row = repo.get::<EquipParamGoods>(*goods)?;
+    // refCategory 2: the Goods row references a SpEffectParam row.
+    let effect = row.ref_id_default();
+    (row.ref_category() == 2 && effect > 0 && repo.get::<SpEffectParam>(effect as u32).is_some())
+        .then_some(effect)
+}
+/// Drinks already applied this native session, so a republished drink applies once.
+static PHYSICK_DRINKS: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
+/// Admit one fresh, not yet applied drink of tears the character owns.
+fn admit_physick_drink(
+    applied: &mut VecDeque<String>,
+    drink: &PhysickDrink,
+    owned: &[String],
+) -> Vec<String> {
+    if drink.id.is_empty()
+        || drink.id.len() > 64
+        || drink.tears.len() > 2
+        || applied.contains(&drink.id)
+    {
+        return Vec::new();
+    }
+    applied.push_back(drink.id.clone());
+    while applied.len() > 16 {
+        applied.pop_front();
+    }
+    let mut tears: Vec<String> = Vec::new();
+    for tear in &drink.tears {
+        if NATIVE_PHYSICK_TEARS.contains(&tear.as_str())
+            && owned.iter().filter(|o| *o == tear).count()
+                > tears.iter().filter(|t| *t == tear).count()
+            && !tears.contains(tear)
+        {
+            tears.push(tear.clone());
+        }
+    }
+    tears
+}
+pub fn affinity_unlocked(kind: usize) -> bool {
+    if fresh_combat().is_none() {
+        return false;
+    }
+    let Some(context) = CURRENT.lock().ok().and_then(|v| v.clone()) else {
+        return false;
+    };
+    if !unsafe { identity_observed(&context.1) } {
+        return false;
+    }
+    // Poison, Bleeding, Frostbite, Fire, Lightning, Magic, Holy: the Black,
+    // Glintstone, Red-Hot and Sanctified Whetblades, as in Elden Ring.
+    let Some(required) = [8974, 8974, 8973, 8971, 8972, 8973, 8972]
+        .get(kind)
+        .copied()
+    else {
+        return false;
+    };
+    let Ok(player) = (unsafe { PlayerIns::local_player() }) else {
+        return false;
+    };
+    let Ok(data) = (unsafe { GameDataMan::instance() }) else {
+        return false;
+    };
+    let Ok(item) = ItemId::new(ItemCategory::Goods, required) else {
+        return false;
+    };
+    std::ptr::eq(
+        player.player_game_data.as_ptr(),
+        data.main_player_game_data.as_ref(),
+    ) && native_quantity(&data.main_player_game_data, &[item]) > 0
 }
 pub fn enemy_damage_multiplier(npc_param_id: i32) -> f64 {
     CONFIG
@@ -222,9 +812,54 @@ pub struct CombatState {
     pub boss_hud_ids: Vec<String>,
     #[serde(default)]
     pub boss_hud_timestamp_ms: u64,
+    /// Wondrous Physick effects the paired player is under right now.
+    #[serde(default)]
+    pub physick: PhysickCombat,
 }
 fn full_resistance() -> f64 {
     1.
+}
+/// Minecraft-side Wondrous Physick state that changes native combat.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct PhysickCombat {
+    /// Multipliers by affinity kind: poison, bleeding and frostbite buildup,
+    /// then the fire, lightning, magic and holy part of a hit. Missing is 1.
+    #[serde(default)]
+    pub affinity: Vec<f64>,
+    /// An unspent Opaline Bubbletear.
+    #[serde(default)]
+    pub bubble: bool,
+    /// A Leaden Hardtear: native hits do not knock the player back.
+    #[serde(default)]
+    pub unflinching: bool,
+    /// The latest drink, republished briefly so a lost read still applies it.
+    #[serde(default)]
+    pub drink: Option<PhysickDrink>,
+}
+#[derive(Clone, Debug, Deserialize)]
+pub struct PhysickDrink {
+    pub id: String,
+    pub tears: Vec<String>,
+}
+/// Upper bound of one affinity multiplier: an Intelligence-knot and a
+/// Shrouding tear together give 1.25 x 1.2.
+const MAX_PHYSICK_SCALE: f64 = 1.5;
+fn bounded_physick_scale(value: Option<f64>) -> f64 {
+    match value {
+        Some(v) if v.is_finite() => v.clamp(1., MAX_PHYSICK_SCALE),
+        _ => 1.,
+    }
+}
+/// A Leaden Hardtear is active for the current paired guest.
+pub fn physick_unflinching() -> bool {
+    fresh_combat().is_some_and(|(_, state)| state.physick.unflinching)
+}
+/// Physick multiplier for one affinity kind (see `PhysickCombat::affinity`),
+/// from the current paired guest's fresh publication only.
+pub fn physick_affinity_scale(kind: usize) -> f64 {
+    fresh_combat()
+        .map(|(_, state)| bounded_physick_scale(state.physick.affinity.get(kind).copied()))
+        .unwrap_or(1.)
 }
 /// Bounded read-only observation for shield contact diagnostics.
 pub fn combat_observation() -> Option<CombatState> {
@@ -363,12 +998,12 @@ pub fn filter_damage_from(
             *sum += raw;
             GUARD_SEQ.fetch_add(1, Ordering::Release);
             if absorbed >= 1. {
-                record_damage(raw, true, 0., false);
+                record_damage(raw, true, 0., false, false);
                 return Some(0);
             }
             GUARD_BREAKS.fetch_add(1, Ordering::Release);
             let through = raw * (1. - absorbed);
-            record_damage(raw * absorbed, true, 0., false);
+            record_damage(raw * absorbed, true, 0., false, false);
             return Some(resolve_open(through, &state, cfg, hp, max_hp));
         }
     }
@@ -380,23 +1015,34 @@ fn modified_attack_damage(raw: f64, bonus: f64) -> f64 {
 /// Applies and records an open hit against Minecraft's current absorption and
 /// totems, less what earlier hits Minecraft has not applied yet already spent.
 fn resolve_open(raw: f64, state: &CombatState, cfg: &Config, hp: i32, max_hp: i32) -> i32 {
-    let (spent_absorption, spent_totems) = unacknowledged(state.damage_ack);
+    let (spent_absorption, spent_totems, spent_bubbles) = unacknowledged(state.damage_ack);
     let absorption = if state.absorption.is_finite() {
         state.absorption.clamp(0., 1_000_000.)
     } else {
         0.
     };
+    // One bubble per drink: a later hit before Minecraft removes the effect
+    // must not be reduced by the same, already spent bubble.
+    let bubble = state.physick.bubble && spent_bubbles == 0;
     let hit = open_hit(
-        damage_after_armor(raw, state.armor) * state.resistance,
+        damage_after_armor(raw, state.armor)
+            * state.resistance
+            * if bubble {
+                1. - OPALINE_BUBBLE_NEGATION
+            } else {
+                1.
+            },
         absorption - spent_absorption,
         u64::from(state.totems.min(2)) > spent_totems,
         cfg.native_hp_per_minecraft_hp(),
         hp,
         one_health(max_hp, state.guest_max_hp),
     );
-    record_damage(raw, false, hit.absorbed, hit.totem);
+    record_damage(raw, false, hit.absorbed, hit.totem, bubble);
     hit.damage
 }
+/// Share of the next open hit an Opaline Bubbletear takes.
+const OPALINE_BUBBLE_NEGATION: f64 = 0.9;
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct OpenHit {
     damage: i32,
@@ -448,11 +1094,11 @@ pub fn death_protection(damage: i32, hp: i32, max_hp: i32) -> Option<i32> {
     if damage <= 0 || hp <= 0 || damage < hp {
         return None;
     }
-    let (_, spent_totems) = unacknowledged(state.damage_ack);
+    let (_, spent_totems, _) = unacknowledged(state.damage_ack);
     if u64::from(state.totems.min(2)) <= spent_totems {
         return None;
     }
-    record_damage(0., false, 0., true);
+    record_damage(0., false, 0., true, false);
     Some((hp - one_health(max_hp, state.guest_max_hp)).max(0))
 }
 /// Fraction of a raised-shield hit that the remaining stamina pays for. The
@@ -564,12 +1210,73 @@ mod save_load_tests {
     }
 }
 
+/// Completed warps of a character already in the world: fast travel, waygates and other
+/// teleports. Loading a save from the title is not one, even though it also warps.
+#[derive(Default)]
+struct WarpCount {
+    sequence: u64,
+    pending: bool,
+    in_world: bool,
+}
+impl WarpCount {
+    /// Every frame, before the gameplay gate.
+    fn observe(&mut self, slot: i32, warping: bool, online: bool) {
+        if online || (slot < 0 && !warping) {
+            self.pending = false;
+            self.in_world = false;
+        } else if warping && self.in_world {
+            self.pending = true;
+        }
+    }
+
+    /// The character is active in the world again.
+    fn arrived(&mut self) {
+        if std::mem::take(&mut self.pending) {
+            self.sequence = self.sequence.saturating_add(1).min(i64::MAX as u64);
+        }
+        self.in_world = true;
+    }
+}
+
+#[cfg(test)]
+mod warp_count_tests {
+    use super::WarpCount;
+
+    #[test]
+    fn a_warp_counts_once_on_arrival_and_a_save_load_never_does() {
+        let mut warps = WarpCount::default();
+        warps.observe(0, true, false);
+        warps.arrived();
+        assert_eq!(warps.sequence, 0, "the first load is not a teleport");
+        for _ in 0..3 {
+            warps.observe(0, false, false);
+            warps.arrived();
+        }
+        assert_eq!(warps.sequence, 0);
+        warps.observe(0, true, false);
+        warps.observe(-1, true, false);
+        assert_eq!(warps.sequence, 0, "counted only once back in the world");
+        warps.arrived();
+        warps.arrived();
+        assert_eq!(warps.sequence, 1);
+        warps.observe(-1, false, false);
+        warps.observe(0, true, false);
+        warps.arrived();
+        assert_eq!(warps.sequence, 1, "returning from the title is a load");
+        warps.observe(0, true, true);
+        warps.arrived();
+        assert_eq!(warps.sequence, 1, "online transitions are not teleports");
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct Snapshot {
     version: u32,
     pid: u32,
     session: u64,
     save_load: u64,
+    /// Completed teleports of the loaded character; the guest refills the Wondrous Physick.
+    warp: u64,
     seq: u64,
     timestamp_ms: u64,
     active: bool,
@@ -582,6 +1289,11 @@ pub struct Snapshot {
     stamina: i32,
     max_stamina: i32,
     defeated: Vec<String>,
+    whetblades: Vec<String>,
+    /// The character owns the Flask of Wondrous Physick.
+    physick: bool,
+    /// Owned Crystal Tears, one entry per native copy.
+    tears: Vec<String>,
     merchant: Option<Merchant>,
     ack: Option<Ack>,
     guard_seq: u64,
@@ -598,7 +1310,7 @@ pub struct Snapshot {
 }
 enum Work {
     Snapshot(Box<Snapshot>),
-    Prepare(Request, u32),
+    Prepare(Request, u32, Option<u64>),
     Finish(Request, Ack),
     Stop,
 }
@@ -623,6 +1335,7 @@ pub struct Driver {
     ledger: Ledger,
     session: u64,
     save_load: SaveLoadState,
+    warps: WarpCount,
     seq: u64,
     character: String,
     merchant: Option<Merchant>,
@@ -676,6 +1389,75 @@ fn save_stamp(path: &Path) -> u64 {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|t| t.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod purchase_save_tests {
+    use super::*;
+
+    #[test]
+    fn save_discovery_follows_the_game_account_with_multiple_or_not_yet_created_saves() {
+        assert_eq!(
+            steam_account_id(),
+            None,
+            "a standalone test has no game's initialized Steam session"
+        );
+        let base = std::env::temp_dir().join(format!(
+            "eldencraft-save-discovery-{}-{}",
+            std::process::id(),
+            epoch()
+        ));
+        let first_id = 76561198000000001_u64;
+        let second_id = 76561198000000002_u64;
+        let first_account = base.join(first_id.to_string());
+        let second_account = base.join(second_id.to_string());
+        fs::create_dir_all(&first_account).unwrap();
+        assert_eq!(account_save(&base, None), None);
+        assert_eq!(account_save(&base, Some(0)), None);
+        let first = first_account.join("EldenCraft.sl2");
+        fs::write(&first, b"first account save").unwrap();
+        assert_eq!(account_save(&base, Some(first_id)), Some(first.clone()));
+        assert_eq!(
+            account_save(&base, None),
+            None,
+            "an unready Steam session must not guess"
+        );
+        let second = second_account.join("EldenCraft.sl2");
+        assert_eq!(account_save(&base, Some(second_id)), Some(second.clone()));
+        assert_eq!(
+            save_stamp(&second),
+            0,
+            "a new account must not use another account's existing save"
+        );
+        fs::create_dir(&second_account).unwrap();
+        fs::write(&second, b"second account save").unwrap();
+        assert_eq!(account_save(&base, Some(second_id)), Some(second.clone()));
+        // The current account wins even if the other account's file was touched more recently.
+        let file = fs::OpenOptions::new().write(true).open(&first).unwrap();
+        file.set_times(
+            fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
+        )
+        .unwrap();
+        drop(file);
+        assert!(save_stamp(&first) > save_stamp(&second));
+        assert_eq!(account_save(&base, Some(second_id)), Some(second.clone()));
+        assert_eq!(
+            account_save(&base, Some(first_id)),
+            Some(first.clone()),
+            "switching accounts selects their own save"
+        );
+        fs::remove_file(&first).unwrap();
+        assert_eq!(account_save(&base, Some(first_id)), Some(first.clone()));
+        assert_eq!(
+            save_stamp(&first),
+            0,
+            "a missing current save cannot fall back to another account"
+        );
+        fs::remove_file(&second).unwrap();
+        fs::remove_dir(first_account).unwrap();
+        fs::remove_dir(second_account).unwrap();
+        fs::remove_dir(base).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -795,8 +1577,12 @@ mod armor_damage_tests {
 mod combat_contention_tests {
     use super::*;
 
+    /// These tests replace the process-wide combat publication; run them one at a time.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
     #[test]
     fn brief_state_publication_contention_preserves_fresh_shield_blocks() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         CONFIG.get_or_init(|| {
             Arc::new(serde_json::from_str(include_str!("../../config/campaign.json")).unwrap())
         });
@@ -829,6 +1615,7 @@ mod combat_contention_tests {
             totems: 0,
             boss_hud_ids: Vec::new(),
             boss_hud_timestamp_ms: 0,
+            physick: PhysickCombat::default(),
         });
         fn contend<T: Send + 'static>(mutex: &'static Mutex<T>) {
             COMBAT.lock().unwrap().as_mut().unwrap().timestamp_ms = epoch();
@@ -862,6 +1649,65 @@ mod combat_contention_tests {
         *CURRENT.lock().unwrap() = old_current;
         *GUARD_DAMAGE.lock().unwrap() = old_sum;
         GUARD_SEQ.store(old_seq, Ordering::Release);
+        *DAMAGE_EVENTS.lock().unwrap() = old_events;
+        DAMAGE_SEQ.store(old_event_seq, Ordering::Release);
+    }
+
+    #[test]
+    fn an_opaline_bubble_takes_ninety_percent_of_one_open_hit() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        CONFIG.get_or_init(|| {
+            Arc::new(serde_json::from_str(include_str!("../../config/campaign.json")).unwrap())
+        });
+        let old_combat = COMBAT.lock().unwrap().clone();
+        let old_current = CURRENT.lock().unwrap().clone();
+        let old_events = DAMAGE_EVENTS.lock().unwrap().clone();
+        let old_event_seq = DAMAGE_SEQ.load(Ordering::Acquire);
+        *CURRENT.lock().unwrap() = Some((9, "bubble-test".into()));
+        DAMAGE_EVENTS.lock().unwrap().clear();
+        let state = |bubble: bool, ack: u64| CombatState {
+            version: 1,
+            session: 9,
+            character: "bubble-test".into(),
+            timestamp_ms: epoch(),
+            armor: 0.,
+            resistance: 1.,
+            toughness: 0.,
+            guest_max_hp: 20.,
+            shield_ready: false,
+            stamina: 0.,
+            using_item: false,
+            guard_seq: 0,
+            guard_damage: 0.,
+            damage_ack: ack,
+            absorption: 0.,
+            totems: 0,
+            boss_hud_ids: Vec::new(),
+            boss_hud_timestamp_ms: 0,
+            physick: PhysickCombat {
+                bubble,
+                ..PhysickCombat::default()
+            },
+        };
+        *COMBAT.lock().unwrap() = Some(state(false, 0));
+        let full = filter_damage(1000, false, 100_000, 100_000).unwrap();
+        let seq = DAMAGE_SEQ.load(Ordering::Acquire);
+        *COMBAT.lock().unwrap() = Some(state(true, seq));
+        let bubbled = filter_damage(1000, false, 100_000, 100_000).unwrap();
+        assert!(full > 0);
+        assert!(
+            (bubbled - (full as f64 * 0.1).round() as i32).abs() <= 1,
+            "the bubble keeps 10% of {full}, got {bubbled}"
+        );
+        let event = DAMAGE_EVENTS.lock().unwrap().back().cloned().unwrap();
+        assert_eq!(serde_json::to_value(&event).unwrap()["bubble"], true);
+        assert_eq!(
+            filter_damage(1000, false, 100_000, 100_000).unwrap(),
+            full,
+            "an unacknowledged spent bubble cannot reduce a second hit"
+        );
+        *COMBAT.lock().unwrap() = old_combat;
+        *CURRENT.lock().unwrap() = old_current;
         *DAMAGE_EVENTS.lock().unwrap() = old_events;
         DAMAGE_SEQ.store(old_event_seq, Ordering::Release);
     }
@@ -968,16 +1814,55 @@ mod boss_hud_receipt_tests {
         }
     }
 }
-fn default_save() -> Option<PathBuf> {
+fn default_save(account: Option<u64>) -> Option<PathBuf> {
     let base = PathBuf::from(std::env::var_os("APPDATA")?).join("EldenRing");
-    let mut candidates = Vec::new();
-    for dir in fs::read_dir(base).ok()?.flatten() {
-        let p = dir.path().join("EldenCraft.sl2");
-        if p.is_file() {
-            candidates.push(p);
-        }
+    account_save(&base, account)
+}
+
+fn account_save(base: &Path, account: Option<u64>) -> Option<PathBuf> {
+    // Keep the correct prospective path even before the game's first save creates it.
+    Some(
+        base.join(account.filter(|id| *id != 0)?.to_string())
+            .join("EldenCraft.sl2"),
+    )
+}
+
+/// Read the game's already-initialized Steam session on the game task. Never
+/// initialize Steam ourselves, consult a different client's registry state, or
+/// select another account merely because its file exists.
+fn steam_account_id() -> Option<u64> {
+    use core::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut c_void;
+        fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
     }
-    (candidates.len() == 1).then(|| candidates.remove(0))
+    let name: Vec<u16> = "steam_api64.dll".encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        let module = GetModuleHandleW(name.as_ptr());
+        if module.is_null() {
+            return None;
+        }
+        // These are the exports of the supported game's Steam SDK (User v021).
+        let handle = GetProcAddress(module, c"SteamAPI_GetHSteamUser".as_ptr().cast());
+        let user = GetProcAddress(module, c"SteamAPI_SteamUser_v021".as_ptr().cast());
+        let id = GetProcAddress(module, c"SteamAPI_ISteamUser_GetSteamID".as_ptr().cast());
+        if handle.is_null() || user.is_null() || id.is_null() {
+            return None;
+        }
+        let handle: unsafe extern "C" fn() -> i32 = std::mem::transmute(handle);
+        if handle() <= 0 {
+            return None;
+        }
+        let user: unsafe extern "C" fn() -> *mut c_void = std::mem::transmute(user);
+        let user = user();
+        if user.is_null() {
+            return None;
+        }
+        let id: unsafe extern "C" fn(*mut c_void) -> u64 = std::mem::transmute(id);
+        let id = id(user);
+        (id != 0).then_some(id)
+    }
 }
 impl Driver {
     /// Bootstrap thread only: configuration failures never permit campaign writes.
@@ -1013,8 +1898,7 @@ impl Driver {
             .native_save_path
             .as_ref()
             .filter(|s| !s.is_empty())
-            .map(PathBuf::from)
-            .or_else(default_save);
+            .map(PathBuf::from);
         let stamp = Arc::new(AtomicU64::new(
             save_path.as_ref().map(|p| save_stamp(p)).unwrap_or(0),
         ));
@@ -1025,15 +1909,10 @@ impl Driver {
         let worker_config = config.clone();
         std::thread::spawn(move || {
             let mut last_request = String::new();
-            let mut discovery = Instant::now() - Duration::from_secs(2);
             let mut last_boss_diagnostics = Instant::now() - Duration::from_secs(2);
             let mut last_active_boss_diagnostic = serde_json::Value::Null;
             let mut last_registered_boss_diagnostic = serde_json::Value::Null;
             loop {
-                if save_path.is_none() && discovery.elapsed() > Duration::from_secs(1) {
-                    save_path = default_save();
-                    discovery = Instant::now();
-                }
                 if let Some(path) = &save_path {
                     worker_stamp.store(save_stamp(path), Ordering::Release);
                 }
@@ -1127,7 +2006,19 @@ impl Driver {
                         }
                         let _ = atomic_json(&folder.join("campaign-host.json"), &state);
                     }
-                    Work::Prepare(req, before) => {
+                    Work::Prepare(req, before, account) => {
+                        // The account comes from this game's Steam session, sampled before
+                        // the intent. Pin its path through confirmation of this transaction.
+                        save_path = worker_config
+                            .native_save_path
+                            .as_ref()
+                            .filter(|s| !s.is_empty())
+                            .map(PathBuf::from)
+                            .or_else(|| default_save(account));
+                        worker_stamp.store(
+                            save_path.as_deref().map(save_stamp).unwrap_or(0),
+                            Ordering::Release,
+                        );
                         let mut candidate = worker_ledger.clone();
                         let ack = Ack {
                             id: req.id.clone(),
@@ -1201,6 +2092,7 @@ impl Driver {
             ledger,
             session,
             save_load: SaveLoadState::default(),
+            warps: WarpCount::default(),
             seq: 0,
             character: String::new(),
             merchant: None,
@@ -1225,10 +2117,15 @@ impl Driver {
                 game.warp_requested,
                 game.is_in_online_mode,
             );
+            self.warps
+                .observe(game.save_slot, game.warp_requested, game.is_in_online_mode);
         }
-        let result = unsafe { self.sample(enabled) };
+        // Gameplay effects apply every frame; the snapshot itself (inventory scans, boss HUD,
+        // event copies) is only assembled when it will actually be published.
+        let due = self.last_publish.elapsed() >= Duration::from_millis(40);
+        let result = unsafe { self.sample(enabled, due) };
         if let Some(state) = result {
-            if self.last_publish.elapsed() >= Duration::from_millis(40) {
+            if let Some(state) = state {
                 let _ = self.tx.send(Work::Snapshot(Box::new(state)));
                 self.last_publish = Instant::now();
             }
@@ -1245,6 +2142,7 @@ impl Driver {
                     pid: std::process::id(),
                     session: self.session,
                     save_load: self.save_load.sequence,
+                    warp: self.warps.sequence,
                     seq: self.seq,
                     timestamp_ms: epoch(),
                     active: false,
@@ -1262,6 +2160,9 @@ impl Driver {
                     stamina: 0,
                     max_stamina: 1,
                     defeated: Vec::new(),
+                    whetblades: Vec::new(),
+                    physick: false,
+                    tears: Vec::new(),
                     merchant: None,
                     ack: self.ack.clone(),
                     guard_seq: GUARD_SEQ.load(Ordering::Acquire),
@@ -1279,9 +2180,13 @@ impl Driver {
             }
         }
     }
-    unsafe fn sample(&mut self, enabled: bool) -> Option<Snapshot> {
+    /// None while the character is not active; `Some(None)` when active but no publication is due.
+    unsafe fn sample(&mut self, enabled: bool, publish: bool) -> Option<Option<Snapshot>> {
         if !enabled {
             return None;
+        }
+        unsafe {
+            poll_attributed_kills();
         }
         let game = unsafe { GameMan::instance_mut() }.ok()?;
         if game.is_in_online_mode || game.warp_requested || game.save_slot < 0 {
@@ -1310,6 +2215,7 @@ impl Driver {
         let pg = &mut data.main_player_game_data;
         let character = character_identity(game.save_slot, pg);
         self.save_load.admit_loaded();
+        self.warps.arrived();
         if self.character != character {
             if let Some(p) = self.pending.take() {
                 let ack = Ack {
@@ -1354,6 +2260,16 @@ impl Driver {
             self.last_flags = Instant::now();
         }
         let (max_hp, max_stamina) = self.config.capacities(&ch.defeated);
+        if let Some(drink) = fresh_combat().and_then(|(_, state)| state.physick.drink)
+            && let Ok(mut applied) = PHYSICK_DRINKS.lock()
+        {
+            let owned = owned_tears(pg);
+            for tear in admit_physick_drink(&mut applied, &drink, &owned) {
+                if let Some(effect) = native_tear_speffect(&tear) {
+                    player.apply_speffect(effect, true);
+                }
+            }
+        }
         let position = player.chr_ins.modules.physics.position;
         let stats = &mut player.chr_ins.modules.data;
         // Capacity growth preserves absolute current HP; only ordinary native recovery heals.
@@ -1508,7 +2424,10 @@ impl Driver {
                             });
                     match validation {
                         Ok(_) => {
-                            let _ = self.tx.send(Work::Prepare(req.clone(), pg.rune_count));
+                            let account = steam_account_id();
+                            let _ =
+                                self.tx
+                                    .send(Work::Prepare(req.clone(), pg.rune_count, account));
                             self.pending = Some(Pending {
                                 req,
                                 stamp: self.stamp.load(Ordering::Acquire),
@@ -1553,7 +2472,8 @@ impl Driver {
                         .find(|o| o.id == req.offer)
                         .and_then(|o| o.native_item_lot);
                     let native_valid = native_lot.is_none_or(|lot| unsafe { lot_available(lot) });
-                    if valid && native_valid && self.stamp.load(Ordering::Acquire) > 0 {
+                    let save_available = self.stamp.load(Ordering::Acquire) > 0;
+                    if valid && native_valid && save_available {
                         let native_before = native_lot
                             .and_then(|lot| unsafe { native_lot_items(lot) })
                             .map(|ids| {
@@ -1577,7 +2497,14 @@ impl Driver {
                             id: req.id.clone(),
                             status: "rejected".into(),
                             amount: 0,
-                            reason: "merchant/wallet changed, native lot unavailable, or native save unavailable".into(),
+                            reason: if !valid {
+                                "Merchant or rune balance changed; reopen Shop and try again"
+                            } else if !native_valid {
+                                "Native item lot is unavailable"
+                            } else {
+                                "Current account's save is not ready or cannot be read; reopen Shop and try again"
+                            }
+                            .into(),
                         };
                         let _ = self.tx.send(Work::Finish(req, ack));
                     }
@@ -1608,10 +2535,14 @@ impl Driver {
                     .into(),
                     amount: p.req.amount,
                     reason: if saved && !save_failed {
-                        String::new()
+                        ""
+                    } else if save_failed {
+                        "Native save reported a failure; purchase held for recovery"
+                    } else if game.save_requested {
+                        "Native save request did not complete; purchase held for recovery"
                     } else {
-                        "native save did not confirm; transaction quarantined".into()
-                    },
+                        "Dedicated save did not confirm the debit or native item; purchase held for recovery"
+                    }.into(),
                 };
                 let req = p.req.clone();
                 if let Some(p) = &mut self.pending {
@@ -1620,14 +2551,19 @@ impl Driver {
                 let _ = self.tx.send(Work::Finish(req, ack));
             }
         }
+        if !publish {
+            return Some(None);
+        }
         self.seq += 1;
         let boss_observation = unsafe { crate::boss_hud::sample() };
         let (loot_seq, loot_events) = loot_observation();
-        Some(Snapshot {
+        let goods = OwnedGoods::scan(pg);
+        Some(Some(Snapshot {
             version: 1,
             pid: std::process::id(),
             session: self.session,
             save_load: self.save_load.sequence,
+            warp: self.warps.sequence,
             seq: self.seq,
             timestamp_ms: epoch(),
             active: true,
@@ -1645,6 +2581,9 @@ impl Driver {
                 .get(&self.character)
                 .map(|c| c.defeated.iter().cloned().collect())
                 .unwrap_or_default(),
+            whetblades: goods.whetblades,
+            physick: goods.physick,
+            tears: goods.tears,
             merchant: self.merchant.clone(),
             ack: self.ack.clone(),
             guard_seq: GUARD_SEQ.load(Ordering::Acquire),
@@ -1657,7 +2596,7 @@ impl Driver {
             loot_events,
             bosses_active: boss_observation.bosses,
             boss_diagnostics: Some(boss_observation.diagnostics),
-        })
+        }))
     }
     fn close_shop(&mut self) {
         self.merchant = None;
@@ -1971,10 +2910,10 @@ fn dispatch_talk_event(
     }
 }
 unsafe fn install_shared_talk_hook() -> Result<(), String> {
-    // Exact worldwide 2.7.1.0 SDK bundle at pinned commit 59fbd3b, rva_ww.rs.
+    // Exact worldwide 2.7.2.0 SDK bundle (upstream 09a4208 RVAs in the pinned 5baf0dd), rva_ww.rs.
     // The process SHA has already been verified before this entry point.
     let image = Program::current().image();
-    let vmt = 0x2c02e18usize;
+    let vmt = 0x2c050c8usize;
     let address = usize::from_le_bytes(
         image
             .get(vmt + 8..vmt + 16)
@@ -1989,7 +2928,7 @@ unsafe fn install_shared_talk_hook() -> Result<(), String> {
         0x48, 0x8b, 0xc4, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
     ];
     let target_rva = address - image.as_ptr() as usize;
-    if target_rva != 0xea7100
+    if target_rva != 0xea87f0
         || image.get(target_rva..target_rva + expected.len()) != Some(expected.as_slice())
     {
         return Err(format!(
@@ -2241,5 +3180,111 @@ mod guard_ack_tests {
         assert!(!guard_ack_valid(4, sum, 3, sum));
         assert!(!guard_ack_valid(3, sum + 0.01, 3, sum));
         assert!(!guard_ack_valid(3, f64::NAN, 3, sum));
+    }
+}
+
+#[cfg(test)]
+mod physick_tests {
+    use super::*;
+
+    fn drink(id: &str, tears: &[&str]) -> PhysickDrink {
+        PhysickDrink {
+            id: id.into(),
+            tears: tears.iter().map(|t| (*t).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn every_base_game_tear_copy_is_one_contiguous_goods_row() {
+        for (index, (_, id)) in PHYSICK_TEARS.iter().enumerate() {
+            assert_eq!(*id, 11000 + index as u32);
+        }
+        let copies = |name: &str| PHYSICK_TEARS.iter().filter(|(n, _)| *n == name).count();
+        for name in ["crimson", "cerulean", "ruptured"] {
+            assert_eq!(copies(name), 2, "{name} has two native copies");
+        }
+        let mut names: Vec<_> = PHYSICK_TEARS.iter().map(|(n, _)| *n).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), 29, "29 distinct base-game tears");
+        for name in NATIVE_PHYSICK_TEARS {
+            assert_eq!(copies(name), 1);
+        }
+    }
+
+    #[test]
+    fn a_drink_applies_owned_native_tears_once() {
+        let owned = vec!["twiggy".to_owned(), "speckled".to_owned()];
+        let mut applied = VecDeque::new();
+        assert_eq!(
+            admit_physick_drink(
+                &mut applied,
+                &drink("a", &["twiggy", "strength_knot"]),
+                &owned
+            ),
+            vec!["twiggy".to_owned()],
+            "only native tears are applied natively"
+        );
+        assert!(
+            admit_physick_drink(&mut applied, &drink("a", &["twiggy"]), &owned).is_empty(),
+            "a republished drink is not applied twice"
+        );
+        assert!(
+            admit_physick_drink(&mut applied, &drink("b", &["purifying"]), &owned).is_empty(),
+            "a tear the character does not own is refused"
+        );
+        assert_eq!(
+            admit_physick_drink(&mut applied, &drink("c", &["speckled", "speckled"]), &owned),
+            vec!["speckled".to_owned()],
+            "one copy cannot be drunk twice in one mixture"
+        );
+        assert!(
+            admit_physick_drink(
+                &mut applied,
+                &drink("d", &["twiggy", "speckled", "purifying"]),
+                &owned
+            )
+            .is_empty(),
+            "a mixture holds at most two tears"
+        );
+        for i in 0..40 {
+            admit_physick_drink(&mut applied, &drink(&format!("x{i}"), &[]), &owned);
+        }
+        assert!(applied.len() <= 16, "the applied-drink memory is bounded");
+    }
+
+    #[test]
+    fn physick_scales_only_raise_and_are_bounded() {
+        assert_eq!(bounded_physick_scale(None), 1.);
+        assert_eq!(bounded_physick_scale(Some(1.25)), 1.25);
+        assert_eq!(bounded_physick_scale(Some(0.5)), 1.);
+        assert_eq!(bounded_physick_scale(Some(9.)), MAX_PHYSICK_SCALE);
+        assert_eq!(bounded_physick_scale(Some(f64::NAN)), 1.);
+        assert_eq!(bounded_physick_scale(Some(f64::INFINITY)), 1.);
+    }
+
+    #[test]
+    fn older_guests_without_physick_fields_still_parse() {
+        let state: CombatState = serde_json::from_str(
+            r#"{"version":1,"session":1,"character":"c","timestamp_ms":1,"armor":0,
+            "toughness":0,"guest_max_hp":20,"shield_ready":false,"stamina":1,"using_item":false}"#,
+        )
+        .unwrap();
+        assert!(
+            !state.physick.bubble && !state.physick.unflinching && state.physick.drink.is_none()
+        );
+        let state: CombatState = serde_json::from_str(
+            r#"{"version":1,"session":1,"character":"c","timestamp_ms":1,"armor":0,
+            "toughness":0,"guest_max_hp":20,"shield_ready":false,"stamina":1,"using_item":false,
+            "physick":{"affinity":[1,1,1.25,1,1,1.5,1],"bubble":true,"unflinching":true,
+            "drink":{"id":"d","tears":["twiggy"]}}}"#,
+        )
+        .unwrap();
+        assert!(state.physick.bubble && state.physick.unflinching);
+        assert_eq!(state.physick.affinity[5], 1.5);
+        assert_eq!(
+            state.physick.drink.unwrap().tears,
+            vec!["twiggy".to_owned()]
+        );
     }
 }

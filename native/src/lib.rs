@@ -27,11 +27,13 @@ mod grace_unlock;
 #[cfg(windows)]
 mod healing_transport;
 pub mod healing_wire;
+#[cfg(windows)]
+mod hit_watch;
 mod host_action;
 pub mod host_pose;
-#[cfg(windows)]
 mod hosting;
 mod hurt;
+mod key_bindings;
 #[cfg(windows)]
 mod interaction_runtime;
 pub mod interaction_wire;
@@ -62,6 +64,9 @@ mod projectile_path;
 #[cfg(windows)]
 mod scene_camera;
 mod settle;
+mod spiritspring;
+mod stance;
+mod stance_watch;
 mod step_assist;
 mod surface;
 mod torrent;

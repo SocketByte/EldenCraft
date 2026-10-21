@@ -62,7 +62,49 @@ public final class ProxyProtocol {
       int wearBefore,
       int wearAfter,
       float playerMaxHp,
-      String item) {}
+      String item,
+      int enchantments) {
+    public Receipt(
+        long sequence,
+        long handle,
+        long generation,
+        long targetFrame,
+        long millis,
+        long attackId,
+        float damage,
+        int wearBefore,
+        int wearAfter,
+        float playerMaxHp,
+        String item) {
+      this(
+          sequence,
+          handle,
+          generation,
+          targetFrame,
+          millis,
+          attackId,
+          damage,
+          wearBefore,
+          wearAfter,
+          playerMaxHp,
+          item,
+          0);
+    }
+  }
+
+  /**
+   * Eight bounded nibbles: poison, bleeding, frostbite, Looting, fire, lightning, magic, holy. Only
+   * one affinity may be set; nibble 3 (Looting) is independent.
+   */
+  public static boolean validEnchantments(int packed) {
+    int affinities = 0;
+    for (int shift = 0; shift < 32; shift += 4) {
+      int level = (packed >>> shift) & 15;
+      if (level > 3) return false;
+      if (shift != 12 && level > 0) affinities++;
+    }
+    return affinities <= 1;
+  }
 
   private ProxyProtocol() {}
 
@@ -171,7 +213,7 @@ public final class ProxyProtocol {
     require(hostPid > 0 && epoch > 0 && receipts.size() <= MAX_RECEIPTS, "receipt host/count");
     var b = ByteBuffer.allocate(BYTES).order(ByteOrder.LITTLE_ENDIAN);
     b.putInt(0, 0x4d444345)
-        .putInt(4, 1)
+        .putInt(4, 3)
         .putLong(8, sequence)
         .putLong(16, frame)
         .putLong(24, now)
@@ -205,6 +247,7 @@ public final class ProxyProtocol {
           "receipt player health");
       byte[] id = r.item.getBytes(StandardCharsets.UTF_8);
       require(id.length <= 40 && r.item.matches("[a-z0-9_.-]+:[a-z0-9_./-]+"), "receipt item");
+      require(validEnchantments(r.enchantments), "receipt enchantments");
       b.putLong(at, r.sequence)
           .putLong(at + 8, r.handle)
           .putLong(at + 16, r.generation)
@@ -215,7 +258,8 @@ public final class ProxyProtocol {
           .putInt(at + 52, r.wearBefore)
           .putInt(at + 56, r.wearAfter)
           .putFloat(at + 60, r.playerMaxHp)
-          .putInt(at + 64, id.length);
+          .putInt(at + 64, id.length)
+          .putInt(at + 68, r.enchantments);
       b.position(at + 72);
       b.put(id);
       previous = r.sequence;

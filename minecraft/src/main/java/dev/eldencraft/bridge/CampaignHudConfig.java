@@ -24,7 +24,9 @@ public record CampaignHudConfig(
       int trail,
       int border,
       int background,
-      int text) {}
+      int text,
+      /** Flashes the bar when an action empties it and recovery waits the longer delay. */
+      int depleted) {}
 
   public record BossBar(
       boolean enabled,
@@ -57,7 +59,8 @@ public record CampaignHudConfig(
             0xffbcc475,
             0xff726c47,
             0xff172015,
-            0xffdbe7cd),
+            0xffdbe7cd,
+            0xffd8392b),
         new BossBar(
             true,
             320,
@@ -99,7 +102,8 @@ public record CampaignHudConfig(
             color(s, "trail", ds.trail),
             color(s, "border", ds.border),
             color(s, "background", ds.background),
-            color(s, "text", ds.text)),
+            color(s, "text", ds.text),
+            color(s, "depleted", ds.depleted)),
         new BossBar(
             bool(b, "enabled", db.enabled),
             integer(b, "width", db.width, 96, 1024),

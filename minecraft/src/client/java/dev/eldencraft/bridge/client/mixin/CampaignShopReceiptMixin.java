@@ -1,5 +1,6 @@
 package dev.eldencraft.bridge.client.mixin;
 
+import dev.eldencraft.bridge.client.CampaignPhysick;
 import dev.eldencraft.bridge.client.CampaignShopReceipt;
 import dev.eldencraft.bridge.client.WorldStartupSafety;
 import net.minecraft.server.level.ServerPlayer;
@@ -44,7 +45,12 @@ public abstract class CampaignShopReceiptMixin implements CampaignShopReceipt {
     // Keep pairing, boss receipts and loot cursors with their items across a fallback respawn.
     if (WorldStartupSafety.protects(previous)) {
       var player = (ServerPlayer) (Object) this;
-      for (var tag : previous.entityTags()) if (tag.startsWith("eldencraft.")) player.addTag(tag);
+      for (var tag : previous.entityTags()) {
+        // A death (the flag is false) refills the Wondrous Physick; vanilla already leaves the
+        // new player without effects.
+        if (!keepInventory && tag.equals(CampaignPhysick.SPENT)) continue;
+        if (tag.startsWith("eldencraft.")) player.addTag(tag);
+      }
     }
   }
 }

@@ -17,25 +17,42 @@ public final class CampaignBridge {
   private static final int MAX_BYTES = 131_072;
   private static final long MAX_AGE_MS = 1500;
   private static volatile Snapshot observed;
-  private static Path directory;
+
+  /** Set once by {@link #initialize}; read without the class lock afterwards. */
+  private static volatile Path directory;
+
   private static long nextRead;
   private static String lastError = "";
   private static long healingSession, healingSequence;
   private static String healingCharacter = "";
   private static double healingTotal;
+  private static final StatePublisher STATE = new StatePublisher();
+
+  private record Liveness(long pid, long checkedNanos, boolean alive) {}
+
+  /** Every HUD frame and server tick asks; the OS lookup is several microseconds each time. */
+  private static volatile Liveness liveness;
+
+  private static final long LIVENESS_NANOS = 250_000_000L;
 
   public record Merchant(String id, String name, String token) {}
 
-  public record Ack(String id, String status, long amount) {}
+  public record Ack(String id, String status, long amount, String reason) {}
 
   /**
    * One native hit. {@code absorbed} is the absorption it spent (Minecraft health units); {@code
-   * totem} means a held totem of undying saved the player from it.
+   * totem} means a held totem of undying saved the player from it; {@code bubble} means an Opaline
+   * Bubbletear took most of it.
    */
   public record DamageEvent(
-      long seq, double rawDamage, boolean blocked, double absorbed, boolean totem) {
+      long seq, double rawDamage, boolean blocked, double absorbed, boolean totem, boolean bubble) {
     public DamageEvent(long seq, double rawDamage, boolean blocked) {
-      this(seq, rawDamage, blocked, 0, false);
+      this(seq, rawDamage, blocked, 0, false, false);
+    }
+
+    public DamageEvent(
+        long seq, double rawDamage, boolean blocked, double absorbed, boolean totem) {
+      this(seq, rawDamage, blocked, absorbed, totem, false);
     }
   }
 
@@ -70,12 +87,19 @@ public final class CampaignBridge {
       List<CampaignLoot.Kill> lootEvents,
       List<Boss> activeBosses,
       boolean identityReady,
-      long saveLoad) {
+      long saveLoad,
+      Set<String> whetblades,
+      boolean physick,
+      List<String> tears,
+      /** Completed native teleports (fast travel, waygates) of this session's character. */
+      long warp) {
     public Snapshot {
       defeated = Set.copyOf(defeated);
       damageEvents = List.copyOf(damageEvents);
       lootEvents = List.copyOf(lootEvents);
       activeBosses = List.copyOf(activeBosses);
+      whetblades = Set.copyOf(whetblades);
+      tears = List.copyOf(tears);
     }
   }
 
@@ -99,16 +123,26 @@ public final class CampaignBridge {
   }
 
   public static Path directory() {
+    var known = directory;
+    if (known != null) return known;
     initialize();
     return directory;
   }
 
   public static Snapshot snapshot() {
     var value = observed;
-    return fresh(value, System.currentTimeMillis())
-            && ProcessHandle.of(value.pid()).map(ProcessHandle::isAlive).orElse(false)
-        ? value
-        : null;
+    return fresh(value, System.currentTimeMillis()) && alive(value.pid()) ? value : null;
+  }
+
+  /** The native publisher is still running, rechecked at most every quarter second. */
+  static boolean alive(long pid) {
+    var known = liveness;
+    long now = System.nanoTime();
+    if (known != null && known.pid() == pid && now - known.checkedNanos() < LIVENESS_NANOS)
+      return known.alive();
+    boolean alive = ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
+    liveness = new Liveness(pid, now, alive);
+    return alive;
   }
 
   public static boolean fresh() {
@@ -119,10 +153,7 @@ public final class CampaignBridge {
   static Identity graceIdentity(InteractionProtocol.Snapshot interaction) {
     var value = observed;
     var identity = graceIdentity(value, interaction, System.currentTimeMillis());
-    return identity != null
-            && ProcessHandle.of(identity.pid()).map(ProcessHandle::isAlive).orElse(false)
-        ? identity
-        : null;
+    return identity != null && alive(identity.pid()) ? identity : null;
   }
 
   static Identity graceIdentity(
@@ -152,7 +183,7 @@ public final class CampaignBridge {
             && value.hp() == 0
             && now >= value.timestampMillis()
             && now - value.timestampMillis() < MAX_AGE_MS
-            && ProcessHandle.of(value.pid()).map(ProcessHandle::isAlive).orElse(false)
+            && alive(value.pid())
         ? value
         : null;
   }
@@ -235,8 +266,15 @@ public final class CampaignBridge {
     if (j.has("ack") && !j.get("ack").isJsonNull()) {
       if (!j.get("ack").isJsonObject()) throw new IOException("Invalid purchase acknowledgement");
       var a = j.getAsJsonObject("ack");
+      String reason = a.has("reason") ? JsonWire.string(a.get("reason")) : "";
+      if (reason.length() > 512 || reason.chars().anyMatch(c -> c < 32))
+        throw new IOException("Invalid purchase acknowledgement reason");
       ack =
-          new Ack(text(a, "id", 160), text(a, "status", 80), integer(a, "amount", 0, 999_999_999));
+          new Ack(
+              text(a, "id", 160),
+              text(a, "status", 80),
+              integer(a, "amount", 0, 999_999_999),
+              reason);
     }
     long guardSeq = j.has("guard_seq") ? integer(j, "guard_seq", 0, Long.MAX_VALUE) : 0;
     double guardDamage = j.has("guard_damage") ? number(j, "guard_damage", 0, 1.0e30) : 0;
@@ -317,12 +355,35 @@ public final class CampaignBridge {
         boolean blocked = bool(e, "blocked");
         double absorbed = e.has("absorbed") ? number(e, "absorbed", 0, 1_000_000) : 0;
         boolean totem = e.has("totem") && bool(e, "totem");
-        if (blocked && (absorbed > 0 || totem))
-          throw new IOException("Blocked damage cannot spend absorption or a totem");
+        boolean bubble = e.has("bubble") && bool(e, "bubble");
+        if (blocked && (absorbed > 0 || totem || bubble))
+          throw new IOException("Blocked damage cannot spend absorption, a totem or a bubble");
         damageEvents.add(
             new DamageEvent(
-                eventSeq, number(e, "raw_damage", 0, 1.0e16), blocked, absorbed, totem));
+                eventSeq, number(e, "raw_damage", 0, 1.0e16), blocked, absorbed, totem, bubble));
         previous = eventSeq;
+      }
+    }
+    var whetblades = new LinkedHashSet<String>();
+    if (j.has("whetblades")) {
+      if (!j.get("whetblades").isJsonArray() || j.getAsJsonArray("whetblades").size() > 5)
+        throw new IOException("Invalid campaign whetblades");
+      for (var value : j.getAsJsonArray("whetblades")) {
+        String id = JsonWire.string(value);
+        if (!Set.of("iron", "red_hot", "sanctified", "glintstone", "black").contains(id)
+            || !whetblades.add(id))
+          throw new IOException("Invalid or duplicate campaign whetblade");
+      }
+    }
+    var tears = new ArrayList<String>();
+    if (j.has("tears")) {
+      if (!j.get("tears").isJsonArray() || j.getAsJsonArray("tears").size() > 32)
+        throw new IOException("Invalid campaign tears");
+      for (var value : j.getAsJsonArray("tears")) tears.add(JsonWire.string(value));
+      try {
+        dev.eldencraft.bridge.PhysickTears.counts(tears);
+      } catch (IllegalArgumentException invalid) {
+        throw new IOException("Invalid campaign tears", invalid);
       }
     }
     return new Snapshot(
@@ -352,7 +413,11 @@ public final class CampaignBridge {
         lootEvents,
         activeBosses,
         j.has("identity_ready") ? bool(j, "identity_ready") : bool(j, "active") && hp > 0 && !dead,
-        j.has("save_load") ? integer(j, "save_load", 0, Long.MAX_VALUE) : 0);
+        j.has("save_load") ? integer(j, "save_load", 0, Long.MAX_VALUE) : 0,
+        whetblades,
+        j.has("physick") && bool(j, "physick"),
+        tears,
+        j.has("warp") ? integer(j, "warp", 0, Long.MAX_VALUE) : 0);
   }
 
   public static synchronized boolean requestPurchase(
@@ -425,10 +490,12 @@ public final class CampaignBridge {
       boolean usingItem,
       double absorption,
       int totems,
-      double resistance) {
+      double resistance,
+      JsonObject physick) {
     var s = snapshot();
     if (s == null) return;
     var j = envelope(s);
+    if (physick != null) j.add("physick", physick);
     j.addProperty("armor", armorReductionPercent);
     j.addProperty("resistance", resistance);
     // Native spends these on its own hits; damage_ack tells it which spends are applied here.
@@ -447,7 +514,7 @@ public final class CampaignBridge {
     bossHud.ids().stream().sorted().forEach(bossHudIds::add);
     j.add("boss_hud_ids", bossHudIds);
     j.addProperty("boss_hud_timestamp_ms", bossHud.millis());
-    write("campaign-combat.json", j);
+    STATE.publish("campaign-combat.json", j);
     publishHealing(s);
   }
 
@@ -482,7 +549,7 @@ public final class CampaignBridge {
     // confused with queued recovery from a previous attachment.
     j.addProperty("heal_seq", healingSequence);
     j.addProperty("heal_total", healingTotal);
-    write("campaign-healing.json", j);
+    STATE.publish("campaign-healing.json", j);
   }
 
   private static JsonObject envelope(Snapshot s) {
@@ -550,5 +617,105 @@ public final class CampaignBridge {
 
   public static void close() {
     observed = null;
+  }
+
+  /**
+   * Periodic state native rereads, written off the calling thread. Requests use their own write.
+   */
+  static void publishState(String name, JsonObject value) {
+    STATE.publish(name, value);
+  }
+
+  /**
+   * Latest-value writer for the state native keeps rereading: combat and healing every server tick,
+   * the interaction heartbeat every 100 ms. Each body supersedes the last, so they skip the fsync
+   * that request files keep, and the game threads never wait on the disk: they hand over the newest
+   * body and return. A rename refused while a scanner or reader briefly holds the target is retried
+   * here.
+   */
+  private static final class StatePublisher implements Runnable {
+    private record Body(Path directory, String text) {}
+
+    private final Map<String, Body> pending = new LinkedHashMap<>();
+    private boolean started;
+    private long suppressed, lastReport;
+
+    /**
+     * Everything that may take another lock happens before this one: the synchronized
+     * CampaignBridge methods call in here while holding the class lock, so resolving the directory
+     * under this lock (which can take the class lock) deadlocked the render and server threads.
+     */
+    void publish(String name, JsonObject value) {
+      var body = new Body(directory(), value.toString());
+      synchronized (this) {
+        pending.put(name, body);
+        if (!started) {
+          started = true;
+          var thread = new Thread(this, "EldenCraft campaign state writer");
+          thread.setDaemon(true);
+          thread.start();
+        }
+        notifyAll();
+      }
+    }
+
+    @Override
+    public void run() {
+      while (true) {
+        Map<String, Body> batch;
+        synchronized (this) {
+          while (pending.isEmpty()) {
+            try {
+              wait();
+            } catch (InterruptedException stop) {
+              return;
+            }
+          }
+          batch = new LinkedHashMap<>(pending);
+          pending.clear();
+        }
+        batch.forEach(this::store);
+      }
+    }
+
+    private void store(String name, Body body) {
+      Path target = body.directory().resolve(name),
+          temporary = body.directory().resolve(name + ".guest.tmp");
+      IOException failure = null;
+      for (int attempt = 0; attempt < 4; attempt++) {
+        try {
+          Files.createDirectories(body.directory());
+          Files.writeString(temporary, body.text(), StandardCharsets.UTF_8);
+          Files.move(
+              temporary,
+              target,
+              StandardCopyOption.ATOMIC_MOVE,
+              StandardCopyOption.REPLACE_EXISTING);
+          return;
+        } catch (IOException error) {
+          failure = error;
+        }
+        synchronized (this) {
+          // A newer body replaces this one anyway.
+          if (pending.containsKey(name)) return;
+        }
+        try {
+          Thread.sleep(2);
+        } catch (InterruptedException stop) {
+          return;
+        }
+      }
+      long now = System.nanoTime();
+      if (lastReport != 0 && now - lastReport < 30_000_000_000L) {
+        suppressed++;
+        return;
+      }
+      LOG.warn(
+          "Campaign state not published ({} similar failures since the last report): {}",
+          suppressed,
+          failure.getMessage());
+      suppressed = 0;
+      lastReport = now;
+    }
   }
 }

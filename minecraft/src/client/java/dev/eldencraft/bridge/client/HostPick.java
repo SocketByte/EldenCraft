@@ -12,21 +12,33 @@ public final class HostPick {
 
   private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
 
+  /**
+   * Picks in progress. Only a hint that skips the thread-local lookup in the entity hooks, which
+   * run for every entity on every thread; the thread-local stays the authority.
+   */
+  private static int picking;
+
   private HostPick() {}
 
-  public static Vec3 eye(Entity e) {
+  private static Scope scope(Entity e) {
+    if (picking == 0) return null;
     var s = CURRENT.get();
-    return s != null && s.entity == e ? s.eye : null;
+    return s != null && s.entity == e ? s : null;
+  }
+
+  public static Vec3 eye(Entity e) {
+    var s = scope(e);
+    return s != null ? s.eye : null;
   }
 
   public static Vec3 forward(Entity e) {
-    var s = CURRENT.get();
-    return s != null && s.entity == e ? s.forward : null;
+    var s = scope(e);
+    return s != null ? s.forward : null;
   }
 
   public static AABB box(Entity e) {
-    var s = CURRENT.get();
-    return s != null && s.entity == e ? s.box : null;
+    var s = scope(e);
+    return s != null ? s.box : null;
   }
 
   public static double range(double vanilla) {
@@ -55,8 +67,10 @@ public final class HostPick {
     HitResult hit;
     try {
       CURRENT.set(scope);
+      picking++;
       hit = vanilla.get();
     } finally {
+      picking--;
       if (prior == null) CURRENT.remove();
       else CURRENT.set(prior);
     }

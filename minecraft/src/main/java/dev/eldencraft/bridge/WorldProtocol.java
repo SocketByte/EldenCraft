@@ -77,17 +77,51 @@ public final class WorldProtocol {
       /** Learned Havok body material -> hit material. */
       Map<Integer, Integer> materialTable) {}
 
+  /**
+   * Terrain a reader already decoded. The host leaves the boxes out of a frame whose terrain the
+   * guest reported holding, so an unchanged scene is not resent thousands of boxes at a time.
+   */
+  public record Terrain(
+      long pid, long epoch, long map, long revision, List<Box> boxes, List<Integer> materials) {
+    public Terrain {
+      boxes = List.copyOf(boxes);
+      materials = List.copyOf(materials);
+    }
+
+    public static Terrain of(Host host) {
+      return new Terrain(
+          host.pid(),
+          host.epoch(),
+          host.map(),
+          host.terrainRevision(),
+          host.terrain(),
+          host.terrainMaterials());
+    }
+
+    /** The host's own identity for this terrain: a restarted host may reuse the numbers. */
+    public boolean matches(long pid, long epoch, long map, long revision) {
+      return this.pid == pid && this.epoch == epoch && this.map == map && this.revision == revision;
+    }
+  }
+
   private WorldProtocol() {}
 
   public static Host decode(byte[] bytes, long now) throws IOException {
+    return decode(bytes, now, null);
+  }
+
+  /**
+   * {@code cached} supplies the terrain of a frame that omits it; null accepts only full frames.
+   */
+  public static Host decode(byte[] bytes, long now, Terrain cached) throws IOException {
     try {
-      return decodeChecked(bytes, now);
+      return decodeChecked(bytes, now, cached);
     } catch (RuntimeException e) {
       throw new IOException("Malformed world snapshot", e);
     }
   }
 
-  private static Host decodeChecked(byte[] bytes, long now) throws IOException {
+  private static Host decodeChecked(byte[] bytes, long now, Terrain cached) throws IOException {
     if (bytes.length < HEADER || bytes.length > SIZE) throw new IOException("World frame length");
     var b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
     int flags = b.getInt(36), length = b.getInt(40);
@@ -113,14 +147,27 @@ public final class WorldProtocol {
     double norm = forward.x() * forward.x() + forward.y() * forward.y() + forward.z() * forward.z();
     if (norm < .98 || norm > 1.02) throw new IOException("World forward");
     float max = number(json, "max_hp", 1, 10_000_000), hp = number(json, "hp", 0, max);
-    var terrain = new ArrayList<Box>();
-    for (var value : array(json, "terrain_boxes", 4096)) terrain.add(box(value));
-    var terrainMaterials = new ArrayList<Integer>();
-    if (json.has("terrain_materials"))
-      for (var value : array(json, "terrain_materials", 4096))
-        terrainMaterials.add((int) Math.max(0, Math.min(65535, value.getAsLong())));
-    if (!terrainMaterials.isEmpty() && terrainMaterials.size() != terrain.size())
-      throw new IOException("World terrain materials");
+    long terrainRevision = integer(json, "terrain_revision", 0, Long.MAX_VALUE);
+    List<Box> terrain;
+    List<Integer> terrainMaterials;
+    if (json.has("terrain_omitted") && bool(json, "terrain_omitted")) {
+      array(json, "terrain_boxes", 0);
+      if (json.has("terrain_materials")) array(json, "terrain_materials", 0);
+      if (cached == null
+          || !cached.matches(Integer.toUnsignedLong(b.getInt(32)), epoch, map, terrainRevision))
+        throw new IOException("World terrain omitted without the matching cached copy");
+      terrain = cached.boxes();
+      terrainMaterials = cached.materials();
+    } else {
+      terrain = new ArrayList<>();
+      for (var value : array(json, "terrain_boxes", 4096)) terrain.add(box(value));
+      terrainMaterials = new ArrayList<>();
+      if (json.has("terrain_materials"))
+        for (var value : array(json, "terrain_materials", 4096))
+          terrainMaterials.add((int) Math.max(0, Math.min(65535, value.getAsLong())));
+      if (!terrainMaterials.isEmpty() && terrainMaterials.size() != terrain.size())
+        throw new IOException("World terrain materials");
+    }
     int groundMaterial =
         json.has("ground_material")
             ? (int) Math.max(-1, Math.min(1_000_000, json.get("ground_material").getAsLong()))
@@ -222,7 +269,7 @@ public final class WorldProtocol {
             ? integer(json, "player_generation", 1, Long.MAX_VALUE)
             : epoch,
         json.has("damage_scale") ? number(json, "damage_scale", .1f, 1000) : 50,
-        integer(json, "terrain_revision", 0, Long.MAX_VALUE),
+        terrainRevision,
         bool(json, "terrain_ready"),
         box(json.get("terrain_bounds")),
         List.copyOf(terrain),

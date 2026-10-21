@@ -258,19 +258,28 @@ impl Driver {
                 // An error can occur AFTER native mutation (for example readback
                 // loses the target). Always resample before publishing its ack.
                 changed = true;
+                let kill_profile =
+                    unsafe { crate::campaign_runtime::kill_profile(handle(receipt.target)) };
                 let result = match self.sink.as_mut() {
                     Ok(sink) => unsafe {
-                        sink.apply(
+                        sink.apply_enchanted(
                             handle(packed(snapshot.player_handle)),
                             handle(receipt.target),
                             hp as i32,
+                            receipt.enchantments,
+                            crate::campaign_runtime::melee_stance(&receipt.item),
                         )
                     },
                     Err(reason) => Err(*reason),
                 };
                 match result {
                     Ok(result) => {
-                        crate::campaign_runtime::record_kill(&result);
+                        crate::campaign_runtime::record_melee_hit(
+                            &result,
+                            kill_profile,
+                            receipt.enchantments,
+                            receipt.generation,
+                        );
                         if self.record_native_outcome(Some(result.applied_delta())) {
                             self.status.last = Some(format!(
                                 "receipt {} attack {} item {} mc_damage {} durability {}->{} native {:?}",
@@ -616,6 +625,7 @@ mod tests {
             durability_before: 0,
             durability_after: 1,
             guest_max_hp: 20.,
+            enchantments: 0,
             item: "minecraft:iron_sword".into(),
         }
     }

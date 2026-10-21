@@ -26,52 +26,52 @@ use std::{
     },
 };
 
-const STAGE_RVA: usize = 0x4609c0;
+const STAGE_RVA: usize = 0x460aa0;
 const STAGE_PREFIX: &[u8] = &[
     0x48, 0x8b, 0xc4, 0x56, 0x57, 0x41, 0x56, 0x48, 0x83, 0xec, 0x70, 0x48, 0xc7, 0x40, 0xa0, 0xfe,
     0xff, 0xff, 0xff,
 ];
-const COPY_RVA: usize = 0x460a5d;
+const COPY_RVA: usize = 0x460b3d;
 const COPY_PREFIX: &[u8] = &[
     0x41, 0x0f, 0x28, 0x00, 0x0f, 0x29, 0x81, 0xd0, 0, 0, 0, 0x41, 0x0f, 0x28, 0x48, 0x10, 0x0f,
     0x29, 0x89, 0xe0, 0, 0, 0,
 ];
 const CALLER_RVA: usize = 0x3c891d;
 const CALLER_PREFIX: &[u8] = &[
-    0x4c, 0x8d, 0x83, 0x40, 0x01, 0, 0, 0x48, 0x8d, 0x55, 0xc0, 0x48, 0x8b, 0xce, 0xe8, 0x90, 0x80,
+    0x4c, 0x8d, 0x83, 0x40, 0x01, 0, 0, 0x48, 0x8d, 0x55, 0xc0, 0x48, 0x8b, 0xce, 0xe8, 0x70, 0x81,
     0x09, 0,
 ];
-const ORIENTATION_RVA: usize = 0x463d90;
+const ORIENTATION_RVA: usize = 0x463e70;
 const ORIENTATION_PREFIX: &[u8] = &[
     0x48, 0x8b, 0xc4, 0x53, 0x48, 0x81, 0xec, 0x90, 0, 0, 0, 0x80, 0xb9, 0xdc, 0x01, 0, 0, 0, 0x48,
     0x8b, 0xda, 0x0f, 0x84, 0xd2, 0x01, 0, 0,
 ];
-const ORIENTATION_CALL_RVA: usize = 0x4672f1;
+const ORIENTATION_CALL_RVA: usize = 0x4673d1;
 const ORIENTATION_CALL_PREFIX: &[u8] = &[
     0x48, 0x8b, 0xf9, 0xe8, 0x97, 0xca, 0xff, 0xff, 0x4c, 0x8b, 0xc3,
 ];
-const VELOCITY_RVA: usize = 0xc5db30;
+const VELOCITY_RVA: usize = 0xc5dff0;
 const VELOCITY_PREFIX: &[u8] = &[
     0x48, 0x8b, 0x81, 0xa0, 0, 0, 0, 0x48, 0x85, 0xc0, 0x74, 0x06, 0x0f, 0x28, 0x02, 0x0f, 0x29,
     0x00, 0xc3,
 ];
-const VELOCITY_CALL_RVA: usize = 0x46779f;
+const VELOCITY_CALL_RVA: usize = 0x46787f;
 const VELOCITY_CALL_PREFIX: &[u8] = &[
-    0x48, 0x8b, 0x8f, 0x98, 0, 0, 0, 0x48, 0x8d, 0x54, 0x24, 0x50, 0xe8, 0x80, 0x63, 0x7f, 0, 0x48,
+    0x48, 0x8b, 0x8f, 0x98, 0, 0, 0, 0x48, 0x8d, 0x54, 0x24, 0x50, 0xe8, 0x60, 0x67, 0x7f, 0, 0x48,
     0x8b, 0x8f, 0xa0, 0, 0, 0, 0x48, 0x85, 0xc9, 0x74, 0x0a, 0x48, 0x8d, 0x54, 0x24, 0x50, 0xe8,
-    0x6a, 0x63, 0x7f, 0,
+    0x4a, 0x67, 0x7f, 0,
 ];
-// In native468a40, after the capsule has resolved motion, this JBE chooses
+// In native468b20, after the capsule has resolved motion, this JBE chooses
 // ordinary ground-offset removal instead of the extra standing adhesion snap.
 // RDI is the physics module; the preceding COMISS compares adhesion radius
 // (XMM6) with floor distance (XMM8). Taking the existing branch preserves all
 // capsule/contact queries and the normal ground offset in XMM7.
-const ADHESION_RVA: usize = 0x469437;
+const ADHESION_RVA: usize = 0x469517;
 const ADHESION_PREFIX: &[u8] = &[
     0x76, 0x1f, 0x45, 0x0f, 0x57, 0xc4, 0xc6, 0x87, 0x92, 0, 0, 0, 1, 0xf3, 0x44, 0x0f, 0x11, 0x87,
     0x0c, 1, 0, 0,
 ];
-const ADHESION_RADIUS_RVA: usize = 0x4692e4;
+const ADHESION_RADIUS_RVA: usize = 0x4693c4;
 const ADHESION_RADIUS_PREFIX: &[u8] = &[
     0x80, 0xbf, 0xd0, 1, 0, 0, 0, 0x75, 0x0d, 0x80, 0xbf, 0xd7, 1, 0, 0, 0, 0xf3, 0x0f, 0x58, 0xf7,
     0x74, 3, 0x0f, 0x28, 0xf7,
@@ -249,6 +249,8 @@ pub struct Status {
     pub ledge_stops: u64,
     /// Owned step-up hops onto low placed Minecraft blocks (slabs, stairs).
     pub step_hops: u64,
+    /// Spiritspring leaps taken by the mounted rider.
+    pub spring_launches: u64,
     pub motion_multiplier: f32,
     pub speed_multiplier: f32,
     /// Quarter-second path-length observation; not a straight-line speed proof.
@@ -1343,6 +1345,12 @@ struct Shared {
     torrent: Option<crate::torrent::Sample>,
     fluids: Vec<crate::world_fluids::Owned>,
     combat: Option<crate::combat_effects::Sample>,
+    /// The rider stands in a Spiritspring, and whether this entry already launched.
+    spring: Option<f32>,
+    /// Jump was down at the previous step, so a press is a fresh edge.
+    spring_jump_down: bool,
+    /// Seconds before another leap is allowed.
+    spring_lock: f32,
     last_impulse: u64,
     was_gliding: bool,
     glide: GlideTransition,
@@ -1384,6 +1392,9 @@ impl Shared {
             torrent: None,
             fluids: Vec::new(),
             combat: None,
+            spring: None,
+            spring_jump_down: false,
+            spring_lock: 0.,
             last_impulse: 0,
             was_gliding: false,
             glide: GlideTransition::default(),
@@ -1882,6 +1893,12 @@ impl Driver {
             state.fluids = contacts;
         }
     }
+    /// The leap height of the Spiritspring the rider stands in, if any.
+    pub fn set_spring(&mut self, height: Option<f32>) {
+        if let Ok(mut state) = self.shared.try_lock() {
+            state.spring = height;
+        }
+    }
     pub fn set_combat(&mut self, sample: Option<crate::combat_effects::Sample>) {
         if let Ok(mut state) = self.shared.try_lock() {
             state.combat = sample;
@@ -2226,6 +2243,26 @@ unsafe fn prepare(
                         state.vertical.impulse(s.vertical_impulse, position[1]);
                     }
                 }
+                // A Spiritspring leap needs a fresh Space press while the mounted rider is inside.
+                let jump_pressed = current_input.jump && !state.spring_jump_down;
+                state.spring_jump_down = current_input.jump;
+                state.spring_lock = (state.spring_lock - dt).max(0.);
+                if let Some(height) = state.spring
+                    && gait == Gait::Torrent
+                    && jump_pressed
+                    && state.spring_lock <= 0.
+                {
+                    state
+                        .vertical
+                        .impulse(crate::spiritspring::launch_speed(height), position[1]);
+                    // The press is spent on the leap: no ordinary or air jump on top of it.
+                    state.vertical.held_since_jump = true;
+                    state.vertical.armed = false;
+                    state.vertical.since_jump = 0.;
+                    state.spring_lock = crate::spiritspring::RELAUNCH_S;
+                    state.status.spring_launches = state.status.spring_launches.saturating_add(1);
+                    state.wall.settle();
+                }
                 let vertical = state.vertical.step_effects(
                     dt,
                     current_input.jump,
@@ -2427,6 +2464,7 @@ unsafe fn prepare(
                 collision_feedback: state.status.collision_feedback,
                 ledge_stops: state.status.ledge_stops,
                 step_hops: state.status.step_hops,
+                spring_launches: state.status.spring_launches,
                 motion_multiplier: physics.motion_multiplier,
                 speed_multiplier: state.speed,
                 measured_speed_mps: measured_speed,

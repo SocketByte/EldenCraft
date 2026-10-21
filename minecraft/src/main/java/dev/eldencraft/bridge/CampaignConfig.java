@@ -7,7 +7,33 @@ import java.util.*;
 
 /** Shared, strictly validated campaign rules. Reload replaces one immutable configuration. */
 public final class CampaignConfig {
-  public record Weapon(double damage, double attackSpeed) {}
+  /**
+   * {@code stance} is the stance damage each hit deals; a negative value defers to {@link
+   * Stance#fallback()}. Attack stamina is a share of the player's maximum, set per weapon family in
+   * {@link Stamina}.
+   */
+  public record Weapon(double damage, double attackSpeed, double stance) {
+    public Weapon(double damage, double attackSpeed) {
+      this(damage, attackSpeed, -1);
+    }
+  }
+
+  /**
+   * Native enemies stagger when accumulated stance damage reaches their authored stance; it drains
+   * if they are left alone for {@code recoverySeconds}. {@code capacityScale} stretches every
+   * enemy's stance together, and a disabled system keeps the old stagger on every hit.
+   */
+  public record Stance(
+      boolean enabled,
+      double fallback,
+      double projectile,
+      double explosion,
+      double recoverySeconds,
+      double capacityScale) {
+    public static Stance defaults() {
+      return new Stance(true, 6, 10, 40, 6, 1);
+    }
+  }
 
   /** Armor is additive damage reduction in percentage points; toughness is legacy metadata. */
   public record Armor(double armor, double toughness, double knockbackResistance) {
@@ -60,15 +86,92 @@ public final class CampaignConfig {
     }
   }
 
+  /**
+   * {@code shieldRaiseSeconds} is the cast time between raising a shield and it blocking; 0 blocks
+   * at once. After a guard break, once the guard has recovered, the shield still cannot be raised
+   * for {@code brokenShieldDelaySeconds}. An action that empties the bar waits {@code
+   * exhaustedDelayMultiplier} times the regeneration delay before recovery starts.
+   */
   public record Stamina(
       Map<String, Double> costs,
       double regenPerSecond,
       double regenDelaySeconds,
       double guardBase,
       double guardPerDamage,
-      double guardRecovery) {
+      double guardRecovery,
+      double shieldRaiseSeconds,
+      double exhaustedDelayMultiplier,
+      double brokenShieldDelaySeconds) {
+    /** A shield blocks the moment it is raised. */
+    public static final double DEFAULT_SHIELD_RAISE_SECONDS = 0;
+
+    /** A recovered broken guard stays down a quarter of a second longer. */
+    public static final double DEFAULT_BROKEN_SHIELD_DELAY_SECONDS = .25;
+
+    /** Emptying the bar doubles the wait before it recovers. */
+    public static final double DEFAULT_EXHAUSTED_DELAY_MULTIPLIER = 2;
+
+    public Stamina(
+        Map<String, Double> costs,
+        double regenPerSecond,
+        double regenDelaySeconds,
+        double guardBase,
+        double guardPerDamage,
+        double guardRecovery,
+        double shieldRaiseSeconds) {
+      this(
+          costs,
+          regenPerSecond,
+          regenDelaySeconds,
+          guardBase,
+          guardPerDamage,
+          guardRecovery,
+          shieldRaiseSeconds,
+          DEFAULT_EXHAUSTED_DELAY_MULTIPLIER,
+          DEFAULT_BROKEN_SHIELD_DELAY_SECONDS);
+    }
+
+    public Stamina(
+        Map<String, Double> costs,
+        double regenPerSecond,
+        double regenDelaySeconds,
+        double guardBase,
+        double guardPerDamage,
+        double guardRecovery) {
+      this(
+          costs,
+          regenPerSecond,
+          regenDelaySeconds,
+          guardBase,
+          guardPerDamage,
+          guardRecovery,
+          DEFAULT_SHIELD_RAISE_SECONDS,
+          DEFAULT_EXHAUSTED_DELAY_MULTIPLIER,
+          DEFAULT_BROKEN_SHIELD_DELAY_SECONDS);
+    }
+
+    /** The regeneration delay after an action emptied the bar. */
+    public double exhaustedDelaySeconds() {
+      return regenDelaySeconds * exhaustedDelayMultiplier;
+    }
+
+    /** The raise delay in ticks, rounded as vanilla rounds {@code blockDelayTicks()}. */
+    public int shieldRaiseTicks() {
+      return ticks(shieldRaiseSeconds);
+    }
+
+    private static int ticks(double seconds) {
+      return Math.round((float) seconds * 20);
+    }
+
+    /** Percent of the player's maximum stamina one attack of this weapon family costs. */
     public double cost(String kind) {
-      return costs.getOrDefault(kind, costs.getOrDefault("other", 12d));
+      return costs.getOrDefault(kind, costs.getOrDefault("other", 20d));
+    }
+
+    /** {@link #cost} as a fraction, 0.2 for a fifth of the maximum. */
+    public double fraction(String kind) {
+      return cost(kind) / 100;
     }
   }
 
@@ -93,6 +196,12 @@ public final class CampaignConfig {
     }
   }
 
+  /** Stance damage one hit with {@code itemId} deals to a native enemy. */
+  public double stanceDamage(String itemId) {
+    var weapon = weapons.get(itemId);
+    return weapon != null && weapon.stance >= 0 ? weapon.stance : stance.fallback;
+  }
+
   /** Shares of hazard damage that reach native enemies when an older file omits the tuning. */
   public static final double DEFAULT_EXPLOSION_SCALE = .125;
 
@@ -105,6 +214,7 @@ public final class CampaignConfig {
   public final Map<String, Armor> armors;
   public final Progression progression;
   public final Stamina stamina;
+  public final Stance stance;
   public final Mining mining;
   public final List<Reward> starterItems;
   public final List<Boss> bosses;
@@ -126,6 +236,7 @@ public final class CampaignConfig {
       Map<String, Armor> armors,
       Progression progression,
       Stamina stamina,
+      Stance stance,
       Mining mining,
       List<Reward> starterItems,
       List<Boss> bosses,
@@ -145,6 +256,7 @@ public final class CampaignConfig {
     this.armors = Map.copyOf(armors);
     this.progression = progression;
     this.stamina = stamina;
+    this.stance = stance;
     this.mining = mining;
     this.starterItems = List.copyOf(starterItems);
     this.bosses = List.copyOf(bosses);
@@ -200,7 +312,11 @@ public final class CampaignConfig {
       String item = itemId(row.getKey());
       var w = row.getValue().getAsJsonObject();
       weapons.put(
-          item, new Weapon(number(w, "damage", .1, 1000), number(w, "attackSpeed", .1, 20)));
+          item,
+          new Weapon(
+              number(w, "damage", .1, 1000),
+              number(w, "attackSpeed", .1, 20),
+              w.has("stance") ? number(w, "stance", 0, 10000) : -1));
     }
     var armors = new LinkedHashMap<String, Armor>();
     if (json.has("armors"))
@@ -237,7 +353,7 @@ public final class CampaignConfig {
     var s = object(json, "stamina");
     var costs = new HashMap<String, Double>();
     for (var row : object(s, "costs").entrySet())
-      costs.put(row.getKey(), bounded(row.getValue(), 0, 10000, "stamina cost"));
+      costs.put(row.getKey(), bounded(row.getValue(), 0, 100, "stamina cost percent"));
     var stamina =
         new Stamina(
             Map.copyOf(costs),
@@ -245,7 +361,16 @@ public final class CampaignConfig {
             number(s, "regenDelaySeconds", 0, 60),
             number(s, "guardBase", 0, 10000),
             number(s, "guardPerDamage", 0, 10000),
-            number(s, "guardRecovery", 0, 10000));
+            number(s, "guardRecovery", 0, 10000),
+            s.has("shieldRaiseSeconds")
+                ? number(s, "shieldRaiseSeconds", 0, 5)
+                : Stamina.DEFAULT_SHIELD_RAISE_SECONDS,
+            s.has("exhaustedDelayMultiplier")
+                ? number(s, "exhaustedDelayMultiplier", 1, 10)
+                : Stamina.DEFAULT_EXHAUSTED_DELAY_MULTIPLIER,
+            s.has("brokenShieldDelaySeconds")
+                ? number(s, "brokenShieldDelaySeconds", 0, 5)
+                : Stamina.DEFAULT_BROKEN_SHIELD_DELAY_SECONDS);
     if (stamina.guardRecovery > progression.stamina(0))
       throw new IOException("guardRecovery exceeds starting stamina");
     var m = object(json, "mining");
@@ -294,6 +419,22 @@ public final class CampaignConfig {
     if (shares != progression.shares)
       throw new IOException("Remembrance bosses must match progression.shares");
     var combat = object(json, "combat");
+    var stance = Stance.defaults();
+    if (combat.has("stance")) {
+      var st = object(combat, "stance");
+      stance =
+          new Stance(
+              st.has("enabled") ? bool(st, "enabled", true) : stance.enabled,
+              st.has("default") ? number(st, "default", 0, 10000) : stance.fallback,
+              st.has("projectile") ? number(st, "projectile", 0, 10000) : stance.projectile,
+              st.has("explosion") ? number(st, "explosion", 0, 10000) : stance.explosion,
+              st.has("recoverySeconds")
+                  ? number(st, "recoverySeconds", .5, 600)
+                  : stance.recoverySeconds,
+              st.has("capacityScale")
+                  ? number(st, "capacityScale", .01, 100)
+                  : stance.capacityScale);
+    }
     double crossbow = number(combat, "crossbowBaseDamage", .1, 1000);
     double bow = combat.has("bowBaseDamage") ? number(combat, "bowBaseDamage", .1, 1000) : 2;
     double nativeScale = number(combat, "nativeDamageScale", .1, 100000);
@@ -336,6 +477,7 @@ public final class CampaignConfig {
         armors,
         progression,
         stamina,
+        stance,
         mining,
         rewards(json, "starterItems"),
         bosses,
@@ -368,7 +510,8 @@ public final class CampaignConfig {
         Map.of(),
         Map.of(),
         p,
-        new Stamina(Map.of("other", 12d), 20, .5, 4, 1.5, 5),
+        new Stamina(Map.of("other", 20d), 20, .5, 4, 1.5, 5),
+        Stance.defaults(),
         new Mining(Set.of(), 12000, List.of()),
         List.of(),
         List.of(),

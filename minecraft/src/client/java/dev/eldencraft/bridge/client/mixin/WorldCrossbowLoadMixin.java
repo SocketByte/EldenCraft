@@ -13,7 +13,7 @@ abstract class WorldCrossbowLoadMixin {
   @Inject(method = "onUseTick", at = @At("HEAD"), cancellable = true)
   private void eldencraft$cancelLostLoad(
       Level level, LivingEntity player, ItemStack item, int remaining, CallbackInfo ci) {
-    if (!WorldProjectiles.permitItem(player)) {
+    if (!WorldProjectiles.permitHeldItem(player)) {
       player.stopUsingItem();
       ci.cancel();
     }

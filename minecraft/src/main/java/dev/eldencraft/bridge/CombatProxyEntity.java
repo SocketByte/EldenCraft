@@ -3,6 +3,7 @@ package dev.eldencraft.bridge;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.*;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -117,7 +118,18 @@ public final class CombatProxyEntity extends LivingEntity {
     // Scale before vanilla resolution so hurt resistance and the reported loss agree.
     if (!melee) amount *= (float) WorldDamageAuthority.enemyHazardScale(source);
     float before = getHealth();
+    // Elden Ring enemies have no hurt cooldown against arrows. Vanilla's would refuse a shot
+    // landing within half a second of any other hit, and the refused arrow bounces off. Let it
+    // through without starting or spending a cooldown that melee still keys on.
+    boolean shot = !melee && source.getDirectEntity() instanceof Projectile;
+    int cooldown = getInvulnerableTime();
+    float last = lastHurt;
+    if (shot) setInvulnerableTime(0);
     boolean accepted = super.hurtServer(level, source, amount);
+    if (shot) {
+      setInvulnerableTime(cooldown);
+      lastHurt = last;
+    }
     float loss = before - getHealth();
     if (accepted && Float.isFinite(loss) && loss > 0) {
       if (melee) ProxyCombatAuthority.record(this, loss);

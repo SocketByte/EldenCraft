@@ -250,6 +250,18 @@ public final class CombatItemsConformance {
         "net/minecraft/server/level/ServerLevel",
         "addFreshEntity");
     hook("net/minecraft/world/entity/AreaEffectCloud", "tick", "()V");
+    // The campaign shield cast time replaces this one delay read.
+    calls(
+        living,
+        "getItemBlockingWith",
+        "net/minecraft/world/item/component/BlocksAttacks",
+        "blockDelayTicks");
+    // Shadow terrain changes skip this client section invalidation.
+    hook(
+        "net/minecraft/client/multiplayer/ClientLevel",
+        "sendBlockUpdated",
+        "(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;"
+            + "Lnet/minecraft/world/level/block/state/BlockState;I)V");
     hook(
         "net/minecraft/world/item/ThrowablePotionItem",
         "use",

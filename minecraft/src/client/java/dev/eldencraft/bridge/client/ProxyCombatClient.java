@@ -311,6 +311,7 @@ public final class ProxyCombatClient implements ProxyCombatAuthority.Adapter {
       String item,
       int before,
       int after,
+      ItemStack weapon,
       ProxyCombatAuthority.Feedback feedback) {
     if (player.level().dimension().equals(SharedWorldBlocks.DIMENSION)
         && !SharedWorldClient.combatReady()) return;
@@ -343,7 +344,8 @@ public final class ProxyCombatClient implements ProxyCombatAuthority.Adapter {
                   before,
                   after,
                   player.getMaxHealth(),
-                  item));
+                  item,
+                  enchantmentReceipt(player, weapon)));
       LOG.info(
           "Vanilla proxy damage: queued={}, attack={}, target={}, damage={}, item={}, durability={}"
               + " -> {}",
@@ -355,6 +357,20 @@ public final class ProxyCombatClient implements ProxyCombatAuthority.Adapter {
           before,
           after);
     }
+  }
+
+  private static int enchantmentReceipt(ServerPlayer player, ItemStack weapon) {
+    if (!CampaignCombat.active(player) || !CampaignEnchantments.weapon(weapon)) return 0;
+    int packed = Math.clamp(CampaignEnchantments.level(weapon, "minecraft:looting"), 0, 3) << 12;
+    String affinity = CampaignEnchantments.affinity(weapon);
+    if (affinity.isEmpty()
+        || !CampaignEnchantments.unlocked(player, "eldencraft_bridge:" + affinity)) return packed;
+    // Nibbles 0-2 hold statuses, nibble 3 Looting and nibbles 4-7 the elements.
+    int index = CampaignEnchantments.AFFINITIES.indexOf(affinity);
+    int shift = index < 0 ? -1 : (index < 3 ? index : index + 1) * 4;
+    return shift < 0
+        ? packed
+        : packed | Math.clamp(CampaignEnchantments.affinityLevel(weapon), 0, 3) << shift;
   }
 
   private record Pick(ProxyProtocol.Target target, Vec3 hit, double distance) {}

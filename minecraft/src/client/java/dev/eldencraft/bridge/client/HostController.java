@@ -473,8 +473,10 @@ public final class HostController {
       int pressed,
       int released,
       boolean typing) {
-    // While typing, Escape and E arrive as text-screen keys; only the mouse is routed here.
-    if (!typing && (pressed & (HostState.ESCAPE | HostState.INVENTORY)) != 0) {
+    // While typing, Escape and E arrive as text-screen keys; only the mouse is routed here. A
+    // Key Binds entry waiting for a key reads the keyboard itself, so no host key acts on it.
+    boolean capturing = !typing && HostKeyCapture.route(screen);
+    if (!typing && !capturing && (pressed & (HostState.ESCAPE | HostState.INVENTORY)) != 0) {
       screen.onClose();
       releaseKeys();
       previousButtons = buttons;
@@ -503,8 +505,12 @@ public final class HostController {
             Math.round(y),
             modifiers,
             handled,
-            item(client.player.containerMenu.getCarried()));
+            client.player == null
+                ? "disconnected"
+                : item(client.player.containerMenu.getCarried()));
       }
+      // Screen callbacks can disconnect the world (e.g. Save and Quit).
+      if (client.player == null || client.gui.screen() != screen) break;
       if ((released & (1 << bit)) != 0) {
         boolean handled = screen.mouseReleased(event);
         diagnostic(
@@ -513,19 +519,24 @@ public final class HostController {
             Math.round(x),
             Math.round(y),
             handled,
-            item(client.player.containerMenu.getCarried()));
+            client.player == null
+                ? "disconnected"
+                : item(client.player.containerMenu.getCarried()));
       }
+      if (client.player == null || client.gui.screen() != screen) break;
       if ((buttons & (1 << bit)) != 0
           && (pressed & (1 << bit)) == 0
           && pressedScreen == screen
           && (x != lastMouseX || y != lastMouseY))
         screen.mouseDragged(event, x - lastMouseX, y - lastMouseY);
     }
-    if (input.inputSequence() != lastInputSequence && input.wheelDelta() != 0)
-      screen.mouseScrolled(x, y, 0, input.wheelDelta());
+    if (client.player != null
+        && client.gui.screen() == screen
+        && input.inputSequence() != lastInputSequence
+        && input.wheelDelta() != 0) screen.mouseScrolled(x, y, 0, input.wheelDelta());
     // Vanilla container keys act on the hovered slot: hotbar swap, drop (Ctrl: whole stack),
     // offhand swap.
-    if (!typing && client.gui.screen() == screen) {
+    if (!typing && !capturing && client.player != null && client.gui.screen() == screen) {
       for (int slot = 0; slot < 9; slot++)
         if ((pressed & (HostState.HOTBAR_1 << slot)) != 0)
           screenKey(screen, client.options.keyHotbarSlots[slot], modifiers);

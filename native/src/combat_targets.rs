@@ -28,17 +28,28 @@ pub struct Eligibility {
     pub lock_disabled: bool,
 }
 impl Eligibility {
+    /// Human NPC enemies and NPC invaders inherit PlayerIns without a boss
+    /// gauge. Their character type and an explicitly hostile team establish
+    /// the combat role; friendly, co-op and neutral NPCs never qualify.
+    fn hostile_human(self) -> bool {
+        self.player_class && human_npc_type(self.character_type) && hostile_team(self.team)
+    }
+    /// A PlayerIns target: a registered human boss or a hostile human NPC.
+    pub(crate) fn player_combatant(self) -> bool {
+        self.player_class && (self.boss_registered || self.hostile_human())
+    }
     pub(crate) fn rejection(self) -> Option<&'static str> {
         let boss_role = self.boss_registered || self.boss_damage_linked;
-        if !self.enemy_class && !(self.player_class && self.boss_registered) {
+        let human = !self.enemy_class && self.player_combatant();
+        if !self.enemy_class && !human {
             Some("not_enemy_class")
-        } else if !boss_role && !native_enemy_type(self.character_type) {
+        } else if !boss_role && !human && !native_enemy_type(self.character_type) {
             Some("not_native_npc")
         } else if self.team == self.player_team {
             Some("same_team")
         } else if !self.npc_param_present {
             Some("npc_param_missing")
-        } else if !boss_role && self.lock_distance == 0 {
+        } else if !boss_role && !human && self.lock_distance == 0 {
             Some("npc_not_lockable")
         } else if !boss_role && self.lock_disabled {
             Some("native_lock_disabled")
@@ -55,6 +66,25 @@ impl Eligibility {
 fn native_enemy_type(character_type: i32) -> bool {
     use eldenring::cs::ChrType;
     character_type == ChrType::Npc as i32 || character_type == ChrType::Unk7 as i32
+}
+
+/// World NPCs and offline NPC invaders. Network players, summoned NPC allies
+/// and every ghost type are excluded.
+fn human_npc_type(character_type: i32) -> bool {
+    use eldenring::cs::ChrType;
+    character_type == ChrType::Npc as i32
+        || character_type == ChrType::BloodyFingerNpc as i32
+        || character_type == ChrType::RecusantNpc as i32
+}
+
+/// NpcParam TEAM_TYPE values that oppose the player: enemy, boss, angered
+/// ally, invader, hostile, enemy 1/2, strong enemy, hostile NPC, indiscriminate,
+/// invading mad phantom, arch-enemy and the numbered enemy factions (48+, live:
+/// soldiers 48, demi-humans 51). Live Gideon is team 6; the friendly Sorcerer
+/// Thops is FriendlyNPC 26. Spirit summons (47), allies, co-op, neutral,
+/// decoy and object teams are left out.
+fn hostile_team(team: u8) -> bool {
+    matches!(team, 3 | 6 | 7 | 9 | 13 | 16..=18 | 21 | 23..=25 | 27 | 29 | 32 | 33 | 48..)
 }
 
 /// Rechecked immediately before damage as well as when publishing target boxes.
@@ -122,7 +152,7 @@ pub fn eligibility(chr: &eldenring::cs::ChrIns, player_team: u8) -> Eligibility 
     let boss_registered = registered_boss(chr);
     let character_type = unsafe { std::ptr::addr_of!(chr.chr_type).cast::<i32>().read() };
     let lock_distance =
-        if (enemy_class || (player_class && boss_registered)) && chr.npc_param_id >= 0 {
+        if (enemy_class || player_class) && chr.npc_param_id >= 0 {
             unsafe { SoloParamRepository::instance() }
                 .ok()
                 .and_then(|repo| repo.get::<NpcParam>(chr.npc_param_id as u32))
@@ -432,7 +462,7 @@ fn select_authored_shape(
         .or_else(|| npc_map.map(|s| (ShapeSource::NpcMapFallback, s)))
 }
 fn proxy_bounds(position: [f32; 3], height: f32, radius: f32) -> ([f32; 3], [f32; 3]) {
-    // Exact 2.7.1.0 proxy factory: total height h, radius r; upright capsule
+    // Exact 2.7.2.0 proxy factory: total height h, radius r; upright capsule
     // segment endpoints are y=r and y=h-r. Physics initialization passes
     // chr_hit_height/radius to this factory. Do not expand total height by 2r.
     // For h<2r the native factory uses a flattened convex shape, still [0,h].
@@ -1602,6 +1632,7 @@ mod tests {
             (
                 Eligibility {
                     boss_registered: false,
+                    team: 26,
                     ..gideon
                 },
                 "not_enemy_class",
@@ -1620,6 +1651,83 @@ mod tests {
                     ..gideon
                 },
                 "npc_param_missing",
+            ),
+        ] {
+            assert_eq!(target.rejection(), Some(reason));
+        }
+    }
+    #[test]
+    fn hostile_human_npcs_and_npc_invaders_publish_hitboxes_without_a_boss_gauge() {
+        // Human enemies inherit PlayerIns; their NpcParam lock distance is 0
+        // like Gideon's, so lock-on distance cannot be required of them.
+        let human = Eligibility {
+            enemy_class: false,
+            player_class: true,
+            character_type: eldenring::cs::ChrType::Npc as i32,
+            team: 6,
+            player_team: 1,
+            npc_param_present: true,
+            boss_registered: false,
+            boss_damage_linked: false,
+            lock_distance: 0,
+            lock_disabled: false,
+        };
+        for team in [6, 9, 13, 24, 27, 48, 51] {
+            assert_eq!(Eligibility { team, ..human }.rejection(), None, "team {team}");
+        }
+        for kind in [
+            eldenring::cs::ChrType::BloodyFingerNpc,
+            eldenring::cs::ChrType::RecusantNpc,
+        ] {
+            let invader = Eligibility {
+                character_type: kind as i32,
+                team: 16,
+                ..human
+            };
+            assert_eq!(invader.rejection(), None);
+            assert!(invader.player_combatant());
+        }
+        // Live: Sorcerer Thops (523330020) is PlayerIns, type 5, FriendlyNPC 26.
+        // Allies, co-op NPCs, spirit summons and neutral characters stay out.
+        for team in [0, 1, 2, 8, 12, 14, 20, 26, 28, 30, 47] {
+            assert_eq!(
+                Eligibility { team, ..human }.rejection(),
+                Some("not_enemy_class"),
+                "team {team}"
+            );
+        }
+        // Network players, summoned NPC allies and ghosts never qualify.
+        for kind in [
+            eldenring::cs::ChrType::Local,
+            eldenring::cs::ChrType::WhitePhantom,
+            eldenring::cs::ChrType::Duelist,
+            eldenring::cs::ChrType::BloodyFinger,
+            eldenring::cs::ChrType::WhiteSummonNpc,
+            eldenring::cs::ChrType::BloodstainGhost,
+        ] {
+            let target = Eligibility {
+                character_type: kind as i32,
+                ..human
+            };
+            assert_eq!(target.rejection(), Some("not_enemy_class"));
+            assert!(!target.player_combatant());
+        }
+        for (target, reason) in [
+            (Eligibility { team: 1, player_team: 1, ..human }, "not_enemy_class"),
+            (Eligibility { team: 6, player_team: 6, ..human }, "same_team"),
+            (
+                Eligibility {
+                    npc_param_present: false,
+                    ..human
+                },
+                "npc_param_missing",
+            ),
+            (
+                Eligibility {
+                    lock_disabled: true,
+                    ..human
+                },
+                "native_lock_disabled",
             ),
         ] {
             assert_eq!(target.rejection(), Some(reason));

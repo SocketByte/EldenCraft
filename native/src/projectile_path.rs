@@ -13,6 +13,9 @@ pub const MAX_RAYS_PER_UPDATE: usize = 192;
 const IMPACT_TOLERANCE: f64 = 0.001;
 const HIT_END_TOLERANCE: f64 = 0.05;
 const HIT_OFF_RAY_TOLERANCE: f64 = 0.02;
+/// An arrow that strikes an enemy may first touch that enemy's own native
+/// body, or the ground at its feet, a little short of the Minecraft hitbox.
+pub const ENTITY_IMPACT_SLACK: f64 = 0.75;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Segment {
@@ -164,7 +167,21 @@ impl Path {
     /// no earlier than its endpoint tolerance. Cast against the source-verified
     /// native query filter. Actor exclusion is a caller-side query property;
     /// the SDK owner argument alone does not establish generic self exclusion.
-    pub fn verify<F>(&self, budget: &mut RayBudget, mut cast: F) -> Result<(), CheckError>
+    pub fn verify<F>(&self, budget: &mut RayBudget, cast: F) -> Result<(), CheckError>
+    where
+        F: FnMut(Segment) -> Result<Option<Point>, &'static str>,
+    {
+        self.verify_near_impact(budget, 0., cast)
+    }
+
+    /// As `verify`, but contact within `slack` metres of the impact is the
+    /// target itself rather than cover, on whichever segment it occurs.
+    pub fn verify_near_impact<F>(
+        &self,
+        budget: &mut RayBudget,
+        slack: f64,
+        mut cast: F,
+    ) -> Result<(), CheckError>
     where
         F: FnMut(Segment) -> Result<Option<Point>, &'static str>,
     {
@@ -173,6 +190,9 @@ impl Path {
         }
         for (index, segment) in self.segments.iter().enumerate() {
             let hit = cast(*segment).map_err(CheckError::Rejected)?;
+            if hit.is_some_and(|h| finite(h) && distance(h, self.impact) <= slack) {
+                continue;
+            }
             if (hit.is_some() && index + 1 != self.segments.len()) || !segment_clear(*segment, hit)
             {
                 return Err(CheckError::Rejected(
@@ -335,6 +355,30 @@ mod tests {
             prepare(&[[0.; 3], [0., 0., 4.]])
                 .verify(&mut RayBudget::new(), |_| Err("native query unavailable")),
             Err(CheckError::Rejected("native query unavailable"))
+        );
+    }
+    #[test]
+    fn contact_beside_a_struck_enemy_is_the_enemy_not_cover() {
+        let path = prepare(&[[0.; 3], [3., 0., 0.], [6., 0., 0.]]);
+        // The final segment touches the target's native body 0.4 m short.
+        assert_eq!(
+            path.verify_near_impact(&mut RayBudget::new(), ENTITY_IMPACT_SLACK, |s| {
+                Ok((s.end[0] == 6.).then_some([5.6, 0., 0.]))
+            }),
+            Ok(())
+        );
+        assert!(
+            path.verify(&mut RayBudget::new(), |s| Ok(
+                (s.end[0] == 6.).then_some([5.6, 0., 0.])
+            ))
+            .is_err()
+        );
+        // A wall well short of the target still blocks.
+        assert!(
+            path.verify_near_impact(&mut RayBudget::new(), ENTITY_IMPACT_SLACK, |s| {
+                Ok((s.end[0] == 6.).then_some([4., 0., 0.]))
+            })
+            .is_err()
         );
     }
     #[test]

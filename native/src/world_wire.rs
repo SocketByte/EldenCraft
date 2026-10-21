@@ -93,6 +93,10 @@ pub struct Guest {
     /// The player's actual Minecraft options, so the native camera matches them.
     #[serde(default)]
     pub view: Option<ViewSettings>,
+    /// `[epoch, map, terrain revision]` of the terrain the guest already decoded. A host frame of
+    /// exactly that terrain leaves its boxes out instead of resending thousands of them.
+    #[serde(default)]
+    pub terrain_cache: Option<[u64; 3]>,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ViewSettings {

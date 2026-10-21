@@ -49,7 +49,8 @@ def sample(damage: bool = False) -> dict:
         u64 = lambda at: struct.unpack_from("<Q", b, at)[0]
         f32 = lambda at: struct.unpack_from("<f", b, at)[0]
         v3 = lambda at: struct.unpack_from("<3f", b, at)
-        if u32(0) != (0x4D444345 if damage else 0x47544345) or u32(4) != 1:
+        versions = (1, 2, 3) if damage else (1,)
+        if u32(0) != (0x4D444345 if damage else 0x47544345) or u32(4) not in versions:
             return {"status": "unsupported"}
         result = {
             "status": "sampled",
@@ -83,6 +84,7 @@ def sample(damage: bool = False) -> dict:
                         "attack": u64(at + 40),
                         "damage": f32(at + 48),
                         "durability": struct.unpack_from("<2i", b, at + 52),
+                        "enchantments": f"{u32(at + 68):08x}",
                         "item": b[at + 72 : at + 72 + length].decode(
                             "utf-8", errors="replace"
                         ),

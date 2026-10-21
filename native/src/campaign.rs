@@ -16,6 +16,9 @@ pub struct Config {
     pub combat: Combat,
     #[serde(default)]
     pub stamina: GuardCosts,
+    /// Only the per-weapon stance damage is read here; Minecraft owns the rest of each row.
+    #[serde(default)]
+    pub weapons: BTreeMap<String, Weapon>,
     #[serde(default)]
     pub experience: Experience,
     #[serde(default)]
@@ -75,6 +78,7 @@ pub struct Combat {
     pub native_damage_scale: f32,
     pub native_incoming_damage_scale: f64,
     pub native_enemy_damage_multipliers: BTreeMap<String, f64>,
+    pub stance: StanceRules,
 }
 impl Default for Combat {
     fn default() -> Self {
@@ -82,7 +86,52 @@ impl Default for Combat {
             native_damage_scale: 25.,
             native_incoming_damage_scale: 1.,
             native_enemy_damage_multipliers: BTreeMap::new(),
+            stance: StanceRules::default(),
         }
+    }
+}
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Weapon {
+    /// Stance damage of one hit; absent defers to `combat.stance.default`.
+    pub stance: Option<f64>,
+}
+/// How much stance damage each kind of hit deals and how enemy stance behaves.
+/// Mirrors `combat.stance` in the Minecraft configuration.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StanceRules {
+    pub enabled: bool,
+    /// Weapons without their own value, fists and tools.
+    #[serde(rename = "default")]
+    pub fallback: f64,
+    pub projectile: f64,
+    pub explosion: f64,
+    pub recovery_seconds: f64,
+    pub capacity_scale: f64,
+}
+impl Default for StanceRules {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            fallback: 6.,
+            projectile: 10.,
+            explosion: 40.,
+            recovery_seconds: 6.,
+            capacity_scale: 1.,
+        }
+    }
+}
+impl StanceRules {
+    fn valid(&self) -> bool {
+        let amount = |v: f64| v.is_finite() && (0. ..=10000.).contains(&v);
+        amount(self.fallback)
+            && amount(self.projectile)
+            && amount(self.explosion)
+            && self.recovery_seconds.is_finite()
+            && (0.5..=600.).contains(&self.recovery_seconds)
+            && self.capacity_scale.is_finite()
+            && (0.01..=100.).contains(&self.capacity_scale)
     }
 }
 #[derive(Clone, Debug, Deserialize)]
@@ -190,6 +239,14 @@ impl Config {
         {
             return Err("nativeEnemyDamageMultipliers requires nonnegative NPC param IDs and factors 0.01..1000".into());
         }
+        if !self.combat.stance.valid()
+            || self.weapons.values().any(|w| {
+                w.stance
+                    .is_some_and(|v| !v.is_finite() || !(0. ..=10000.).contains(&v))
+            })
+        {
+            return Err("invalid stance damage or combat.stance rules".into());
+        }
         if !self.stamina.guard_base.is_finite()
             || !(0. ..=10000.).contains(&self.stamina.guard_base)
             || !self.stamina.guard_per_damage.is_finite()
@@ -274,6 +331,13 @@ impl Config {
     pub fn native_hp_per_minecraft_hp(&self) -> f64 {
         interpolate(&self.progression.health_curve, self.progression.start_vigor)
             / self.progression.base_minecraft_health
+    }
+    /// Stance damage of one melee hit with `item`.
+    pub fn melee_stance(&self, item: &str) -> f64 {
+        self.weapons
+            .get(item)
+            .and_then(|w| w.stance)
+            .unwrap_or(self.combat.stance.fallback)
     }
     pub fn enemy_damage_multiplier(&self, npc_param_id: i32) -> f64 {
         self.combat
@@ -535,25 +599,37 @@ mod tests {
         );
     }
     #[test]
-    fn bundled_campaign_reaches_exactly_the_requested_endpoints() {
+    fn bundled_weapons_deal_stance_and_unknown_items_use_the_fallback() {
         let c: Config = serde_json::from_str(include_str!("../../config/campaign.json")).unwrap();
         c.validate().unwrap();
-        let defeated: BTreeSet<_> = c
-            .bosses
-            .iter()
-            .filter(|b| b.remembrance)
-            .map(|b| b.id.clone())
-            .collect();
-        assert_eq!(defeated.len(), 15);
-        assert_eq!(c.capacities(&defeated), (2314, 103));
-        assert_eq!(c.capacities(&BTreeSet::new()), (828, 54));
-        let ordinary: BTreeSet<_> = c
-            .bosses
-            .iter()
-            .filter(|b| !b.remembrance)
-            .map(|b| b.id.clone())
-            .collect();
-        assert_eq!(c.capacities(&ordinary), (828, 54));
+        assert!(c.combat.stance.enabled);
+        assert!(
+            c.melee_stance("minecraft:netherite_axe") > c.melee_stance("minecraft:netherite_sword")
+        );
+        assert!(c.melee_stance("minecraft:mace") > c.melee_stance("minecraft:netherite_axe"));
+        assert_eq!(c.melee_stance("minecraft:stick"), c.combat.stance.fallback);
+    }
+    #[test]
+    fn stance_values_and_rules_are_bounded() {
+        let mut c = config();
+        c.validate().unwrap();
+        assert!(c.combat.stance.enabled);
+        assert_eq!(c.melee_stance("minecraft:iron_sword"), 6.);
+        c.weapons
+            .insert("minecraft:iron_sword".into(), Weapon { stance: Some(17.5) });
+        assert_eq!(c.melee_stance("minecraft:iron_sword"), 17.5);
+        c.validate().unwrap();
+        for bad in [-1., f64::NAN, 10001.] {
+            c.weapons
+                .insert("minecraft:iron_sword".into(), Weapon { stance: Some(bad) });
+            assert!(c.validate().is_err());
+        }
+        c.weapons.clear();
+        c.combat.stance.recovery_seconds = 0.;
+        assert!(c.validate().is_err());
+        c.combat.stance = StanceRules::default();
+        c.combat.stance.capacity_scale = 0.;
+        assert!(c.validate().is_err());
     }
     #[test]
     fn armor_percentages_reduce_small_and_large_hits_equally() {

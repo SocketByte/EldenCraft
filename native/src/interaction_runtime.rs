@@ -30,8 +30,8 @@ const ACTION_FMG: [usize; 3] = [465, 365, 32];
 const CHOICE_FMG: [usize; 3] = [466, 366, 33];
 const TALK_FMG: [usize; 3] = [460, 360, 1];
 const DIALOG_FMG: [usize; 3] = [204, 372, 472];
-const ENV_VMT: usize = 0x2c02d68;
-const TEXT_LOOKUP: usize = 0x266fc40;
+const ENV_VMT: usize = 0x2c05018;
+const TEXT_LOOKUP: usize = 0x2671370;
 const TEXT_CODE: &[u8] = &[
     0x3b, 0x51, 0x10, 0x73, 0x29, 0x44, 0x3b, 0x41, 0x14, 0x73, 0x23, 0x48, 0x8b, 0x41, 0x08, 0x8b,
     0xd2, 0x48, 0x8b, 0x0c, 0xd0, 0x48, 0x85, 0xc9, 0x74, 0x14, 0x41, 0x8b, 0xc0, 0x48, 0x8b, 0x0c,
@@ -41,6 +41,9 @@ const TEXT_CODE: &[u8] = &[
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 static DEADLINE: AtomicU64 = AtomicU64::new(0);
 static TOKENS: AtomicU64 = AtomicU64::new(1);
+/// The latest talk-text id the game looked up, and when. A spoken line pages through several ids.
+static TALK_LOOKUP_ID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+static TALK_LOOKUP_AT: AtomicU64 = AtomicU64::new(0);
 static LIST_SERIAL: AtomicU64 = AtomicU64::new(1);
 static TASK_THREAD: AtomicU64 = AtomicU64::new(0);
 /// Epoch deadline of a lease gap that an open replacement menu survives.
@@ -103,10 +106,41 @@ struct OwnedMenu {
 }
 struct Spoken {
     owner: Owner,
-    param: i32,
     msg: i32,
     text: String,
+    speaker: Option<String>,
+    started: u64,
     expires: u64,
+    /// The script moved on or the voice finished at this time. The text stays up for a readable
+    /// minimum afterwards, since a line whose voice ends at once would otherwise never be seen.
+    ended: Option<u64>,
+    /// Script queries the talk environment made while this line was up, for the log.
+    queries: Vec<i32>,
+}
+impl Spoken {
+    fn live(&self) -> bool {
+        self.ended.is_none()
+    }
+    /// Still worth drawing at `now`.
+    fn visible(&self, now: u64) -> bool {
+        self.ended.is_none() || now < self.started.saturating_add(min_display_ms(&self.text))
+    }
+}
+/// How long even a line whose voice ended immediately stays readable.
+fn min_display_ms(text: &str) -> u64 {
+    (1800 + 45 * text.chars().count() as u64).min(9000)
+}
+/// Marks the owner's current line as finished by the script rather than dropping it.
+fn end_line(c: &mut Capture, reason: &str, now: u64) {
+    if let Some(line) = c.subtitle.as_mut().filter(|s| s.ended.is_none()) {
+        line.ended = Some(now);
+        diagnostic(format!(
+            "Interaction line ended ({reason}) after {} ms; script queries {:?}.",
+            now.saturating_sub(line.started),
+            line.queries
+        ));
+    }
+    c.suppress_subtitle = -1;
 }
 struct Capture {
     lists: BTreeMap<usize, List>,
@@ -941,6 +975,9 @@ pub(crate) unsafe fn event_intercept(regs: &Registers, event: &ScriptInvocation)
         }
         12 | 67 => {
             c.pending = None;
+            if c.subtitle.as_ref().is_some_and(|s| s.owner.npc == who.npc) {
+                end_line(&mut c, &format!("script event {id}"), epoch());
+            }
             if c.menu.as_ref().is_some_and(|m| m.owner.npc == who.npc) {
                 if c.menu.as_ref().is_some_and(|m| m.open) {
                     diagnostic(format!(
@@ -972,18 +1009,29 @@ pub(crate) unsafe fn event_intercept(regs: &Registers, event: &ScriptInvocation)
                 } else {
                     120000
                 };
+                let speaker = unsafe { npc_title(who) };
+                diagnostic(format!(
+                    "Interaction line: talk={} param={param} msg={msg} speaker={} text({} chars)={:?}.",
+                    who.talk,
+                    speaker.as_deref().unwrap_or("?"),
+                    text.chars().count(),
+                    text.chars().take(400).collect::<String>()
+                ));
                 c.subtitle = Some(Spoken {
                     owner: who,
-                    param,
                     msg,
                     text,
+                    speaker,
+                    started: epoch(),
                     expires: epoch().saturating_add(duration),
+                    ended: None,
+                    queries: Vec::new(),
                 });
             }
         }
         8 | 9 => {
             if c.subtitle.as_ref().is_some_and(|s| s.owner.npc == who.npc) {
-                c.subtitle = None;
+                end_line(&mut c, &format!("script event {id}"), epoch());
             }
         }
         // User explicitly excludes the native levelling/reallocation and flask menus.
@@ -1052,6 +1100,25 @@ unsafe fn query_intercept(regs: &Registers, query: &ScriptInvocation) -> Option<
         _ => None,
     }
 }
+/// Remembers which script queries a speaking NPC's environment makes, so the log can show what
+/// a line actually waits on.
+unsafe fn note_query(regs: &Registers, id: i32) {
+    if regs.rcx == 0 {
+        return;
+    }
+    let env = unsafe { &*(regs.rcx as *const CSEzStateTalkEnv) };
+    if let Ok(mut capture) = CAPTURE.try_lock()
+        && let Some(line) = capture.subtitle.as_mut().filter(|s| {
+            s.live()
+                && s.owner.npc == env.npc_talk_ins.as_ptr() as usize
+                && s.owner.talk == env.talk_id
+        })
+        && line.queries.len() < 32
+        && !line.queries.contains(&id)
+    {
+        line.queries.push(id);
+    }
+}
 unsafe fn observe_query_result(regs: &Registers, id: i32, result: *const EzStateRawValue) {
     if regs.rcx == 0 || regs.r8 == 0 || result.is_null() {
         return;
@@ -1066,8 +1133,7 @@ unsafe fn observe_query_result(regs: &Registers, id: i32, result: *const EzState
             s.owner.npc == env.npc_talk_ins.as_ptr() as usize && s.owner.talk == env.talk_id
         })
     {
-        capture.subtitle = None;
-        capture.suppress_subtitle = -1;
+        end_line(&mut capture, "talk query", epoch());
     }
 }
 unsafe fn install_hook(rva: usize, kind: u8) -> Result<(), String> {
@@ -1093,7 +1159,7 @@ unsafe fn install_hook(rva: usize, kind: u8) -> Result<(), String> {
     }
     let target_rva = address - image.as_ptr() as usize;
     if kind == 1
-        && (target_rva != 0xea24a0
+        && (target_rva != 0xea3b90
             || image.get(target_rva..target_rva + 14)
                 != Some(&[
                     0x48, 0x8b, 0xc4, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41,
@@ -1110,6 +1176,10 @@ unsafe fn install_hook(rva: usize, kind: u8) -> Result<(), String> {
             let query = std::panic::catch_unwind(|| unsafe { script_query(r.r8 as usize) })
                 .ok()
                 .flatten();
+            if let Some(query) = query.as_ref() {
+                let id = query.id;
+                let _ = std::panic::catch_unwind(|| unsafe { note_query(r, id) });
+            }
             let result = query
                 .as_ref()
                 .filter(|query| matches!(query.id, 21 | 22 | 23 | 25 | 58 | 59))
@@ -1137,6 +1207,10 @@ unsafe fn install_hook(rva: usize, kind: u8) -> Result<(), String> {
                 result as usize
             }
         } else {
+            if TALK_FMG.contains(&(r.r8 as usize)) {
+                TALK_LOOKUP_ID.store(r.r9 as i32, Ordering::Relaxed);
+                TALK_LOOKUP_AT.store(epoch(), Ordering::Relaxed);
+            }
             let hide = active()
                 && CAPTURE.try_lock().ok().is_some_and(|c| {
                     (ACTION_FMG.contains(&(r.r8 as usize))
@@ -1281,7 +1355,8 @@ impl Driver {
                 || CAPTURE.lock().ok().is_some_and(|c| {
                     c.menu.as_ref().is_some_and(|m| m.open)
                         || c.dialog.as_ref().is_some_and(|m| m.open)
-                        || c.subtitle.is_some() && unsafe { directed_talk() }
+                        || c.subtitle.as_ref().is_some_and(Spoken::live)
+                            && unsafe { directed_talk() }
                 }))
     }
     pub fn supports_blocking(&self) -> bool {
@@ -1291,7 +1366,7 @@ impl Driver {
             && CAPTURE.lock().ok().is_some_and(|c| {
                 c.menu.as_ref().is_some_and(|m| m.open)
                     || c.dialog.as_ref().is_some_and(|m| m.open)
-                    || c.subtitle.is_some() && unsafe { directed_talk() }
+                    || c.subtitle.as_ref().is_some_and(Spoken::live) && unsafe { directed_talk() }
             })
     }
     /// Read-only admission for a still-native grace window during reacquisition.
@@ -1455,16 +1530,46 @@ impl Driver {
                 c.dialog = None;
             }
             if c.subtitle.as_ref().is_some_and(|s| {
-                epoch_now > s.expires
-                    || !unsafe { live(s.owner) }
-                    || unsafe { (*(s.owner.npc as *const CSNpcTalkIns)).base.talk_param_id }
-                        != s.param
+                epoch_now > s.expires || !unsafe { live(s.owner) } || !s.visible(epoch_now)
             }) {
                 c.subtitle = None;
             }
+            // A long speech pages through successive texts; follow the one the game is showing.
+            let seen = TALK_LOOKUP_ID.load(Ordering::Relaxed);
+            let looked_at = TALK_LOOKUP_AT.load(Ordering::Relaxed);
+            if let Some(line) = c.subtitle.as_mut().filter(|s| s.live())
+                && seen >= 0
+                && seen != line.msg
+                && seen / 100_000 == line.msg / 100_000
+                && looked_at >= line.started
+                && epoch_now.saturating_sub(looked_at) <= 600
+                && let Some(text) = unsafe { crate::boss_fmg::localized(&TALK_FMG, seen) }
+            {
+                diagnostic(format!(
+                    "Interaction line page: msg {} -> {seen} text({} chars)={:?}.",
+                    line.msg,
+                    text.chars().count(),
+                    text.chars().take(400).collect::<String>()
+                ));
+                line.msg = seen;
+                line.text = text;
+                line.expires = line.expires.max(epoch_now.saturating_add(30_000));
+            }
+            // The NPC went on to another conversation (or left it): the line is over.
+            let left = c.subtitle.as_ref().is_some_and(|s| {
+                s.live()
+                    && unsafe { (*(s.owner.npc as *const CSNpcTalkIns)).base.talk_id }
+                        != s.owner.talk
+            });
+            if left {
+                end_line(&mut c, "conversation changed", epoch_now);
+            }
             c.suppress_prompt = prompt.as_ref().map_or(-1, |p| p.text_id);
             c.suppress_subtitle = if enabled {
-                c.subtitle.as_ref().map_or(-1, |s| s.msg)
+                c.subtitle
+                    .as_ref()
+                    .filter(|s| s.live())
+                    .map_or(-1, |s| s.msg)
             } else {
                 -1
             };
@@ -1476,6 +1581,7 @@ impl Driver {
                     .map(|m| m.menu.clone()),
                 c.subtitle.as_ref().filter(|_| enabled).map(|s| Subtitle {
                     text: s.text.clone(),
+                    speaker: s.speaker.clone(),
                 }),
             )
         } else {
@@ -1976,6 +2082,51 @@ mod tests {
         }
         .unwrap();
         assert!(query.args.is_empty());
+    }
+    #[test]
+    fn the_wire_carries_the_speaker_only_when_there_is_one() {
+        let json = serde_json::to_value(Subtitle {
+            text: "Well met.".into(),
+            speaker: Some("Kale".into()),
+        })
+        .unwrap();
+        assert_eq!(json["speaker"], "Kale");
+        let anonymous = serde_json::to_value(Subtitle {
+            text: "...".into(),
+            speaker: None,
+        })
+        .unwrap();
+        assert!(anonymous.get("speaker").is_none());
+    }
+    #[test]
+    fn a_line_whose_voice_ends_at_once_stays_readable() {
+        let owner = Owner {
+            npc: 1,
+            talk: 2,
+            handle: FieldInsHandle {
+                block_id: eldenring::cs::BlockId::none(),
+                selector: eldenring::cs::FieldInsSelector(0),
+            },
+            chr: 3,
+        };
+        let mut line = Spoken {
+            owner,
+            msg: 8,
+            text: "Well met, Tarnished.".into(),
+            speaker: None,
+            started: 10_000,
+            expires: 130_000,
+            ended: None,
+            queries: Vec::new(),
+        };
+        assert!(line.live() && line.visible(10_001));
+        line.ended = Some(10_020);
+        assert!(!line.live());
+        // Ended after 20 ms, still shown for the readable minimum, then gone.
+        assert!(line.visible(10_020 + 1000));
+        assert!(!line.visible(10_000 + min_display_ms(&line.text)));
+        assert!(min_display_ms("") >= 1800);
+        assert!(min_display_ms(&"x".repeat(10_000)) <= 9000);
     }
     #[test]
     fn generic_dialog_uses_real_localized_buttons_including_common_style_four() {

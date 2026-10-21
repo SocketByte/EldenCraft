@@ -382,13 +382,22 @@ public final class CampaignShopScreen extends Screen {
       if (offer.nativeGoods())
         text(gui, "Elden Ring inventory", box.x() + 8, y, box.width() - 16, MUTED);
       else {
-        var weapon = CampaignConfig.current().weapons.get(offer.item());
         var armor = CampaignConfig.current().armors.get(offer.item());
-        if (weapon != null) {
-          text(gui, "Damage: " + weapon.damage(), box.x() + 8, y, box.width() - 16, TEXT);
+        if (CampaignWeaponTooltips.weapon(stack)) {
+          var stats = CampaignWeaponTooltips.values(stack, minecraft.player);
           text(
               gui,
-              "Attack speed: " + weapon.attackSpeed(),
+              "Damage: " + CampaignWeaponTooltips.number(stats.damage()) + " ER",
+              box.x() + 8,
+              y,
+              box.width() - 16,
+              GOLD);
+          text(
+              gui,
+              CampaignWeaponTooltips.number(stats.attackSpeed())
+                  + "/s  |  "
+                  + CampaignWeaponTooltips.staminaLabel(stats)
+                  + " stamina",
               box.x() + 8,
               y + font.lineHeight + 3,
               box.width() - 16,
@@ -458,17 +467,15 @@ public final class CampaignShopScreen extends Screen {
     }
     int stock = view == null ? offer.stock() : view.remaining(offer);
     lines.add(Component.literal("Stock: " + (stock < 0 ? "unlimited" : stock)));
-    var weapon = CampaignConfig.current().weapons.get(offer.item());
     var armor = CampaignConfig.current().armors.get(offer.item());
-    if (weapon != null)
-      lines.add(
-          Component.literal(
-              "Damage " + weapon.damage() + "  /  Attack speed " + weapon.attackSpeed()));
+    var stack = CampaignItems.stack(offer.item(), 1, offer.potion());
+    if (!offer.nativeGoods() && CampaignWeaponTooltips.weapon(stack))
+      CampaignWeaponTooltips.stats(stack, minecraft.player, lines::add);
     if (armor != null) lines.add(Component.literal(armor.reductionLabel()));
     if (offer.nativeGoods()) lines.add(Component.literal("Delivered to Elden Ring inventory"));
     String reason = disabledReason(offer, view);
     if (!reason.isBlank()) lines.add(Component.literal(reason));
-    gui.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY);
+    gui.setComponentTooltipForNextFrame(font, lines, mouseX, mouseY, CampaignTooltipTheme.STYLE);
   }
 
   private class ShopButton extends Button {

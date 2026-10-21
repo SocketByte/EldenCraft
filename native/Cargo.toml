@@ -20,8 +20,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [target.'cfg(windows)'.dependencies]
-eldenring = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }
-fromsoftware-shared = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }
+# Upstream 09a4208 (1.17.2 RVAs) plus the 1.17.2 WorldChrMan layout fix from
+# vswarte/fromsoftware-rs PR 329, not merged yet. Return to upstream once it is.
+eldenring = { git = "https://github.com/Dasaav-dsv/fromsoftware-rs", rev = "5baf0dd2243e2affa8bc436d27d7305c2eab9490" }
+fromsoftware-shared = { git = "https://github.com/Dasaav-dsv/fromsoftware-rs", rev = "5baf0dd2243e2affa8bc436d27d7305c2eab9490" }
 pelite = "0.10"
 sha2 = "0.10"
 ilhook = { version = "=2.3.0", default-features = false, features = ["x64"] }

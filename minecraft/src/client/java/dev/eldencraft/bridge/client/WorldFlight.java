@@ -231,12 +231,14 @@ public final class WorldFlight {
       p.xxa = p.zza = 0;
       return;
     }
+    // The host screen has the opposite horizontal handedness to the shared region, so the
+    // screen's left is the stand-in's right. Forward and back need no flip.
     var axis =
         TravelPolicy.input(
             (i.buttons & HostState.FORWARD) != 0,
             (i.buttons & HostState.BACKWARD) != 0,
-            (i.buttons & HostState.LEFT) != 0,
             (i.buttons & HostState.RIGHT) != 0,
+            (i.buttons & HostState.LEFT) != 0,
             !creative && (i.buttons & HostState.SNEAK) != 0,
             p.isUsingItem());
     p.xxa = (float) axis[0];

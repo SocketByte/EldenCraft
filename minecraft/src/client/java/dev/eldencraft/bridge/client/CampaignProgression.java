@@ -22,6 +22,11 @@ public final class CampaignProgression {
       org.slf4j.LoggerFactory.getLogger("eldencraft_campaign");
   private static final String PAIR = "eldencraft.character.";
   private static final String CLAIM = "eldencraft.reward.";
+
+  /** Player tag recording that this save, a world paired with its character, saw the guide. */
+  private static final String GUIDE = "eldencraft.guide.seen";
+
+  private static volatile boolean guideKnown, guideSeen, guideRequested;
   private static long lastNotice = Long.MIN_VALUE;
   private static MinecraftServer lastServer;
   private static boolean deathHandled;
@@ -36,18 +41,38 @@ public final class CampaignProgression {
     return player.entityTags().contains(expected);
   }
 
+  /** True once the paired save is known not to have shown its welcome guide yet. */
+  static boolean guideUnseen() {
+    return guideKnown && !guideSeen && !guideRequested;
+  }
+
+  /** Records the guide on the player's save; the server thread writes the tag on its next tick. */
+  static void guideShown() {
+    guideRequested = true;
+  }
+
   public static String characterKey(String character) {
+    // Pairing checks run several times per tick, almost always for the same character.
+    var known = lastKey;
+    if (known != null && known.character().equals(character)) return known.key();
     try {
-      return HexFormat.of()
-          .formatHex(
-              MessageDigest.getInstance("SHA-256")
-                  .digest(character.getBytes(StandardCharsets.UTF_8)),
-              0,
-              16);
+      String key =
+          HexFormat.of()
+              .formatHex(
+                  MessageDigest.getInstance("SHA-256")
+                      .digest(character.getBytes(StandardCharsets.UTF_8)),
+                  0,
+                  16);
+      lastKey = new CharacterKey(character, key);
+      return key;
     } catch (java.security.NoSuchAlgorithmException impossible) {
       throw new AssertionError(impossible);
     }
   }
+
+  private record CharacterKey(String character, String key) {}
+
+  private static volatile CharacterKey lastKey;
 
   public static boolean characterPermitted(Player player) {
     if (player == null) return false;
@@ -61,9 +86,11 @@ public final class CampaignProgression {
   public static void serverTick(MinecraftServer server) {
     if (server != lastServer) {
       CampaignCombat.reset();
+      CampaignPhysick.reset();
       lastServer = server;
       lastNotice = Long.MIN_VALUE;
       deathHandled = false;
+      guideKnown = guideSeen = guideRequested = false;
     }
     var config = CampaignConfig.current();
     var host = CampaignBridge.snapshot();
@@ -88,6 +115,8 @@ public final class CampaignProgression {
                 || deathSession != death.session()
                 || !deathCharacter.equals(death.character()))) {
           CampaignCombat.rest(player);
+          CampaignPhysick.rest(player);
+          LOG.info("Death rest: stamina, flask and hunger refilled, all effects cleared");
           deathHandled = true;
           deathSession = death.session();
           deathCharacter = death.character();
@@ -123,6 +152,10 @@ public final class CampaignProgression {
       }
       changed = true;
     }
+    if (guideRequested && !player.entityTags().contains(GUIDE) && player.addTag(GUIDE))
+      changed = true;
+    guideSeen = player.entityTags().contains(GUIDE);
+    guideKnown = true;
     int victories = 0;
     for (var boss : config.bosses)
       if (boss.remembrance() && host.defeated().contains(boss.id())) victories++;
@@ -135,6 +168,7 @@ public final class CampaignProgression {
       player.setHealth((float) Math.min(before, health));
     }
     CampaignCombat.tick(player, config.progression.stamina(victories), host);
+    changed |= CampaignPhysick.serverTick(player, host);
     changed |= grantMobExperience(player, host);
     changed |= grantEnemyLoot(player, host, config.enemyLoot);
     changed |= grant(player, "starter", config.starterItems, 0);

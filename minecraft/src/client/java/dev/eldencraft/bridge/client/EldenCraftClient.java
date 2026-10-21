@@ -12,9 +12,11 @@ public final class EldenCraftClient implements ClientModInitializer {
 
   @Override
   public void onInitializeClient() {
+    StallWatchdog.initialize();
     FrameExporter.enable();
     HostController.configure(
         FabricLoader.getInstance().getConfigDir().resolve("eldencraft-host.json"));
+    HostKeybinds.initialize();
     CampaignClient.initialize();
     CampaignHud.initialize();
     ShieldIndicator.initialize();
@@ -25,6 +27,7 @@ public final class EldenCraftClient implements ClientModInitializer {
     HealingClient.initialize();
     HostRuneHud.initialize();
     CampaignInteractions.initialize();
+    CampaignPhysick.initialize();
     ClientTickEvents.START_CLIENT_TICK.register(WorldFocus::tick);
     ClientTickEvents.START_CLIENT_TICK.register(GuestResolution::tick);
     ClientTickEvents.START_CLIENT_TICK.register(EldenCraftWorld::tick);

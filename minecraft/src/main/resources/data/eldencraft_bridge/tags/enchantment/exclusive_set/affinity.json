@@ -1,0 +1,11 @@
+{
+  "values": [
+    "eldencraft_bridge:poison",
+    "eldencraft_bridge:bleeding",
+    "eldencraft_bridge:frostbite",
+    "eldencraft_bridge:fire",
+    "eldencraft_bridge:lightning",
+    "eldencraft_bridge:magic",
+    "eldencraft_bridge:holy"
+  ]
+}

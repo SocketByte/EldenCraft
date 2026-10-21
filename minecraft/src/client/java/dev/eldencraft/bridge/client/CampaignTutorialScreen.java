@@ -51,13 +51,37 @@ final class CampaignTutorialScreen extends Screen {
               "Fight and recover",
               List.of(
                   "Minecraft attack cooldowns still matter. Melee attacks, bows and crossbows spend"
-                      + " stamina, including missed swings. Let stamina recover between attacks.",
+                      + " stamina, including missed swings. Any stamina left buys one last attack,"
+                      + " but emptying the bar flashes it red and stamina then waits longer to"
+                      + " recover.",
                   "Hold right mouse with a shield to block attacks from the front. Blocking spends"
                       + " stamina; exhausting it breaks your guard and can let damage through."
                       + " Lower the shield to recover.",
                   "Eat food to restore hunger and regenerate health. Golden apples provide healing"
                       + " and absorption. Hold a totem of undying in either hand to survive a"
                       + " lethal hit.")),
+          new Chapter(
+              "Enchantments and whetblades",
+              List.of(
+                  "Enchanting tables use levels and lapis. Sharpness improves damage; Looting earns"
+                      + " more runes; Unbreaking preserves durability; Protection reduces incoming"
+                      + " damage. Other vanilla enchantments are removed from campaign equipment.",
+                  "Whetblades in Elden Ring unlock affinities: Black for Poison and Bleeding,"
+                      + " Glintstone for Frostbite and Magic, Red-Hot for Fire, Sanctified for"
+                      + " Lightning and Holy. Each melee weapon can carry one affinity, up to level"
+                      + " III. Whetblades are permanent unlocks and are not consumed by"
+                      + " enchanting.",
+                  "Status hits build toward the enemy's native resistance threshold. Poison deals"
+                      + " damage over time; hemorrhage deals a burst; frostbite deals a burst and"
+                      + " makes the target take more damage. Elements add part of every hit as"
+                      + " extra damage, more against enemies weak to that element and less"
+                      + " against resistant ones. Inspect weapon tooltips for damage, attack"
+                      + " cadence, stamina costs and enchantment details.",
+                  "Shields have enchantments of their own, with no whetblade needed. Guarding"
+                      + " Ability makes blocks cheaper; Healing and Second Wind restore health and"
+                      + " stamina when you block; Riposte empowers your next strike; Explosive and"
+                      + " Last Hurrah set off blasts that spare you; Stalwart stops knockback while"
+                      + " guarding; and Resounding turns blocks into bell chimes.")),
           new Chapter(
               "Explore and use checkpoints",
               List.of(

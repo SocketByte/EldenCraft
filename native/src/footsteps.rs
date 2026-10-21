@@ -66,55 +66,55 @@ impl Site {
     }
 }
 
-// Verified in worldwide 2.7.1.0, SHA256 guarded by engine::verify_executable.
+// Verified in worldwide 2.7.2.0, SHA256 guarded by engine::verify_executable.
 // Each prefix tests ChrIns+0x1c7 bit 5, then skips only sound types 8 and 9.
 // Registers below contain the live ChrIns and the original TAE sound category.
 // Intercept before that test so the original trampoline preserves its flags
 // and native Mimic Veil behavior whenever the replacement does not own sound.
 const SITES: &[Site] = &[
     Site {
-        at: 0x42b045,
+        at: 0x42b0d5,
         prefix: &[
             0xf6, 0x86, 0xc7, 0x01, 0, 0, 0x20, 0x74, 0x0c, 0x8d, 0x43, 0xf8, 0x83, 0xf8, 0x01,
             0x0f, 0x86, 0x84, 0x02, 0, 0,
         ],
-        epilogue: 0x42b2de,
+        epilogue: 0x42b36e,
         epilogue_prefix: &[
             0x48, 0x8b, 0x9c, 0x24, 0x08, 0x01, 0, 0, 0x48, 0x81, 0xc4, 0xc0,
         ],
         source: Source::RsiRbx,
     },
     Site {
-        at: 0x42b37e,
+        at: 0x42b40e,
         prefix: &[
             0xf6, 0x87, 0xc7, 0x01, 0, 0, 0x20, 0x74, 0x0c, 0x8d, 0x45, 0xf8, 0x83, 0xf8, 0x01,
             0x0f, 0x86, 0x95, 0, 0, 0,
         ],
-        epilogue: 0x42b428,
+        epilogue: 0x42b4b8,
         epilogue_prefix: &[
             0x48, 0x8b, 0x5c, 0x24, 0x78, 0x48, 0x83, 0xc4, 0x50, 0x5f, 0x5e, 0x5d,
         ],
         source: Source::RdiRbp,
     },
     Site {
-        at: 0x42b4e7,
+        at: 0x42b577,
         prefix: &[
             0xf6, 0x87, 0xc7, 0x01, 0, 0, 0x20, 0x74, 0x0c, 0x8d, 0x45, 0xf8, 0x83, 0xf8, 0x01,
             0x0f, 0x86, 0x98, 0, 0, 0,
         ],
-        epilogue: 0x42b594,
+        epilogue: 0x42b624,
         epilogue_prefix: &[
             0x48, 0x8b, 0x5c, 0x24, 0x78, 0x48, 0x83, 0xc4, 0x50, 0x5f, 0x5e, 0x5d,
         ],
         source: Source::RdiRbp,
     },
     Site {
-        at: 0x42c04a,
+        at: 0x42c0da,
         prefix: &[
             0xf6, 0x87, 0xc7, 0x01, 0, 0, 0x20, 0x74, 0x0d, 0x41, 0x8d, 0x47, 0xf8, 0x83, 0xf8,
             0x01, 0x0f, 0x86, 0x70, 0x01, 0, 0,
         ],
-        epilogue: 0x42c1d0,
+        epilogue: 0x42c260,
         epilogue_prefix: &[
             0x48, 0x8b, 0x9c, 0x24, 0xe8, 0, 0, 0, 0x48, 0x81, 0xc4, 0xa0,
         ],
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn changed_decisions_or_epilogues_disable_installation() {
-        let mut image = vec![0; 0x42c200];
+        let mut image = vec![0; 0x42c300];
         for site in SITES {
             image[site.at..site.at + site.prefix.len()].copy_from_slice(site.prefix);
             image[site.epilogue..site.epilogue + site.epilogue_prefix.len()]

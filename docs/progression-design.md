@@ -2,9 +2,9 @@
 
 The goal is a complete Elden Ring base-game playthrough using Minecraft controls, equipment, inventory and crafting. Permanent offensive progression comes primarily from stronger material tiers. Each unique remembrance boss increases maximum health and stamina automatically. Runes fund custom Minecraft merchant shops. Building is secondary to combat.
 
-There is no manual character leveling, point allocation, custom player item registry, roll, player weapon skill or spell progression. The permitted changes are Minecraft merchant GUIs and catalogs, retuned base weapon damage, a stamina system, and boss-earned health and stamina capacity. Existing vanilla item identities, attack cooldowns, criticals, ordinary movement, shield behavior, durability and crafting remain the foundation.
+There is no manual character leveling, point allocation, roll, player weapon skill or spell progression. The only custom player item is the Flask of Wondrous Physick (see below). The permitted changes are Minecraft merchant GUIs and catalogs, retuned base weapon damage, a stamina system, boss-earned health and stamina capacity, and that flask. Existing vanilla item identities, attack cooldowns, criticals, ordinary movement, shield behavior, durability and crafting remain the foundation.
 
-All combat numbers and route requirements in this balance pass assume unenchanted equipment. Enchantments are deferred and must not be necessary to complete the campaign. XP, lapis in mines and ordinary enchanting remain future integration work, with enchantments serving as additional improvement after the base progression is proven.
+All combat numbers and route requirements in this balance pass assume unenchanted equipment. Enchantments must not be necessary to complete the campaign. The implemented campaign enchantments, native whetblade gates and status affinities are described in [campaign configuration](campaign-configuration.md#enchantments-and-affinities); they provide additional improvement beyond this base balance.
 
 Elden Ring supplies enemies, boss identities and phases, story, checkpoints and existing access conditions. This is an offline base-game design; Shadow of the Erdtree is outside scope. The proposals are based on source inspection on 5 October 2026. Numerical values are playtest candidates. Only this planning document has been changed.
 
@@ -17,7 +17,7 @@ Equipment, capacity upgrades and spending money answer different player needs.
 | Stronger vanilla weapons and armor | Mainly minor and major boss loot | Material upgrades increase damage; armor pieces improve survival. |
 | Maximum health and stamina | First defeat of each unique remembrance boss | Optional major encounters develop the character without a leveling menu or grindable stat currency. |
 | Runes | Native combat and authored treasure rewards | Merchants sell supplies, replacements, alternate equipment and upgrade ingredients. |
-| Minecraft XP and lapis | Enemy XP and Elden Ring mines | Reserved for the later enchanting pass; never exchanged for character attributes. |
+| Minecraft XP and lapis | Enemy XP, Elden Ring mines and 9 lapis per remembrance boss; merchants sell lapis only after the Elden Beast | Fund campaign enchanting and unlocked whetblade affinities; never exchanged for character attributes. |
 
 The loop is to explore, fight, obtain equipment and runes, spend some runes on preparation, then defeat another important boss. A remembrance victory also improves the player's capacities. Minor bosses remain valuable through equipment, armor coverage and resource packages even though they do not grant the permanent capacity bonus.
 
@@ -37,7 +37,7 @@ Shops must support boss-earned progression. Farming ordinary enemies can fund mo
 | Persistence | [WorldOrigins.java](../minecraft/src/client/java/dev/eldencraft/bridge/client/WorldOrigins.java) persists map origins, while runtime player identity is pointer-based in the inspected native snapshot. | Add durable character/world pairing, boss completion claims, merchant stock and purchase recovery. |
 | Minecraft mob rewards | [mob_proxy.rs](../native/src/mob_proxy.rs) explicitly suppresses native rune drops for its proxy actors. | If Minecraft mobs earn runes, award them through one authored route. Avoid simultaneously paying native and Minecraft-side rewards for one kill. |
 
-Native offensive attributes, equipment mitigation, skills, flasks and free leveling must not provide another route to player power. Boss-earned capacities are the permitted exception to a neutral host character. Use Vigor and Endurance curves to derive health and stamina; do not accidentally add their native equip-load, resistance or other secondary effects.
+Native offensive attributes, equipment mitigation, skills, flasks and free leveling must not provide another route to player power. The Flask of Wondrous Physick is the one exception: its Crystal Tears give short, explored-for buffs through Minecraft effects, not through native attributes. Boss-earned capacities are the permitted exception to a neutral host character. Use Vigor and Endurance curves to derive health and stamina; do not accidentally add their native equip-load, resistance or other secondary effects.
 
 ## The intended equipment route
 
@@ -161,14 +161,13 @@ Balance mandatory fights against that actual route, not a 60 Vigor character ass
 
 ## Stamina and defense
 
-Starting stamina and the final capacity come from the validated Endurance curve. Family costs and recovery rules remain independent of progression.
+Starting stamina and the final capacity come from the validated Endurance curve. Attack costs are shares of whatever the maximum currently is; recovery rules remain independent of progression.
 
 | Action or rule | First test value |
 | --- | --- |
-| Sword attack | 12 stamina |
-| Axe attack | 24 stamina |
-| Bow shot | 24 stamina |
-| Crossbow shot | 24 stamina |
+| Sword or spear attack | 20% of maximum stamina |
+| Axe attack | 40% of maximum stamina |
+| Bow or crossbow shot | 30% of maximum stamina |
 | Qualifying shield block | 4 plus 1.5 times incoming damage in fixed Minecraft HP units before armor |
 | Recovery | 20 per second after 0.5 seconds without a stamina action |
 | Holding shield or drawing/loading a ranged weapon | Pauses recovery |
@@ -276,6 +275,8 @@ First-clear loot, capacity credit and shop unlocks share durable completion reco
 ## Healing retries and encounter fairness
 
 Large capacity growth changes healing economics. A 20 HP start mapped to roughly 92 HP at full completion takes much more ordinary food regeneration or fixed healing-potion output to refill. Validate vanilla food, saturation, healing and checkpoint restoration at early, mandatory-route and full-completion capacities. Merchants need reliable appropriate supplies. Do not solve a poor retry loop with a custom flask or an unrequested new healing ability.
+
+The Flask of Wondrous Physick is bounded so it cannot become that fix. It holds one charge, refilled only by a grace rest, a teleport such as fast travel, or a death, and tears unlock only by native exploration. Its strongest heal is one full refill per grace visit, and only after both Crimson Crystal Tears are found. Encounter tuning keeps assuming no Physick, as it assumes no enchantments; see [campaign configuration](campaign-configuration.md#flask-of-wondrous-physick).
 
 All health changes must survive the next host-health update. Maximum capacity, current HP, absorption, ongoing damage and native death ownership must agree. A boss credit preserves current HP; a legitimate respawn or checkpoint heal restores the appropriate maximum. Equipment and stamina spent during a failed attempt cannot be silently restored by reopening a shop.
 

@@ -7,6 +7,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.*;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -32,6 +33,7 @@ public final class ProxyCombatAuthority {
         String item,
         int wearBefore,
         int wearAfter,
+        ItemStack weapon,
         Feedback feedback);
   }
 
@@ -53,7 +55,8 @@ public final class ProxyCombatAuthority {
       Vec3 origin,
       List<SoundEvent> sounds,
       List<ClientboundLevelParticlesPacket> particles,
-      List<Animation> animations) {}
+      List<Animation> animations,
+      ItemStack weapon) {}
 
   private static final ThreadLocal<Context> CURRENT = new ThreadLocal<>();
 
@@ -82,7 +85,8 @@ public final class ProxyCombatAuthority {
             player.position(),
             new ArrayList<>(),
             new ArrayList<>(),
-            new ArrayList<>()));
+            new ArrayList<>(),
+            player.getMainHandItem().copy()));
     return true;
   }
 
@@ -160,6 +164,7 @@ public final class ProxyCombatAuthority {
           item,
           before,
           after,
+          c.weapon,
           new Feedback(
               c.origin,
               List.copyOf(c.sounds),

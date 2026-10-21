@@ -561,7 +561,7 @@ function Invoke-EldenCraftCore {
     try { Assert-FileHash $exe $deps.elden_ring.sha256 }
     catch {
         $actualVersion = (Get-Item -LiteralPath $exe).VersionInfo.ProductVersion
-        $advice = if ($actualVersion -eq '2.7.0.0') { 'Update Elden Ring from App Ver. 1.17 to 1.17.1 through Steam, then verify its installed files.' } else { 'Verify installed files in Steam and use an EldenCraft release matching your game build.' }
+        $advice = if ($actualVersion -in @('2.7.0.0', '2.7.1.0')) { 'Update Elden Ring to App Ver. 1.17.2 through Steam, then verify its installed files.' } else { 'Verify installed files in Steam and use an EldenCraft release matching your game build.' }
         throw "Unsupported Elden Ring executable at $exe (product version '$actualVersion'). This release requires $($deps.elden_ring.product_version), SHA256 $($deps.elden_ring.sha256). $advice If you have multiple installations, select the Steam copy with -GamePath."
     }
     Assert-NoReShadeConflict $exe (Join-Path $DataDirectory 'runtime')

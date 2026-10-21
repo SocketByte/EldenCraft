@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "eldencraft_bridge:item/wondrous_physick",
+    "layer1": "eldencraft_bridge:item/wondrous_physick_left",
+    "layer2": "eldencraft_bridge:item/wondrous_physick_right"
+  }
+}

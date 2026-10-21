@@ -134,7 +134,13 @@ pub struct Cache {
     detail: BTreeMap<Cell, Vec<Box6>>,
     detail_materials: BTreeMap<Cell, Vec<u16>>,
     detail_pending: VecDeque<Cell>,
+    /// The last snapshot and the state it was built from. Every change to the published
+    /// surfaces or coverage bumps `revision`, so an equal key yields the same snapshot without
+    /// recounting the whole window.
+    last_snapshot: Option<(SnapshotKey, Snapshot)>,
 }
+
+type SnapshotKey = (u64, Cell, Option<Cell>);
 
 impl Default for Cache {
     fn default() -> Self {
@@ -156,6 +162,7 @@ impl Cache {
             detail: BTreeMap::new(),
             detail_materials: BTreeMap::new(),
             detail_pending: VecDeque::new(),
+            last_snapshot: None,
         }
     }
     pub fn clear(&mut self) {
@@ -540,6 +547,25 @@ impl Cache {
     }
 
     pub fn snapshot(&mut self) -> Snapshot {
+        let key = (self.revision, self.player_cell, self.origin);
+        if let Some((last, snapshot)) = &self.last_snapshot
+            && *last == key
+        {
+            let mut snapshot = snapshot.clone();
+            snapshot.last_rays = self.last_rays;
+            snapshot.failed_cells = self.failed_cells;
+            return snapshot;
+        }
+        let snapshot = self.build_snapshot();
+        // Keyed after the build: a coverage change bumps the revision inside it.
+        self.last_snapshot = Some((
+            (self.revision, self.player_cell, self.origin),
+            snapshot.clone(),
+        ));
+        snapshot
+    }
+
+    fn build_snapshot(&mut self) -> Snapshot {
         let origin = self.origin.unwrap_or([0; 3]);
         let covered = self.covered_box();
         // The guest applies bounds and surfaces as one terrain revision. A
@@ -928,6 +954,44 @@ mod tests {
                 .keys()
                 .all(|k| (k[0]).abs() <= DETAIL_RADIUS + 1 && (k[2]).abs() <= DETAIL_RADIUS + 1)
         );
+    }
+    #[test]
+    fn a_reused_snapshot_matches_a_rebuilt_one() {
+        fn same(a: &Snapshot, b: &Snapshot) -> bool {
+            (
+                a.revision,
+                a.ready,
+                a.bounds,
+                &a.boxes,
+                &a.materials,
+                a.scanned_cells,
+            ) == (
+                b.revision,
+                b.ready,
+                b.bounds,
+                &b.boxes,
+                &b.materials,
+                b.scanned_cells,
+            )
+        }
+        let mut c = Cache::new();
+        c.recenter([0.5, 0.0, 0.5], 1).unwrap();
+        for frame in 0..40 {
+            c.tick_hits(frame, MAX_RAYS_PER_TICK, ramp);
+            let reused = c.snapshot();
+            c.last_snapshot = None;
+            assert!(same(&reused, &c.snapshot()), "frame {frame}");
+        }
+        let first = c.snapshot();
+        assert!(same(&first, &c.snapshot()), "nothing changed");
+        for (step, x) in [1.5, 2.5, 6.5, 14.5].into_iter().enumerate() {
+            c.recenter([x, 0.0, 0.5], 100 + step as u64).unwrap();
+            c.tick_hits(100 + step as u64, MAX_RAYS_PER_TICK, ramp);
+            let moved = c.snapshot();
+            c.last_snapshot = None;
+            assert!(same(&moved, &c.snapshot()), "after moving to {x}");
+        }
+        assert!(c.snapshot().revision > first.revision);
     }
     #[test]
     fn detail_is_dropped_when_its_cell_changes_and_stays_within_budget() {

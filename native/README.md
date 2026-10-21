@@ -14,11 +14,12 @@ Run these commands from the repository root. Artifacts are written to
 
 ## Compatibility and ownership
 
-The SDK revision is `59fbd3b3b7daaf14aca47c9f73530493dba6bc79`. The supported Elden
-Ring product version is 2.7.1.0, with executable SHA256:
+The SDK revision is `5baf0dd2243e2affa8bc436d27d7305c2eab9490` (upstream `09a4208` plus the
+unmerged 1.17.2 WorldChrMan layout fix, vswarte/fromsoftware-rs PR 329). The supported Elden
+Ring product version is 2.7.2.0 (App Ver. 1.17.2), with executable SHA256:
 
 ```text
-1a3547101327f65d0c76da2f9190ac0aa66871ea42bae2aecc61e11a8b597891
+f9118fea2cfd8fa3901e8060bfadb1552cb2471771ded8a5b662c4e298ffb328
 ```
 
 The launcher and native host both enforce compatibility. Offline session, active
@@ -66,7 +67,12 @@ activity, phase protection, fresh identity, reach and cover checks still apply.
 Registered human NPC bosses such as Gideon use `PlayerIns` and its verified
 `CSPlayerDamageModule`, rather than `EnemyIns`. Their exact boss registration,
 hostile team, loaded NPC parameters and normal readiness checks admit the hitbox
-and native damage path. Unregistered player-shaped helpers do not qualify.
+and native damage path. Unregistered human enemies and NPC invaders
+(character types 5, 20 and 21) use the same module when their team opposes
+the player: enemy, boss, angered ally, invader, hostile, strong enemy, hostile
+NPC, arch-enemy and the numbered enemy factions. Friendly NPCs (live: Sorcerer
+Thops, team 26), co-op NPCs, spirit summons, allies and neutral or decoy
+teams do not qualify, nor do network players or ghosts.
 Unregistered enemies qualify with native character type 5 or the large scripted
 enemy type 7. An authored boss body also qualifies through its exact current
 health-owner registration, while class, hostile team, loaded NPC parameters and

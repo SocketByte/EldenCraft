@@ -14,7 +14,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-const PROCESS_RVA: usize = 0x448910;
+const PROCESS_RVA: usize = 0x4489f0;
 const PREFIX: [u8; 23] = [
     0x4c, 0x8b, 0xdc, 0x55, 0x53, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57, 0x49, 0x8d, 0x6b, 0x88, 0x48,
     0x81, 0xec, 0x48, 0x01, 0x00, 0x00, 0x48,
@@ -214,6 +214,8 @@ pub unsafe fn install() -> Result<(), String> {
     }
     let callback = |registers: *mut Registers| {
         let _phase = crate::crash::phase("shield detour");
+        // Diagnostics only, and independent of whether the shield is active.
+        let _ = std::panic::catch_unwind(|| unsafe { crate::hit_watch::observe(&*registers) });
         if !available() {
             return;
         }

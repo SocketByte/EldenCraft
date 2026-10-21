@@ -110,7 +110,17 @@ public final class WorldProjectiles {
     return entity != null && entity.level().dimension().equals(SharedWorldBlocks.DIMENSION);
   }
 
+  /** Starting a draw, throw or shot needs fresh host input. */
   public static boolean permitItem(LivingEntity entity) {
+    return permitItem(entity, RangedInput.START_NANOS);
+  }
+
+  /** Holding or releasing a draw tolerates a brief host hitch. */
+  public static boolean permitHeldItem(LivingEntity entity) {
+    return permitItem(entity, RangedInput.HELD_NANOS);
+  }
+
+  private static boolean permitItem(LivingEntity entity, long maxAgeNanos) {
     if (entity instanceof net.minecraft.world.entity.player.Player player
         && !CampaignProgression.characterPermitted(player)) return false;
     if (!inSharedWorld(entity)) return true;
@@ -122,7 +132,7 @@ public final class WorldProjectiles {
     if (c == null
         || input == null
         || !input.permits(
-            c.host().pid(), c.host().sourceMap(), player.getUUID(), System.nanoTime()))
+            c.host().pid(), c.host().sourceMap(), player.getUUID(), System.nanoTime(), maxAgeNanos))
       return false;
     // Same interaction convention as the actual client camera, including front view.
     // The item still computes its own vanilla spread, multishot and launch velocity.
@@ -133,7 +143,7 @@ public final class WorldProjectiles {
   }
 
   public static void maintain(ServerPlayer player) {
-    if (player.isUsingItem() && ranged(player.getUseItem()) && !permitItem(player))
+    if (player.isUsingItem() && ranged(player.getUseItem()) && !permitHeldItem(player))
       player.stopUsingItem();
     var c = SharedWorldClient.projectileContext(player);
     if (c == null) {
@@ -196,7 +206,7 @@ public final class WorldProjectiles {
     var c = SharedWorldClient.projectileContext(player);
     if ((!arrow && !pearl && !potion)
         || c == null
-        || !permitItem(player)
+        || !permitHeldItem(player)
         || level.getEntity(projectile.getUUID()) != projectile) return;
     if (FLIGHTS.size() >= 32) {
       notice(player, "Projectile bridge busy: too many active shots.");

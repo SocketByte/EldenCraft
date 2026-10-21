@@ -27,120 +27,120 @@ const CREATE_TIME_BUDGET: std::time::Duration = std::time::Duration::from_micros
 const MAX_RETIRED_WORLDS: usize = 8;
 const PROBE_INTERVAL_MS: u64 = 500;
 const BODY_STRIDE: usize = 0xb0;
-const CS_WORLD_VTABLE: usize = 0x2b96978;
-const HK_WORLD_VTABLE: usize = 0x2ef0dd8;
+const CS_WORLD_VTABLE: usize = 0x2b98a68;
+const HK_WORLD_VTABLE: usize = 0x2ef3078;
 // CsHkCharacterProxy derives from hknpCharacterProxy; its constructor replaces
 // the base vtable after the native base constructor has initialized the fields.
-const CHARACTER_PROXY_VTABLE: usize = 0x2b95260;
-const CONSTRAINT_FILTER_VTABLE: usize = 0x2ef22f8;
-const COLLISION_FILTER_VTABLE: usize = 0x2b94df0;
+const CHARACTER_PROXY_VTABLE: usize = 0x2b97350;
+const CONSTRAINT_FILTER_VTABLE: usize = 0x2ef4598;
+const COLLISION_FILTER_VTABLE: usize = 0x2b96ee0;
 // hknpBody::setShape tests this before addReference/removeReference. Require
 // that the body itself owns a shape ref before we may retire our independent one.
-const BODY_SHAPE_REFS_RVA: usize = 0x3c19cc0;
+const BODY_SHAPE_REFS_RVA: usize = 0x3c1ccd0;
 
-// Validation metadata from the exact owned 2.7.1.0 executable. Full analysis is
+// Validation metadata from the exact owned 2.7.2.0 executable. Full analysis is
 // deliberately outside the repository; these short prefixes are not game code.
 const ENTRYPOINTS: &[(usize, &[u8])] = &[
     // SDK owner-aware ray: native query.userData receives PlayerIns. The child
     // collision filter compares that identity before its family exclusion.
     (
-        0xc71e00,
+        0xc722c0,
         &[
             0x40, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8d,
             0xac, 0x24,
         ],
     ),
     (
-        0xc71f72,
+        0xc72432,
         &[0x44, 0x89, 0x7c, 0x24, 0x54, 0x48, 0x89, 0x74, 0x24, 0x58],
     ),
     (
-        0xc632aa,
+        0xc6376a,
         &[0x48, 0x8b, 0x40, 0x10, 0x48, 0x39, 0x46, 0x08, 0x75, 0x22],
     ),
     (
-        0x18b4c8e,
+        0x18b637e,
         &[
-            0x48, 0x8d, 0x05, 0x63, 0xd6, 0x63, 0x01, 0xc6, 0x43, 0x18, 0x01, 0x48, 0x89, 0x03,
+            0x48, 0x8d, 0x05, 0x13, 0xe2, 0x63, 0x01, 0xc6, 0x43, 0x18, 0x01, 0x48, 0x89, 0x03,
             0x48, 0x8b, 0xc3,
         ],
     ),
     (
-        0xc643a6,
+        0xc64866,
         &[
-            0xe8, 0x45, 0x05, 0xc4, 0x00, 0x90, 0x48, 0x8d, 0x05, 0xad, 0x0e, 0xf3, 0x01, 0x48,
+            0xe8, 0x75, 0x17, 0xc4, 0x00, 0x90, 0x48, 0x8d, 0x05, 0xdd, 0x2a, 0xf3, 0x01, 0x48,
             0x89, 0x03,
         ],
     ),
     (
-        0xc5d3e0,
+        0xc5d8a0,
         &[
-            0x48, 0x8b, 0x8f, 0x88, 0x00, 0x00, 0x00, 0xe8, 0xd4, 0x86, 0xc4, 0x00,
+            0x48, 0x8b, 0x8f, 0x88, 0x00, 0x00, 0x00, 0xe8, 0x04, 0x99, 0xc4, 0x00,
         ],
     ),
     (
-        0xc72060,
+        0xc72520,
         &[
             0x40, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8d,
             0x6c, 0x24, 0x80,
         ],
     ),
     (
-        0x1882bb0,
+        0x18842a0,
         &[
-            0x33, 0xd2, 0x48, 0x8d, 0x05, 0xb7, 0xad, 0x66, 0x01, 0x48, 0x89, 0x51, 0x20,
+            0x33, 0xd2, 0x48, 0x8d, 0x05, 0x67, 0xb9, 0x66, 0x01, 0x48, 0x89, 0x51, 0x20,
         ],
     ),
     (
-        0x18836f0,
+        0x1884de0,
         &[
             0xf3, 0x0f, 0x11, 0x4c, 0x24, 0x10, 0x55, 0x53, 0x56, 0x57, 0x48, 0x8d, 0xac, 0x24,
             0x88, 0xf9, 0xff, 0xff,
         ],
     ),
     (
-        0x1682ca0,
+        0x1684390,
         &[
-            0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8d, 0x05, 0xcb, 0xec, 0x35, 0x01,
+            0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8d, 0x05, 0xdb, 0xf5, 0x35, 0x01,
         ],
     ),
     (
-        0x1682cd0,
+        0x16843c0,
         &[0x66, 0x83, 0x79, 0x10, 0x00, 0x4c, 0x8b, 0xc9, 0x74, 0x4c],
     ),
     (
-        0x1682e10,
+        0x1684500,
         &[0x66, 0x83, 0x79, 0x10, 0x00, 0x4c, 0x8b, 0xc1, 0x74, 0x5f],
     ),
     (
-        0x1913080,
+        0x1914770,
         &[
             0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x20, 0x33, 0xff, 0x48, 0x8b,
             0xd9,
         ],
     ),
     (
-        0x18aac30,
+        0x18ac320,
         &[
             0x48, 0x89, 0x5c, 0x24, 0x08, 0x57, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0xd9, 0x8b,
             0xfa,
         ],
     ),
     (
-        0x18aca60,
+        0x18ae150,
         &[
             0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x56, 0x48, 0x8d, 0xac, 0x24, 0x00, 0xff, 0xff,
             0xff,
         ],
     ),
     (
-        0x18abe60,
+        0x18ad550,
         &[
             0x45, 0x85, 0xc0, 0x0f, 0x8e, 0xe5, 0x06, 0x00, 0x00, 0x48, 0x8b, 0xc4,
         ],
     ),
     (
-        0x18ae410,
+        0x18afb00,
         &[
             0x48, 0x8b, 0xc4, 0x44, 0x89, 0x40, 0x18, 0x48, 0x89, 0x50, 0x10, 0x48, 0x83, 0xec,
             0x68,
@@ -218,6 +218,16 @@ pub struct BodyEvidence {
     pub motion_id: u32,
     pub flags: u32,
     pub user_data_present: bool,
+}
+impl BodyEvidence {
+    /// A moving body in the character filter group on a character layer
+    /// (2 is the player, 3 an NPC): a capsule, not cover. Arrows meet enemies
+    /// through their Minecraft hitboxes instead.
+    pub fn character(&self, query_filter: u32) -> bool {
+        self.motion_id != 0
+            && self.filter >> 16 == query_filter >> 16
+            && matches!(self.filter & 0x1f, 2 | 3)
+    }
 }
 #[derive(Clone, Copy, Debug)]
 struct Template {
@@ -314,17 +324,17 @@ impl Api {
             Ok(Self {
                 base,
                 image_len: image.len(),
-                ray: std::mem::transmute::<usize, CastRay>(base + 0xc72060),
-                config_init: std::mem::transmute::<usize, Init>(base + 0x1882bb0),
-                config_base_drop: std::mem::transmute::<usize, RefOp>(base + 0x1682ca0),
-                shape_factory: std::mem::transmute::<usize, ShapeFactory>(base + 0x18836f0),
-                add_ref: std::mem::transmute::<usize, RefOp>(base + 0x1682cd0),
-                release: std::mem::transmute::<usize, RefOp>(base + 0x1682e10),
-                cinfo_init: std::mem::transmute::<usize, Init>(base + 0x1913080),
-                cinfo_drop: std::mem::transmute::<usize, CinfoDestroy>(base + 0x18aac30),
-                create: std::mem::transmute::<usize, CreateBody>(base + 0x18aca60),
-                add: std::mem::transmute::<usize, AddBodies>(base + 0x18abe60),
-                destroy: std::mem::transmute::<usize, DestroyBodies>(base + 0x18ae410),
+                ray: std::mem::transmute::<usize, CastRay>(base + 0xc72520),
+                config_init: std::mem::transmute::<usize, Init>(base + 0x18842a0),
+                config_base_drop: std::mem::transmute::<usize, RefOp>(base + 0x1684390),
+                shape_factory: std::mem::transmute::<usize, ShapeFactory>(base + 0x1884de0),
+                add_ref: std::mem::transmute::<usize, RefOp>(base + 0x16843c0),
+                release: std::mem::transmute::<usize, RefOp>(base + 0x1684500),
+                cinfo_init: std::mem::transmute::<usize, Init>(base + 0x1914770),
+                cinfo_drop: std::mem::transmute::<usize, CinfoDestroy>(base + 0x18ac320),
+                create: std::mem::transmute::<usize, CreateBody>(base + 0x18ae150),
+                add: std::mem::transmute::<usize, AddBodies>(base + 0x18ad550),
+                destroy: std::mem::transmute::<usize, DestroyBodies>(base + 0x18afb00),
             })
         }
     }
@@ -774,7 +784,7 @@ impl Api {
         let body = unsafe { self.owned_body(world, owned) }?;
         let (center, _) = geometry(owned.bounds, offset)?;
         let expected_center_havok = std::array::from_fn(|i| center[i] as f64);
-        // Native body setTransform (0x19216a0) copies translation XYZ at +0x30.
+        // Native body setTransform copies translation XYZ at +0x30.
         let actual = unsafe { read::<[f32; 3]>(body, 0x30) }.map(|v| v as f64);
         if !finite(actual) {
             return Err("owned collider transform is nonfinite");
@@ -1323,6 +1333,32 @@ fn geometry(bounds: Box6, offset: [f64; 3]) -> Result<([f32; 4], [Vector; 8]), &
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn character_capsules_are_told_apart_from_cover() {
+        let body = |filter, motion_id| BodyEvidence {
+            filter,
+            motion_id,
+            flags: 270,
+            user_data_present: true,
+        };
+        // Filters observed in play: the player's query filter is 0x02000002.
+        let query = 0x0200_0002;
+        assert!(body(0x0200_0003, 1950).character(query), "an NPC capsule");
+        assert!(
+            body(0x0200_0002, 7).character(query),
+            "the player's own capsule"
+        );
+        assert!(!body(57, 0).character(query), "static terrain");
+        assert!(
+            !body(0x0400_003a, 0).character(query),
+            "another static group"
+        );
+        assert!(
+            !body(0x0200_0003, 0).character(query),
+            "a static body never moves"
+        );
+    }
     static DESTROYS: AtomicUsize = AtomicUsize::new(0);
     static RELEASES: AtomicUsize = AtomicUsize::new(0);
     #[test]

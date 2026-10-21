@@ -73,11 +73,21 @@ public final class CampaignHudConformance {
             && parsed.bossBar().damageHoldSeconds() == 0
             && !parsed.hideAchievementPopups(),
         "partial overrides preserve other defaults");
+    check(
+        parsed.stamina().depleted() == defaults.stamina().depleted()
+            && CampaignHudConfig.parse(
+                        JsonParser.parseString("{\"hud\":{\"stamina\":{\"depleted\":\"#FF0000\"}}}")
+                            .getAsJsonObject())
+                    .stamina()
+                    .depleted()
+                == 0xffff0000,
+        "the exhaustion flash color has a default and can be overridden");
     for (String invalid :
         new String[] {
           "{\"stamina\":{\"width\":1}}",
           "{\"bossBar\":{\"damageTrailPerSecond\":0}}",
           "{\"stamina\":{\"fill\":\"#zzzzzz\"}}",
+          "{\"stamina\":{\"depleted\":\"red\"}}",
           "{\"bossBar\":{\"height\":5.5}}",
           "{\"hideAchievementPopups\":1}",
           "{\"bossBar\":{\"damageHoldSeconds\":1e309}}"

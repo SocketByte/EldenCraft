@@ -10,24 +10,221 @@
 use crate::boss_damage_links::{self as links, Actor, Kind, Link};
 use eldenring::cs::{
     CSFeManImp, CSSessionManager, ChrIns, FieldInsHandle, FieldInsType, GameMan, LobbyState,
-    ProtocolState, WorldChrMan, WorldChrManDbgFlags,
+    NpcParam, ProtocolState, SoloParamRepository, SpEffectParam, WorldChrMan, WorldChrManDbgFlags,
 };
 use fromsoftware_shared::{FromStatic, program::Program};
 use pelite::pe64::PeObject;
 use std::ffi::c_void;
 
-const CONSTRUCTOR_RVA: usize = 0x529000;
-const DESTRUCTOR_RVA: usize = 0x5291b0;
-const PROCESS_RVA: usize = 0x448910;
-const REACTION_RVA: usize = 0x445ec0;
-const NOTIFY_RVA: usize = 0x4486f0;
-const ENEMY_DAMAGE_VTABLE_RVA: usize = 0x2a3a0d8;
-// Verified RTTI in the SHA-gated executable: CSPlayerDamageModule. Gideon is
-// a registered PlayerIns NPC boss; the shared processor/feedback use this module.
-const PLAYER_DAMAGE_VTABLE_RVA: usize = 0x2a3a3e0;
+const CONSTRUCTOR_RVA: usize = 0x5294b0;
+const DESTRUCTOR_RVA: usize = 0x529660;
+const PROCESS_RVA: usize = 0x4489f0;
+const REACTION_RVA: usize = 0x445fa0;
+const NOTIFY_RVA: usize = 0x4487d0;
+const ENEMY_DAMAGE_VTABLE_RVA: usize = 0x2a3c0d8;
+// Verified RTTI in the SHA-gated executable: CSPlayerDamageModule. Registered
+// human bosses such as Gideon, hostile human NPCs and NPC invaders are
+// PlayerIns; the shared processor/feedback use this module.
+const PLAYER_DAMAGE_VTABLE_RVA: usize = 0x2a3c3e0;
 const DAMAGE_MODULE_OFFSET: usize = 0x98;
 const REQUEST_BYTES: usize = 0x270;
 pub const MAX_DAMAGE: i32 = 1_000_000;
+// Verified native on-hit callsite 0x449389..0x4493d3 and callee
+// 0x3e8e70 -> 0x3fb0a0 -> 0x43e0e0. This uses the game's resistance
+// processor, including active-status immunity and increasing proc thresholds.
+const STATUS_RVA: usize = 0x3e8e70;
+const STATUS_ORIGIN_RVA: usize = 0x4ffb10;
+const STATUS_PREFIX: &[u8] = &[
+    0x48, 0x8b, 0xc4, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xec, 0x50,
+    0x48, 0xc7, 0x40, 0xc8, 0xfe, 0xff, 0xff, 0xff,
+];
+const STATUS_ORIGIN_PREFIX: &[u8] = &[
+    0x8b, 0x82, 0xa8, 0, 0, 0, 0x89, 0x01, 0x8b, 0x82, 0xac, 0, 0, 0, 0x89, 0x41, 0x04, 0x48, 0x8b,
+    0xc1,
+];
+type ApplyStatus = unsafe extern "system" fn(
+    *mut c_void,
+    i32,
+    *const c_void,
+    u8,
+    *const c_void,
+    *mut c_void,
+    u8,
+    u8,
+    u8,
+) -> u8;
+type StatusOrigin = unsafe extern "system" fn(*mut c_void, *const c_void) -> *mut c_void;
+
+/// Exact temporary metadata initialized at 0x44900b..0x449086. The first
+/// seven floats are status power coefficients, followed by seven accumulators.
+/// No guest pointer, native parameter patch or manual resistance write occurs.
+#[repr(C, align(16))]
+struct StatusInfo {
+    bytes: [u8; 0x44],
+}
+impl StatusInfo {
+    fn new(correction: f32) -> Self {
+        let mut value = Self { bytes: [0; 0x44] };
+        for at in (0..0x1c).step_by(4) {
+            value.bytes[at..at + 4].copy_from_slice(&1_f32.to_le_bytes());
+        }
+        value.bytes[0x38..0x3c].copy_from_slice(&correction.to_le_bytes());
+        value.bytes[0x41] = 1;
+        value
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StatusReceipt {
+    pub effect: i32,
+    /// Nominal pre-mitigation buildup. Native immunity and reductions own the outcome.
+    pub buildup: u32,
+    pub level: u32,
+}
+fn status_spec(kind: usize, level: u32) -> Option<(u32, u16, u32)> {
+    // Verified from installed regulation.bin version 11711000 using the
+    // SoulsFormats ER AES/DCX/BND4/PARAM layouts: 6500 has poison power 60,
+    // 6400 blood power 45, and 6700 frost power 55; the other powers are zero.
+    // These are native weapon on-hit rows, also named by Paramdex:
+    // https://github.com/soulsmods/Paramdex/blob/master/ER/Names/SpEffectParam.txt
+    let (id, state) = [(6500, 2), (6400, 6), (6700, 260)].get(kind).copied()?;
+    (1..=3)
+        .contains(&level)
+        .then_some((id, state, 20 + 15 * level))
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Element {
+    Fire,
+    Lightning,
+    Magic,
+    Holy,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ElementReceipt {
+    pub element: Element,
+    pub level: u32,
+    /// The target's authored NpcParam damage cut rate for this element.
+    pub cut_rate: f32,
+    pub base_damage: i32,
+    /// Physical part of the hit; the remainder is the absorbed elemental part.
+    pub physical: i32,
+    pub damage: i32,
+}
+/// As in Elden Ring, an affinity converts part of the physical damage: by
+/// level, the share kept as physical and the share dealt as the element.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Split {
+    physical: f64,
+    element: f64,
+}
+const ELEMENT_SPLITS: [Split; 3] = [
+    Split {
+        physical: 0.90,
+        element: 0.15,
+    },
+    Split {
+        physical: 0.85,
+        element: 0.22,
+    },
+    Split {
+        physical: 0.80,
+        element: 0.30,
+    },
+];
+fn element_spec(kind: usize, level: u32) -> Option<(Element, Split)> {
+    let element = [
+        Element::Fire,
+        Element::Lightning,
+        Element::Magic,
+        Element::Holy,
+    ]
+    .get(kind.checked_sub(crate::combat_wire::FIRST_ELEMENT)?)
+    .copied()?;
+    let split = ELEMENT_SPLITS
+        .get((level as usize).checked_sub(1)?)
+        .copied()?;
+    Some((element, split))
+}
+fn element_cut_rate(npc: &eldenring::param::NPC_PARAM_ST, element: Element) -> f32 {
+    // Paramdex: "dark" damage is holy. A cut rate is calculated damage x rate,
+    // so 1 is neutral, 0.8 is 20% absorption and 1.2 is a 20% weakness.
+    match element {
+        Element::Fire => npc.fire_damage_cut_rate(),
+        Element::Lightning => npc.thunder_damage_cut_rate(),
+        Element::Magic => npc.magic_damage_cut_rate(),
+        Element::Holy => npc.dark_damage_cut_rate(),
+    }
+}
+/// Physical and total HP loss. Bounded so a malformed row can neither heal nor
+/// more than double the elemental part; an immune target keeps the physical part.
+/// `boost` is a Wondrous Physick multiplier on the elemental part only.
+fn element_damage(damage: i32, split: Split, cut_rate: f32, boost: f64) -> Option<(i32, i32)> {
+    if !cut_rate.is_finite()
+        || !(0. ..=3.).contains(&cut_rate)
+        || !valid_damage(damage)
+        || !boost.is_finite()
+        || !(1. ..=2.).contains(&boost)
+    {
+        return None;
+    }
+    let bound = |value: f64| value.round().clamp(1., MAX_DAMAGE as f64) as i32;
+    let physical = damage as f64 * split.physical;
+    let total = physical + damage as f64 * split.element * cut_rate.min(2.) as f64 * boost;
+    Some((bound(physical), bound(total)))
+}
+/// Nominal buildup after a Wondrous Physick multiplier (Intelligence-knot
+/// raises frostbite). Never lowers buildup and never exceeds 1.5 times it.
+fn physick_buildup(buildup: u32, scale: f64) -> u32 {
+    let scale = if scale.is_finite() {
+        scale.clamp(1., 1.5)
+    } else {
+        1.
+    };
+    (buildup as f64 * scale).round() as u32
+}
+/// Stable per-instance key for an enemy's stance meter.
+pub(crate) fn packed_handle(handle: FieldInsHandle) -> u64 {
+    handle.selector.0 as u64 | ((handle.block_id.0 as u32 as u64) << 32)
+}
+unsafe fn dispatch_affinity(
+    construct: Construct,
+    destruct: Destruct,
+    make_origin: StatusOrigin,
+    apply: ApplyStatus,
+    resolved: Resolved,
+    id: u32,
+    base_power: i32,
+    buildup: u32,
+) {
+    let mut info = StatusInfo::new(buildup as f32 / base_power as f32);
+    #[repr(C, align(16))]
+    struct Origin([u8; 16]);
+    let mut origin = Origin([0; 16]);
+    let mut request = Request::zeroed();
+    let request_ptr = (&mut request as *mut Request).cast::<c_void>();
+    unsafe {
+        construct(request_ptr);
+    }
+    request.configure(resolved.source, resolved.target, 1, resolved.direction);
+    unsafe {
+        make_origin(origin.0.as_mut_ptr().cast(), request_ptr);
+        // 0x449389..0x4493d3 passes these exact nine arguments. False
+        // flags preserve the ordinary hit path; the game owns status procs.
+        // A false return may mean positive buildup below its proc threshold;
+        // it never authorizes replay of this already consumed transaction.
+        apply(
+            resolved.target as *mut c_void,
+            id as i32,
+            resolved.source as *const c_void,
+            0,
+            origin.0.as_ptr().cast(),
+            (&mut info as *mut StatusInfo).cast(),
+            0,
+            0,
+            0,
+        );
+        destruct(request_ptr);
+    }
+}
 
 // m13_00_00_00 event 13002860 links group 13005851 (these two bodies) to
 // entity 13000850, whose HP owns both the displayed bar and the defeat event.
@@ -66,20 +263,39 @@ const REACTION_PREFIX: &[u8] = &[
 const NOTIFY_PREFIX: &[u8] = &[
     0x48, 0x89, 0x6c, 0x24, 0x18, 0x56, 0x57, 0x41, 0x57, 0x48, 0x83, 0xec, 0x30, 0x48, 0x8b, 0xf1,
 ];
+// The game's own stance routine, which its hit pipeline calls on the target's stance module right
+// after the damage processor and before the reaction and the notification: it spends the enemy's
+// stance with the request's poise damage and, when that runs out, marks the stance broken. The
+// bridge's sequence used to skip it, so no poise in a request ever reached the enemy's stance.
+const STANCE_RVA: usize = 0x47e4e0;
+const STANCE_PREFIX: &[u8] = &[
+    0x48, 0x8b, 0xc4, 0x53, 0x56, 0x57, 0x48, 0x81, 0xec, 0xd0, 0x00, 0x00, 0x00, 0x0f, 0x29, 0x78,
+    0xc8, 0x49, 0x8b, 0xf0, 0x4c, 0x89, 0x70, 0x18, 0x48, 0x8b, 0xf9, 0x44, 0x0f, 0x29, 0x40, 0xb8,
+];
 // Smithbox ATKPARAM_DMGTYPE_NEW: 1 = short stagger. This is a deliberately
 // bounded host reaction policy, not Minecraft's knockback or ER weapon poise.
 const SHORT_STAGGER: u8 = 1;
+// A hit that breaks the enemy's stance is made like the game's own: poise damage well past any
+// enemy's whole stance, at the offsets its own hits carry it, and the stagger level they use.
+const BREAK_POISE: f32 = 10_000.;
+const BREAK_LEVEL: u8 = 2;
+const STANCE_SCALE_OFFSET: usize = 0x244;
 
 type Construct = unsafe extern "system" fn(*mut c_void) -> *mut c_void;
 type Destruct = unsafe extern "system" fn(*mut c_void);
-// Callsite 0x449f03..0x449f1a passes these five args. The fourth is an
+// Callsite 0x449fe3..0x449ffa passes these five args. The fourth is an
 // already-dead state and the fifth suppresses HP mutation. Both are false for
 // this live-target local call. It returns no documented result; use HP readback.
 type Process = unsafe extern "system" fn(*mut c_void, *const c_void, *mut c_void, u8, u8);
 type React = unsafe extern "system" fn(*mut c_void, *mut c_void);
-// Exact upstream 0x44a16e..0x44a188: module, source, request, previous-dead,
+// Exact upstream 0x44a24e..0x44a268: module, source, request, previous-dead,
 // pre-hit HP, suppress-HP. Keep the complete six-argument caller contract.
 type Notify = unsafe extern "system" fn(*mut c_void, *const c_void, *mut c_void, u8, i32, u8);
+// Stance module, the attacking character (or null) and the request.
+type SpendStance = unsafe extern "system" fn(*mut c_void, *const c_void, *mut c_void);
+
+/// Address of the stance routine, once its bytes have been verified in this executable.
+static STANCE_ROUTINE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
 
 #[repr(C, align(16))]
 struct Request {
@@ -125,11 +341,11 @@ pub struct ProtectionObservation {
     /// SDK GameData.AllNoDead. Observation only; never changed by this adapter.
     pub all_no_dead: Option<bool>,
     pub all_no_damage: Option<bool>,
-    /// Exact native predicate 0x4379d0 reads data+0x19b bit0.
+    /// Exact native predicate 0x437a60 reads data+0x19b bit0.
     pub character_debug_no_dead: bool,
-    /// Processor predicate 0x437970 reads data+0x19b bit1 and AllNoDamage.
+    /// Processor predicate 0x437a00 reads data+0x19b bit1 and AllNoDamage.
     pub character_debug_no_damage: bool,
-    /// Exact native predicate 0x437ca0 also reads data+0x19a bit7.
+    /// Exact native predicate 0x437d30 also reads data+0x19a bit7.
     pub character_no_dead_state: bool,
     /// Pinned SDK TAE Event 0 / action 96 SET_IMMORTALITY.
     pub animation_immortality: bool,
@@ -184,6 +400,11 @@ pub struct Receipt {
     /// Native damage forwarded to a verified active shared-health controller.
     /// A failure is diagnostic only: the body's accepted hit must not be retried.
     pub referred_damage: Option<Result<ReferredDamage, &'static str>>,
+    /// An affinity may fail closed independently after accepted HP damage.
+    pub affinity: Option<Result<StatusReceipt, &'static str>>,
+    /// An elemental affinity scales the requested damage before the hit. A
+    /// locked or unreadable element fails closed to the unscaled damage.
+    pub element: Option<Result<ElementReceipt, &'static str>>,
 }
 
 impl Receipt {
@@ -517,7 +738,113 @@ pub struct Sink {
     process: Process,
     react: React,
     notify: Notify,
+    stance: StanceIo,
 }
+
+/// Reads and writes the game's own stance (poise) value of a validated target. A seam, so the
+/// hit sequence can be exercised against stand-ins like the other native calls.
+#[derive(Clone, Copy)]
+struct StanceIo {
+    read: unsafe fn(module: usize, target: usize) -> Option<f32>,
+    write: unsafe fn(module: usize, target: usize, value: f32),
+    /// Everything the game keeps that decides whether the enemy visibly staggers.
+    inspect: unsafe fn(module: usize, target: usize) -> Option<crate::stance::Real>,
+    /// Returns the (hyper armor, forced break) animation flags, first writing the given pair.
+    flags:
+        unsafe fn(module: usize, target: usize, set: Option<(bool, bool)>) -> Option<(bool, bool)>,
+    /// Runs the game's own stance routine on the target with this request, as its hit pipeline
+    /// does. False when the routine is unavailable or the target's stance module is not its own.
+    spend: unsafe fn(module: usize, target: usize, source: usize, request: *mut c_void) -> bool,
+}
+
+/// The target's current stance, only when that module demonstrably belongs to this character.
+unsafe fn game_stance_read(_module: usize, target: usize) -> Option<f32> {
+    let chr = unsafe { &*(target as *const ChrIns) };
+    let stance = &chr.modules.super_armor;
+    let (current, maximum) = (stance.sa_durability, stance.sa_durability_max);
+    (stance.owner.as_ptr() as usize == target
+        && current.is_finite()
+        && maximum.is_finite()
+        && maximum > 0.)
+        .then_some(current)
+}
+
+unsafe fn game_stance_write(_module: usize, target: usize, value: f32) {
+    let chr = unsafe { &mut *(target as *mut ChrIns) };
+    chr.modules.super_armor.sa_durability = value;
+}
+
+/// A copy of the enemy's stagger-deciding state, only for a module that belongs to this character.
+pub(crate) unsafe fn game_inspect(_module: usize, target: usize) -> Option<crate::stance::Real> {
+    let chr = unsafe { &*(target as *const ChrIns) };
+    let stance = &chr.modules.super_armor;
+    if stance.owner.as_ptr() as usize != target {
+        return None;
+    }
+    let toughness = &chr.modules.toughness;
+    let action = &chr.modules.action_flag;
+    let timeline = &chr.modules.time_act;
+    let anim = timeline
+        .anim_queue
+        .get(timeline.read_idx as usize)
+        .map_or(-1, |slot| slot.anim_id);
+    Some(crate::stance::Real {
+        stance: stance.sa_durability,
+        stance_max: stance.sa_durability_max,
+        toughness: toughness.toughness,
+        damage_level: action.damage_level,
+        hyper_armor: action.action_modifiers_flags.super_armor(),
+        forced_break: action.action_modifiers_flags.poise_forced_break(),
+        anim,
+        broken_lock: unsafe { *(stance as *const _ as *const u8).add(0x20) },
+    })
+}
+
+unsafe fn game_spend(_module: usize, target: usize, source: usize, request: *mut c_void) -> bool {
+    let Some(&address) = STANCE_ROUTINE.get() else {
+        return false;
+    };
+    let chr = unsafe { &mut *(target as *mut ChrIns) };
+    let stance = &mut chr.modules.super_armor;
+    if stance.owner.as_ptr() as usize != target {
+        return false;
+    }
+    let routine = unsafe { std::mem::transmute::<usize, SpendStance>(address) };
+    unsafe {
+        routine(
+            &mut **stance as *mut _ as *mut c_void,
+            source as *const c_void,
+            request,
+        );
+    }
+    true
+}
+
+unsafe fn game_flags(
+    _module: usize,
+    target: usize,
+    set: Option<(bool, bool)>,
+) -> Option<(bool, bool)> {
+    let chr = unsafe { &mut *(target as *mut ChrIns) };
+    if chr.modules.super_armor.owner.as_ptr() as usize != target {
+        return None;
+    }
+    let flags = &mut chr.modules.action_flag.action_modifiers_flags;
+    let previous = (flags.super_armor(), flags.poise_forced_break());
+    if let Some((hyper_armor, forced_break)) = set {
+        flags.set_super_armor(hyper_armor);
+        flags.set_poise_forced_break(forced_break);
+    }
+    Some(previous)
+}
+
+const GAME_STANCE: StanceIo = StanceIo {
+    read: game_stance_read,
+    write: game_stance_write,
+    inspect: game_inspect,
+    flags: game_flags,
+    spend: game_spend,
+};
 
 fn matches(image: &[u8], at: usize, prefix: &[u8]) -> bool {
     at.checked_add(prefix.len())
@@ -527,9 +854,9 @@ fn matches(image: &[u8], at: usize, prefix: &[u8]) -> bool {
 fn valid_damage(value: i32) -> bool {
     (1..=MAX_DAMAGE).contains(&value)
 }
-fn verified_damage_module_rva(rva: usize, enemy_class: bool, player_boss: bool) -> bool {
+fn verified_damage_module_rva(rva: usize, enemy_class: bool, player_combatant: bool) -> bool {
     matches!(
-        (rva, enemy_class, player_boss),
+        (rva, enemy_class, player_combatant),
         (ENEMY_DAMAGE_VTABLE_RVA, true, false) | (PLAYER_DAMAGE_VTABLE_RVA, false, true)
     )
 }
@@ -542,10 +869,34 @@ fn hit_direction(source: [f32; 3], target: [f32; 3]) -> Option<[f32; 3]> {
     }
     Some(delta.map(|v| v / n.sqrt()))
 }
+fn frost_damage_factor(state: u16, factor: f32) -> f64 {
+    if state == 260 && factor.is_finite() && (1. ..=2.).contains(&factor) {
+        factor as f64
+    } else {
+        1.
+    }
+}
+fn frost_damage_multiplier(chr: &ChrIns) -> f64 {
+    // HP is supplied after Minecraft calculation, so read the native frost
+    // debuff's authored vulnerability for that final HP amount as well.
+    // Installed regulation 11711000 row 6700: state 260, duration 30 seconds,
+    // all physical damage-cut multipliers 1.2 (paramdef: calculated damage x rate).
+    chr.special_effect
+        .entries()
+        .take(128)
+        .filter_map(|entry| {
+            let row = unsafe { entry.param_data?.as_ref() };
+            Some(frost_damage_factor(
+                row.state_info(),
+                row.neutral_damage_cut_rate(),
+            ))
+        })
+        .fold(1., f64::max)
+}
 
 impl Sink {
     /// Resolve only after the engine's complete executable SHA-256 gate passes:
-    /// 1a3547101327f65d0c76da2f9190ac0aa66871ea42bae2aecc61e11a8b597891.
+    /// f9118fea2cfd8fa3901e8060bfadb1552cb2471771ded8a5b662c4e298ffb328.
     /// These extra fingerprints fail closed on altered entrypoints. No SDK
     /// singleton or game function is invoked during resolution.
     pub fn resolve() -> Result<Self, &'static str> {
@@ -562,6 +913,10 @@ impl Sink {
             return Err("native damage entrypoint fingerprint mismatch");
         }
         let base = image.as_ptr() as usize;
+        // Optional: without it a stance break falls back to writing the stance directly.
+        if matches(image, STANCE_RVA, STANCE_PREFIX) {
+            let _ = STANCE_ROUTINE.set(base + STANCE_RVA);
+        }
         Ok(Self {
             base,
             construct: unsafe { std::mem::transmute::<usize, Construct>(base + CONSTRUCTOR_RVA) },
@@ -569,25 +924,184 @@ impl Sink {
             process: unsafe { std::mem::transmute::<usize, Process>(base + PROCESS_RVA) },
             react: unsafe { std::mem::transmute::<usize, React>(base + REACTION_RVA) },
             notify: unsafe { std::mem::transmute::<usize, Notify>(base + NOTIFY_RVA) },
+            stance: GAME_STANCE,
         })
     }
 
-    /// Apply one already-authorized Minecraft transaction, synchronously.
+    /// Apply one already-authorized Minecraft melee transaction, synchronously.
     ///
     /// # Safety
     /// Engine SHA gate passed, current valid foreground offline gameplay task,
     /// fresh target identity/hostility/reach/LOS and guest commit already checked.
     /// No live SDK references may span this call, and no concurrent game writer.
-    /// This is experimental until live tests verify feedback, death and rewards.
-    /// It requests a short enemy reaction after positive HP loss. It does not
+    /// It requests an enemy reaction after positive HP loss: every hit when `stance` is None,
+    /// otherwise only the hit that breaks the enemy's stance. It does not
     /// implement Minecraft knockback, guard or upstream dispatcher immunity.
-    pub unsafe fn apply(
+    pub unsafe fn apply_enchanted(
         &self,
         source: FieldInsHandle,
         target: FieldInsHandle,
         hp_damage: i32,
+        enchantments: u32,
+        stance: Option<f32>,
     ) -> Result<Receipt, &'static str> {
-        unsafe { self.apply_world(source, target, hp_damage, None) }
+        if !crate::combat_wire::valid_enchantments(enchantments) {
+            return Err("invalid native enchantment levels");
+        }
+        // Copy identity before ordinary hit feedback can swap a phase instance.
+        let identity = unsafe { self.resolve_characters(source, target)? };
+        let affinity = crate::combat_wire::affinity(enchantments);
+        let element = affinity
+            .filter(|(kind, _)| *kind >= crate::combat_wire::FIRST_ELEMENT)
+            .map(|(kind, level)| unsafe { Self::element(identity.target, kind, level, hp_damage) });
+        let scaled = match element {
+            Some(Ok(element)) => element.damage,
+            _ => hp_damage,
+        };
+        let mut receipt = unsafe { self.apply_world(source, target, scaled, None, stance)? };
+        receipt.element = element;
+        if receipt.applied_delta() > 0
+            && !receipt.killed
+            && let Some((kind, level)) =
+                affinity.filter(|(kind, _)| *kind < crate::combat_wire::FIRST_ELEMENT)
+        {
+            receipt.affinity =
+                Some(unsafe { self.apply_affinity(source, target, identity.target, kind, level) });
+            if let Ok(after) =
+                unsafe { self.read_receipt(target, identity.target, identity.module) }
+            {
+                receipt.hp_after = after.hp;
+                receipt.killed = after.hp <= 0 || after.death_flag;
+                receipt.position = after.position;
+                receipt.last_hit_by = after.last_hit_by;
+                receipt.post_feedback = Some(after);
+            }
+        }
+        Ok(receipt)
+    }
+    /// The stagger policy of this hit. Capacity is the target's authored stance, read here on the
+    /// game thread from its NPC row; an unreadable row keeps the original stagger on every hit.
+    unsafe fn reaction(target: usize, stance: Option<f32>) -> crate::stance::Reaction {
+        use crate::stance::Reaction;
+        let (Some(damage), Some(rules)) = (stance, crate::campaign_runtime::stance_rules()) else {
+            return Reaction::Always;
+        };
+        let npc_param_id = unsafe { (&*(target as *const ChrIns)).npc_param_id };
+        if crate::stance::reacts_to_every_hit(npc_param_id) {
+            return Reaction::Always;
+        }
+        let Some(authored) = (unsafe { SoloParamRepository::instance() })
+            .ok()
+            .and_then(|repo| {
+                repo.get::<NpcParam>(npc_param_id as u32)
+                    .map(|npc| npc.super_armor_durability())
+            })
+        else {
+            return Reaction::Always;
+        };
+        Reaction::Stance {
+            damage,
+            capacity: authored * rules.capacity_scale as f32,
+            recovery_ms: (rules.recovery_seconds * 1000.) as u64,
+        }
+    }
+    /// Read the validated target's authored elemental absorption on the game
+    /// thread; the element itself is the scaled damage of this one hit.
+    unsafe fn element(
+        target: usize,
+        kind: usize,
+        level: u32,
+        hp_damage: i32,
+    ) -> Result<ElementReceipt, &'static str> {
+        if !crate::campaign_runtime::affinity_unlocked(kind) {
+            return Err("native whetblade affinity is locked");
+        }
+        let (element, split) = element_spec(kind, level).ok_or("invalid native element")?;
+        let npc_param_id = unsafe { (&*(target as *const ChrIns)).npc_param_id };
+        let repo = unsafe { SoloParamRepository::instance() }
+            .map_err(|_| "native element params unavailable")?;
+        let npc = repo
+            .get::<NpcParam>(npc_param_id as u32)
+            .ok_or("native element target param unavailable")?;
+        let cut_rate = element_cut_rate(npc, element);
+        let boost = crate::campaign_runtime::physick_affinity_scale(kind);
+        let (physical, damage) = element_damage(hp_damage, split, cut_rate, boost)
+            .ok_or("native element absorption rejected")?;
+        Ok(ElementReceipt {
+            element,
+            level,
+            cut_rate,
+            base_damage: hp_damage,
+            physical,
+            damage,
+        })
+    }
+    unsafe fn apply_affinity(
+        &self,
+        source: FieldInsHandle,
+        target: FieldInsHandle,
+        expected: usize,
+        kind: usize,
+        level: u32,
+    ) -> Result<StatusReceipt, &'static str> {
+        if !crate::campaign_runtime::affinity_unlocked(kind) {
+            return Err("native whetblade affinity is locked");
+        }
+        let image = Program::current().image();
+        if !matches(image, STATUS_RVA, STATUS_PREFIX)
+            || !matches(image, STATUS_ORIGIN_RVA, STATUS_ORIGIN_PREFIX)
+        {
+            return Err("native status entrypoint fingerprint mismatch");
+        }
+        let (id, state, buildup) = status_spec(kind, level).ok_or("invalid native affinity")?;
+        let buildup = physick_buildup(
+            buildup,
+            crate::campaign_runtime::physick_affinity_scale(kind),
+        );
+        let base_power = {
+            let repo = unsafe { SoloParamRepository::instance() }
+                .map_err(|_| "native status params unavailable")?;
+            let row = repo
+                .get::<SpEffectParam>(id)
+                .ok_or("native status effect unavailable")?;
+            let powers = [
+                row.poizon_attack_power(),
+                row.blood_attack_power(),
+                row.freeze_attack_power(),
+            ];
+            if row.state_info() != state
+                || powers[kind] <= 0
+                || powers[kind] > 10000
+                || powers.iter().enumerate().any(|(i, n)| i != kind && *n != 0)
+            {
+                return Err("native status row identity changed");
+            }
+            powers[kind]
+        };
+        let resolved = unsafe { self.resolve_characters(source, target)? };
+        if resolved.target != expected {
+            return Err("native status target instance changed");
+        }
+        let apply = unsafe { std::mem::transmute::<usize, ApplyStatus>(self.base + STATUS_RVA) };
+        let make_origin =
+            unsafe { std::mem::transmute::<usize, StatusOrigin>(self.base + STATUS_ORIGIN_RVA) };
+        unsafe {
+            dispatch_affinity(
+                self.construct,
+                self.destruct,
+                make_origin,
+                apply,
+                resolved,
+                id,
+                base_power,
+                buildup,
+            );
+        }
+        Ok(StatusReceipt {
+            effect: id as i32,
+            buildup,
+            level,
+        })
     }
     /// Genuine guest mob/explosion damage retains the verified local-player
     /// ownership/credit, but its reaction direction originates at that event.
@@ -599,6 +1113,7 @@ impl Sink {
         target: FieldInsHandle,
         hp_damage: i32,
         event_origin: Option<[f32; 3]>,
+        stance: Option<f32>,
     ) -> Result<Receipt, &'static str> {
         if !valid_damage(hp_damage) {
             return Err("native damage amount out of range");
@@ -616,7 +1131,8 @@ impl Sink {
         // encounter HP pressure by the pinned SDK's typed NPC param identity.
         let npc_param_id = unsafe { (&*(resolved.target as *const ChrIns)).npc_param_id };
         let hp_damage = (hp_damage as f64
-            * crate::campaign_runtime::enemy_damage_multiplier(npc_param_id))
+            * crate::campaign_runtime::enemy_damage_multiplier(npc_param_id)
+            * frost_damage_multiplier(unsafe { &*(resolved.target as *const ChrIns) }))
         .round()
         .clamp(1., MAX_DAMAGE as f64) as i32;
         if let Some(origin) = event_origin {
@@ -640,11 +1156,15 @@ impl Sink {
         } else {
             None
         };
+        let reaction = unsafe { Self::reaction(resolved.target, stance) };
         let mut receipt = unsafe {
-            self.process_prepared(source, target, hp_damage, resolved, || {
+            self.process_prepared(source, target, hp_damage, resolved, reaction, || {
                 self.read_receipt(target, resolved.target, resolved.module)
             })?
         };
+        if receipt.killed {
+            crate::stance::forget(packed_handle(target));
+        }
         if let Some(snapshot) = referred {
             let loss = referred_hit_loss(&receipt, snapshot.link);
             if loss > 0 {
@@ -672,6 +1192,7 @@ impl Sink {
         target: FieldInsHandle,
         hp_damage: i32,
         resolved: Resolved,
+        reaction: crate::stance::Reaction,
         mut observe: impl FnMut() -> Result<TargetObservation, &'static str>,
     ) -> Result<Receipt, &'static str> {
         let Resolved {
@@ -689,15 +1210,46 @@ impl Sink {
             (self.construct)(request_ptr);
         }
         request.configure(source_ptr, target_ptr, hp_damage, direction);
+        // Only a stance-metered hit may move the game's own stance value; the legacy every-hit
+        // stagger keeps its original behavior untouched.
+        let metered = matches!(reaction, crate::stance::Reaction::Stance { .. });
+        let tracked = packed_handle(target);
+        let real_before = if metered {
+            unsafe { (self.stance.read)(module, target_ptr) }
+        } else {
+            None
+        };
+        let state_before = if metered {
+            unsafe { (self.stance.inspect)(module, target_ptr) }
+        } else {
+            None
+        };
+        // A hit that will break the meter carries enough poise damage to spend the enemy's whole
+        // stance, as the game's own hits do, so that its processor breaks the stance itself and
+        // the enemy plays the real stance break rather than a flinch.
+        if metered && crate::stance::peek(tracked, reaction) == crate::stance::Outcome::Staggered {
+            let poise = real_before
+                .filter(|stance| *stance > 0.)
+                .map_or(BREAK_POISE, |stance| stance + 1.);
+            for offset in crate::hit_watch::OFFSET_POISE {
+                request.f32(offset, poise);
+            }
+            // The stance routine multiplies the poise at 0x100 by this float.
+            request.f32(STANCE_SCALE_OFFSET, 1.);
+            request.bytes[crate::hit_watch::OFFSET_LEVEL] = BREAK_LEVEL;
+        }
         // Native call owns its temporary request only for this synchronous call.
-        unsafe {
-            (self.process)(
-                module as *mut c_void,
-                source_ptr as *const c_void,
-                request_ptr,
-                0,
-                0,
-            );
+        {
+            let _own = crate::hit_watch::OwnCall::begin();
+            unsafe {
+                (self.process)(
+                    module as *mut c_void,
+                    source_ptr as *const c_void,
+                    request_ptr,
+                    0,
+                    0,
+                );
+            }
         }
         // The closure returns only copied observations. No SDK references span
         // the feedback calls; native cleanup also runs on a receipt failure.
@@ -705,12 +1257,61 @@ impl Sink {
             let initial = observe()?;
             let actual_delta = hp_before.saturating_sub(initial.hp).max(0);
             let mut feedback_dispatched = false;
+            // Read while the observation above still proves the target is the same character;
+            // a reaction may replace it, so the game's stance is never touched after that.
+            let real_processed = if metered {
+                unsafe { (self.stance.read)(module, target_ptr) }
+            } else {
+                None
+            };
+            let state_processed = if metered {
+                unsafe { (self.stance.inspect)(module, target_ptr) }
+            } else {
+                None
+            };
+            let mut real_left;
+            let mut decision = None;
+            let mut previous_flags = None;
+            let mut flags_at_stagger = None;
+            let mut real_after_react = None;
+            let mut spent = false;
+            let mut state_after_spend = None;
             if actual_delta > 0 {
                 // Notifications reflect actual loss, including a native clamp.
                 // Neither callee recalculates HP or requests a player attack.
                 request.i32(0x228, actual_delta);
-                unsafe {
-                    (self.react)(module as *mut c_void, request_ptr);
+                // A hit that leaves the enemy's stance standing still counts as a hit, but only a
+                // stance break asks the game for the stagger animation.
+                let (outcome, taken) = crate::stance::hit_total(tracked, reaction);
+                decision = Some((outcome, taken));
+                // A hit that breaks the stance leaves the game's value alone for now: the game's
+                // reaction spends it with the poise damage in the request, which is what makes it
+                // break the stance for real. Any other hit gets back what the processor took.
+                real_left = if outcome == crate::stance::Outcome::Staggered {
+                    real_processed
+                } else {
+                    unsafe {
+                        self.settle_stance(outcome, module, target_ptr, real_before, real_processed)
+                    }
+                };
+                if outcome == crate::stance::Outcome::Staggered {
+                    // A stance break overrides the enemy's own animation windows for the moment
+                    // the stagger is requested: no hyper armor, and a forced break.
+                    if metered {
+                        // The game's own order: the stance routine spends the enemy's stance with
+                        // the request's poise first, and marks it broken when it runs out. Only
+                        // then does the reaction pick the stagger.
+                        spent = unsafe {
+                            (self.stance.spend)(module, target_ptr, source_ptr, request_ptr)
+                        };
+                        state_after_spend = unsafe { (self.stance.inspect)(module, target_ptr) };
+                        previous_flags =
+                            unsafe { (self.stance.flags)(module, target_ptr, Some((false, true))) };
+                        flags_at_stagger = previous_flags;
+                    }
+                    unsafe {
+                        (self.react)(module as *mut c_void, request_ptr);
+                    }
                 }
                 // Reaction can replace a character or reset its health for a
                 // new phase. Do not notify a retired module or carry old lethal
@@ -721,6 +1322,11 @@ impl Sink {
                         && after.max_hp == initial.max_hp
                         && after.hp <= initial.hp
                 }) {
+                    // Same character still: put its animation flags back. A reaction that
+                    // replaced it leaves nothing to restore, and the old pointer is not touched.
+                    if previous_flags.is_some() {
+                        unsafe { (self.stance.flags)(module, target_ptr, previous_flags) };
+                    }
                     unsafe {
                         (self.notify)(
                             module as *mut c_void,
@@ -732,7 +1338,60 @@ impl Sink {
                         );
                     }
                     feedback_dispatched = true;
+                    // The game may spend the poise in either the reaction or the notification,
+                    // so only now, once both ran and the same character is still there, is a
+                    // stance nothing spent spent directly.
+                    if metered
+                        && decision.is_some_and(|(outcome, _)| {
+                            outcome == crate::stance::Outcome::Staggered
+                        })
+                        && observe().is_ok_and(|after| {
+                            after.handle == initial.handle
+                                && after.character_id == initial.character_id
+                                && after.max_hp == initial.max_hp
+                        })
+                    {
+                        let (read, left) =
+                            unsafe { self.finish_break(module, target_ptr, real_before) };
+                        real_after_react = read;
+                        real_left = left.or(real_left);
+                    }
                 }
+            } else {
+                // No HP was lost, so nothing counts as a hit: give back any stance the game took.
+                real_left = unsafe {
+                    self.settle_stance(
+                        crate::stance::Outcome::Held,
+                        module,
+                        target_ptr,
+                        real_before,
+                        real_processed,
+                    )
+                };
+            }
+            if metered || actual_delta > 0 {
+                let (damage, capacity) = match reaction {
+                    crate::stance::Reaction::Stance {
+                        damage, capacity, ..
+                    } => (Some(damage), Some(capacity)),
+                    crate::stance::Reaction::Always => (None, None),
+                };
+                crate::stance::record_trace(crate::stance::Trace {
+                    target: tracked,
+                    damage,
+                    capacity,
+                    taken: decision.map_or(0., |(_, taken)| taken),
+                    outcome: decision.map_or(crate::stance::Outcome::Held, |(outcome, _)| outcome),
+                    real_before,
+                    real_processed,
+                    real_left,
+                    state_before,
+                    state_processed,
+                    flags_at_stagger,
+                    real_after_react,
+                    spent,
+                    state_after_spend,
+                });
             }
             // A native reaction can advance scripted death/phase state after
             // the HP processor. Preserve both stages; a later scripted death
@@ -757,12 +1416,59 @@ impl Sink {
                 post_feedback,
                 gauge_mirror: None,
                 referred_damage: None,
+                affinity: None,
+                element: None,
             })
         })();
         unsafe {
             (self.destruct)(request_ptr);
         }
         result
+    }
+
+    /// After the stagger was requested with the poise damage in the request: if the game spent
+    /// none of the enemy's stance, its reaction ignored that poise, so spend it directly so the
+    /// enemy at least flinches. A stance the reaction did spend, or reset, is left exactly as the
+    /// game left it. Returns the stance as read after the reaction and the notification, and what it holds now.
+    unsafe fn finish_break(
+        &self,
+        module: usize,
+        target: usize,
+        before: Option<f32>,
+    ) -> (Option<f32>, Option<f32>) {
+        let Some(current) = (unsafe { (self.stance.read)(module, target) }) else {
+            return (None, None);
+        };
+        if let Some(before) = before
+            && before > 0.
+            && (current - before).abs() < 1.0e-3
+        {
+            unsafe { (self.stance.write)(module, target, 0.) };
+            return (Some(current), Some(0.));
+        }
+        (Some(current), Some(current))
+    }
+
+    /// Leaves the game's own stance where the meter's outcome says it belongs, and returns what
+    /// it now holds. Values that could not be read are never written.
+    unsafe fn settle_stance(
+        &self,
+        outcome: crate::stance::Outcome,
+        module: usize,
+        target: usize,
+        before: Option<f32>,
+        current: Option<f32>,
+    ) -> Option<f32> {
+        let (Some(before), Some(current)) = (before, current) else {
+            return current;
+        };
+        match crate::stance::real_stance_after(outcome, before, current) {
+            Some(value) => {
+                unsafe { (self.stance.write)(module, target, value) };
+                Some(value)
+            }
+            None => Some(current),
+        }
     }
 
     unsafe fn referred_owner(
@@ -884,9 +1590,14 @@ impl Sink {
         // Unlike a dormant later-phase gauge, this actor owns the final defeat
         // event. Its normal processor/notification must be allowed to reach 0 HP.
         let receipt = unsafe {
-            self.process_prepared(source, owner.handle, missing, resolved, || {
-                self.read_receipt(owner.handle, resolved.target, resolved.module)
-            })?
+            self.process_prepared(
+                source,
+                owner.handle,
+                missing,
+                resolved,
+                crate::stance::Reaction::Always,
+                || self.read_receipt(owner.handle, resolved.target, resolved.module),
+            )?
         };
         result.forwarded_damage = missing;
         result.hp_after = receipt.hp_after;
@@ -1023,7 +1734,7 @@ impl Sink {
                 verified_damage_module_rva(
                     rva,
                     eligibility.enemy_class,
-                    eligibility.player_class && eligibility.boss_registered,
+                    eligibility.player_combatant(),
                 )
             })
         {
@@ -1053,6 +1764,176 @@ impl Sink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elements_scale_only_by_bounded_absorption() {
+        for (kind, element) in [
+            (3, Element::Fire),
+            (4, Element::Lightning),
+            (5, Element::Magic),
+            (6, Element::Holy),
+        ] {
+            for (level, physical, share) in [(1, 0.90, 0.15), (2, 0.85, 0.22), (3, 0.80, 0.30)] {
+                assert_eq!(
+                    element_spec(kind, level),
+                    Some((
+                        element,
+                        Split {
+                            physical,
+                            element: share
+                        }
+                    ))
+                );
+            }
+            assert!(element_spec(kind, 0).is_none());
+            assert!(element_spec(kind, 4).is_none());
+        }
+        for kind in [0, 1, 2, 7] {
+            assert!(element_spec(kind, 1).is_none());
+        }
+        let iii = ELEMENT_SPLITS[2];
+        // A 500 hit becomes 400 physical and 150 element before absorption.
+        assert_eq!(element_damage(500, iii, 1., 1.), Some((400, 550)));
+        assert_eq!(element_damage(500, iii, 0.8, 1.), Some((400, 520)));
+        assert_eq!(element_damage(500, iii, 1.2, 1.), Some((400, 580)));
+        assert_eq!(element_damage(500, iii, 0., 1.), Some((400, 400)));
+        assert_eq!(element_damage(500, iii, 2.5, 1.), Some((400, 700)));
+        assert_eq!(
+            element_damage(100, ELEMENT_SPLITS[0], 1., 1.),
+            Some((90, 105))
+        );
+        for cut in [-0.1, 3.1, f32::NAN, f32::INFINITY] {
+            assert_eq!(element_damage(100, iii, cut, 1.), None);
+        }
+        assert_eq!(element_damage(0, iii, 1., 1.), None);
+        // A Magic-Shrouding tear (x1.2) raises only the elemental part.
+        assert_eq!(element_damage(500, iii, 1., 1.2), Some((400, 580)));
+        assert_eq!(element_damage(500, iii, 0.8, 1.5), Some((400, 580)));
+        for boost in [0.9, 2.1, f64::NAN] {
+            assert_eq!(element_damage(500, iii, 1., boost), None);
+        }
+        assert_eq!(element_damage(1, iii, 0., 1.), Some((1, 1)));
+        assert_eq!(
+            element_damage(MAX_DAMAGE, iii, 2., 1.).map(|(_, total)| total),
+            Some(MAX_DAMAGE)
+        );
+    }
+    #[test]
+    fn physick_raises_buildup_within_bounds() {
+        assert_eq!(physick_buildup(50, 1.), 50);
+        assert_eq!(physick_buildup(50, 1.25), 63);
+        assert_eq!(physick_buildup(65, 1.25), 81);
+        assert_eq!(physick_buildup(50, 0.5), 50);
+        assert_eq!(physick_buildup(50, 9.), 75);
+        assert_eq!(physick_buildup(50, f64::NAN), 50);
+    }
+
+    #[test]
+    fn status_levels_are_bounded_and_frost_damage_uses_only_its_native_debuff() {
+        for kind in 0..3 {
+            for (level, power) in [(1, 35), (2, 50), (3, 65)] {
+                assert_eq!(status_spec(kind, level).unwrap().2, power);
+            }
+            assert!(status_spec(kind, 0).is_none());
+            assert!(status_spec(kind, 4).is_none());
+        }
+        assert!(status_spec(3, 1).is_none());
+        assert!((frost_damage_factor(260, 1.2) - 1.2).abs() < 0.00001);
+        for (state, value) in [(2, 1.2), (6, 1.2), (260, f32::NAN), (260, 100.), (260, -1.)] {
+            assert_eq!(frost_damage_factor(state, value), 1.);
+        }
+    }
+    thread_local! {
+        static STATUS_CALLS: std::cell::RefCell<(usize, usize, usize, bool)> = const { std::cell::RefCell::new((0, 0, 0, true)) };
+    }
+    unsafe extern "system" fn status_construct(p: *mut c_void) -> *mut c_void {
+        unsafe {
+            *(p as *mut Request) = Request::zeroed();
+        }
+        STATUS_CALLS.with(|v| v.borrow_mut().0 += 1);
+        p
+    }
+    unsafe extern "system" fn status_destruct(_: *mut c_void) {
+        STATUS_CALLS.with(|v| v.borrow_mut().2 += 1);
+    }
+    unsafe extern "system" fn status_origin(
+        out: *mut c_void,
+        request: *const c_void,
+    ) -> *mut c_void {
+        let request = unsafe { &*(request as *const Request) };
+        let source = u64::from_le_bytes(request.bytes[0x1d8..0x1e0].try_into().unwrap());
+        let target = u64::from_le_bytes(request.bytes[0x1e0..0x1e8].try_into().unwrap());
+        STATUS_CALLS.with(|v| v.borrow_mut().3 &= source == 0x1234 && target == 0x5678);
+        unsafe {
+            *(out as *mut [u8; 16]) = [0x5a; 16];
+        }
+        out
+    }
+    unsafe extern "system" fn status_apply(
+        target: *mut c_void,
+        effect: i32,
+        source: *const c_void,
+        flag: u8,
+        origin: *const c_void,
+        info: *mut c_void,
+        a: u8,
+        b: u8,
+        c: u8,
+    ) -> u8 {
+        let info = unsafe { &*(info as *const StatusInfo) };
+        let coefficient = f32::from_le_bytes(info.bytes[0x38..0x3c].try_into().unwrap());
+        let valid = target as usize == 0x5678
+            && source as usize == 0x1234
+            && effect == 6500
+            && [flag, a, b, c] == [0; 4]
+            && unsafe { *(origin as *const [u8; 16]) } == [0x5a; 16]
+            && (coefficient - 0.7).abs() < 0.000001
+            && info.bytes[0x1c..0x38].iter().all(|b| *b == 0)
+            && (0..0x1c)
+                .step_by(4)
+                .all(|i| info.bytes[i..i + 4] == 1_f32.to_le_bytes())
+            && info.bytes[0x40] == 0
+            && info.bytes[0x41] == 1;
+        STATUS_CALLS.with(|v| {
+            let mut v = v.borrow_mut();
+            v.1 += 1;
+            v.3 &= valid;
+        });
+        0 // Native false after non-proc buildup is still consumed once.
+    }
+    #[test]
+    fn native_status_dispatch_keeps_exact_source_metadata_and_cleans_up_once() {
+        STATUS_CALLS.with(|v| *v.borrow_mut() = (0, 0, 0, true));
+        let resolved = Resolved {
+            source: 0x1234,
+            target: 0x5678,
+            module: 0,
+            hp: 100,
+            boss: false,
+            direction: [0., 0., 1.],
+            protection: ProtectionObservation {
+                all_no_dead: Some(false),
+                all_no_damage: Some(false),
+                character_debug_no_dead: false,
+                character_debug_no_damage: false,
+                character_no_dead_state: false,
+                animation_immortality: false,
+            },
+        };
+        unsafe {
+            dispatch_affinity(
+                status_construct,
+                status_destruct,
+                status_origin,
+                status_apply,
+                resolved,
+                6500,
+                50,
+                35,
+            );
+        }
+        STATUS_CALLS.with(|v| assert_eq!(*v.borrow(), (1, 1, 1, true)));
+    }
 
     #[test]
     fn registered_player_boss_damage_uses_its_verified_module_without_accepting_unknown_classes() {
@@ -1212,6 +2093,22 @@ mod tests {
         reacted: Vec<i32>,
         notified: Vec<(i32, i32)>,
         destroyed: usize,
+        /// The game's own stance, when this stand-in has one, and what its processor spends.
+        stance: Option<f32>,
+        processor_poise: f32,
+        stance_at_react: Vec<Option<f32>>,
+        stance_at_process: Vec<Option<f32>>,
+        /// Whether the game's stance routine runs, and what it was handed.
+        spend_works: bool,
+        spend_calls: u32,
+        scale_at_spend: Vec<f32>,
+        /// The poise damage and stagger level each hit's request carried into the processor.
+        poise_at_process: Vec<f32>,
+        level_at_process: Vec<u8>,
+        /// The animation flags the enemy is under, and what they were when it was told to stagger.
+        hyper_armor: bool,
+        forced_break: bool,
+        flags_at_react: Vec<(bool, bool)>,
     }
 
     impl TestModule {
@@ -1229,8 +2126,77 @@ mod tests {
                 reacted: Vec::new(),
                 notified: Vec::new(),
                 destroyed: 0,
+                stance: None,
+                processor_poise: 0.,
+                stance_at_react: Vec::new(),
+                stance_at_process: Vec::new(),
+                spend_works: true,
+                spend_calls: 0,
+                scale_at_spend: Vec::new(),
+                poise_at_process: Vec::new(),
+                level_at_process: Vec::new(),
+                hyper_armor: false,
+                forced_break: false,
+                flags_at_react: Vec::new(),
             }
         }
+    }
+
+    unsafe fn test_stance_read(module: usize, _target: usize) -> Option<f32> {
+        unsafe { &*(module as *const TestModule) }.stance
+    }
+
+    unsafe fn test_stance_write(module: usize, _target: usize, value: f32) {
+        unsafe { &mut *(module as *mut TestModule) }.stance = Some(value);
+    }
+
+    unsafe fn test_spend(
+        module: usize,
+        _target: usize,
+        _source: usize,
+        request: *mut c_void,
+    ) -> bool {
+        let state = unsafe { &mut *(module as *mut TestModule) };
+        let bytes = unsafe { &(*(request as *const Request)).bytes };
+        let poise = f32::from_le_bytes(bytes[0x100..0x104].try_into().unwrap());
+        let scale = f32::from_le_bytes(bytes[0x244..0x248].try_into().unwrap());
+        state.spend_calls += 1;
+        state.scale_at_spend.push(scale);
+        if !state.spend_works {
+            return false;
+        }
+        if let Some(stance) = state.stance.as_mut() {
+            *stance = (*stance - poise * scale).max(0.);
+        }
+        true
+    }
+
+    unsafe fn test_stance_inspect(module: usize, _target: usize) -> Option<crate::stance::Real> {
+        let state = unsafe { &*(module as *const TestModule) };
+        state.stance.map(|stance| crate::stance::Real {
+            stance,
+            stance_max: 80.,
+            toughness: 0.,
+            damage_level: 0,
+            hyper_armor: state.hyper_armor,
+            forced_break: state.forced_break,
+            anim: -1,
+            broken_lock: u8::from(state.stance == Some(0.)),
+        })
+    }
+
+    unsafe fn test_stance_flags(
+        module: usize,
+        _target: usize,
+        set: Option<(bool, bool)>,
+    ) -> Option<(bool, bool)> {
+        let state = unsafe { &mut *(module as *mut TestModule) };
+        let previous = (state.hyper_armor, state.forced_break);
+        if let Some((hyper_armor, forced_break)) = set {
+            state.hyper_armor = hyper_armor;
+            state.forced_break = forced_break;
+        }
+        Some(previous)
     }
 
     fn request_damage(request: &Request) -> i32 {
@@ -1260,6 +2226,13 @@ mod tests {
             && request_source == source as u64
             && request.bytes[0x267] & 8 != 0;
         state.processed.push(damage);
+        state.stance_at_process.push(state.stance);
+        let poise = f32::from_le_bytes(request.bytes[0x20..0x24].try_into().unwrap());
+        state.poise_at_process.push(poise);
+        state.level_at_process.push(request.bytes[0x24]);
+        if let Some(stance) = state.stance.as_mut() {
+            *stance = (*stance - state.processor_poise).max(0.);
+        }
         if !state.immune {
             state.hp = state.hp.saturating_sub(damage).max(state.minimum_hp);
         }
@@ -1273,6 +2246,10 @@ mod tests {
         state
             .reacted
             .push(request_damage(unsafe { &*(request as *const Request) }));
+        state.stance_at_react.push(state.stance);
+        state
+            .flags_at_react
+            .push((state.hyper_armor, state.forced_break));
         if let Some((hp, max_hp, model)) = state.reaction_reset.take() {
             state.hp = hp;
             state.max_hp = max_hp;
@@ -1314,6 +2291,13 @@ mod tests {
             process: test_process,
             react: test_react,
             notify: test_notify,
+            stance: StanceIo {
+                read: test_stance_read,
+                write: test_stance_write,
+                inspect: test_stance_inspect,
+                flags: test_stance_flags,
+                spend: test_spend,
+            },
         }
     }
 
@@ -1359,9 +2343,14 @@ mod tests {
     fn test_hit(state: &mut TestModule, target: FieldInsHandle, damage: i32) -> Receipt {
         let resolved = test_resolved(state);
         unsafe {
-            test_sink().process_prepared(test_handle(0x10000000), target, damage, resolved, || {
-                Ok(test_observation(resolved.module, target))
-            })
+            test_sink().process_prepared(
+                test_handle(0x10000000),
+                target,
+                damage,
+                resolved,
+                crate::stance::Reaction::Always,
+                || Ok(test_observation(resolved.module, target)),
+            )
         }
         .unwrap()
     }
@@ -1413,6 +2402,223 @@ mod tests {
         assert_eq!(mirrored_hp(pre_hit_hp, 738), 1);
     }
 
+    fn stance_hit(
+        state: &mut TestModule,
+        target: FieldInsHandle,
+        reaction: crate::stance::Reaction,
+    ) -> Receipt {
+        let resolved = test_resolved(state);
+        unsafe {
+            test_sink().process_prepared(
+                test_handle(0x10000000),
+                target,
+                10,
+                resolved,
+                reaction,
+                || Ok(test_observation(resolved.module, target)),
+            )
+        }
+        .unwrap()
+    }
+
+    fn metered(damage: f32, capacity: f32) -> crate::stance::Reaction {
+        crate::stance::Reaction::Stance {
+            damage,
+            capacity,
+            recovery_ms: 60_000,
+        }
+    }
+
+    #[test]
+    fn only_the_meter_staggers_and_the_games_stance_follows_it() {
+        // Malenia's 80-stance row against a 22-stance sword whose hits the game's processor
+        // would, left alone, eat into: 30 real stance per hit.
+        let target = test_handle(0x6000_0001);
+        let mut state = TestModule::new(10_000);
+        state.stance = Some(80.);
+        state.processor_poise = 30.;
+        for hit in 1..=3 {
+            stance_hit(&mut state, target, metered(22., 80.));
+            assert!(
+                state.reacted.is_empty(),
+                "hit {hit} leaves the enemy standing"
+            );
+            assert_eq!(
+                state.stance,
+                Some(80.),
+                "whatever the game spent on hit {hit} is given back"
+            );
+        }
+        let receipt = stance_hit(&mut state, target, metered(22., 80.));
+        assert!(receipt.feedback_dispatched);
+        assert_eq!(state.reacted.len(), 1, "the fourth hit breaks the stance");
+        assert_eq!(
+            state.poise_at_process[..3],
+            [0., 0., 0.],
+            "a hit that leaves the enemy standing carries no poise damage"
+        );
+        assert!(
+            state.poise_at_process[3] > 80.,
+            "the breaking hit carries more poise damage than the enemy has stance"
+        );
+        assert_eq!(
+            state.level_at_process,
+            [SHORT_STAGGER, SHORT_STAGGER, SHORT_STAGGER, BREAK_LEVEL],
+            "and the stagger level the game's own hits use"
+        );
+        assert_eq!(
+            state.stance_at_process.last(),
+            Some(&Some(80.)),
+            "the game processes the breaking hit against the stance the enemy really has"
+        );
+        assert_eq!(
+            state.spend_calls, 1,
+            "the game's stance routine runs once, for the break"
+        );
+        assert_eq!(
+            state.scale_at_spend,
+            [1.],
+            "with the multiplier it reads set"
+        );
+        assert_eq!(
+            state.stance_at_react,
+            [Some(0.)],
+            "and has spent the stance before the reaction is asked for the stagger, as in the \
+             game's own order"
+        );
+        assert_eq!(state.stance, Some(0.));
+    }
+
+    #[test]
+    fn a_stance_break_overrides_hyper_armor_for_the_stagger_and_hands_it_back() {
+        // A boss mid-attack: hyper armor on, as an animation window sets it.
+        let target = test_handle(0x6000_0006);
+        let mut state = TestModule::new(10_000);
+        state.stance = Some(80.);
+        state.hyper_armor = true;
+        for hit in 1..=3 {
+            stance_hit(&mut state, target, metered(22., 80.));
+            assert!(state.reacted.is_empty(), "hit {hit}");
+            assert!(
+                state.hyper_armor && !state.forced_break,
+                "held hits leave the flags alone"
+            );
+        }
+        stance_hit(&mut state, target, metered(22., 80.));
+        assert_eq!(state.reacted.len(), 1);
+        assert_eq!(
+            state.flags_at_react,
+            [(false, true)],
+            "the stagger is requested with hyper armor lifted and the break forced"
+        );
+        assert!(
+            state.hyper_armor && !state.forced_break,
+            "and the enemy's own animation flags are put back straight after"
+        );
+        // The every-hit stagger never touches them.
+        let target = test_handle(0x6000_0007);
+        let mut legacy = TestModule::new(10_000);
+        legacy.stance = Some(80.);
+        legacy.hyper_armor = true;
+        stance_hit(&mut legacy, target, crate::stance::Reaction::Always);
+        assert_eq!(legacy.flags_at_react, [(true, false)]);
+        assert!(legacy.hyper_armor && !legacy.forced_break);
+    }
+
+    #[test]
+    fn an_unavailable_stance_routine_still_has_the_stance_spent_directly() {
+        let target = test_handle(0x6000_0008);
+        let mut state = TestModule::new(10_000);
+        state.stance = Some(80.);
+        state.spend_works = false;
+        for _ in 0..3 {
+            stance_hit(&mut state, target, metered(22., 80.));
+        }
+        assert_eq!(state.stance, Some(80.));
+        stance_hit(&mut state, target, metered(22., 80.));
+        assert_eq!(state.reacted.len(), 1);
+        assert_eq!(state.stance, Some(0.), "so the enemy at least flinches");
+        // When the routine does spend it, the bridge adds nothing: the value is the game's.
+        let target = test_handle(0x6000_0009);
+        let mut real = TestModule::new(10_000);
+        real.stance = Some(80.);
+        for _ in 0..4 {
+            stance_hit(&mut real, target, metered(22., 80.));
+        }
+        assert_eq!(real.spend_calls, 1);
+        assert_eq!(real.stance_at_react, [Some(0.)]);
+        assert_eq!(real.stance, Some(0.));
+    }
+
+    #[test]
+    fn a_hit_that_loses_no_hp_gives_stance_back_and_counts_for_nothing() {
+        let target = test_handle(0x6000_0002);
+        let mut state = TestModule::new(10_000);
+        state.stance = Some(80.);
+        state.processor_poise = 30.;
+        state.immune = true;
+        for _ in 0..6 {
+            stance_hit(&mut state, target, metered(22., 80.));
+        }
+        assert!(state.reacted.is_empty() && state.notified.is_empty());
+        assert_eq!(state.stance, Some(80.));
+        // Immune hits were never counted: it still takes four real hits to break.
+        state.immune = false;
+        for hit in 1..=3 {
+            stance_hit(&mut state, target, metered(22., 80.));
+            assert!(state.reacted.is_empty(), "hit {hit}");
+        }
+        stance_hit(&mut state, target, metered(22., 80.));
+        assert_eq!(state.reacted.len(), 1);
+    }
+
+    #[test]
+    fn the_every_hit_stagger_and_unreadable_stance_are_left_exactly_as_before() {
+        let target = test_handle(0x6000_0003);
+        let mut legacy = TestModule::new(10_000);
+        legacy.stance = Some(80.);
+        legacy.processor_poise = 30.;
+        stance_hit(&mut legacy, target, crate::stance::Reaction::Always);
+        assert_eq!(legacy.reacted.len(), 1, "every accepted hit still staggers");
+        assert_eq!(
+            legacy.poise_at_process,
+            [0.],
+            "and carries no poise damage of its own"
+        );
+        assert_eq!(legacy.level_at_process, [SHORT_STAGGER]);
+        assert_eq!(
+            legacy.spend_calls, 0,
+            "nor does it run the game's stance routine"
+        );
+        assert_eq!(
+            legacy.stance,
+            Some(50.),
+            "and the game's stance is not ours to touch"
+        );
+        let target = test_handle(0x6000_0004);
+        let mut unreadable = TestModule::new(10_000);
+        for _ in 0..4 {
+            stance_hit(&mut unreadable, target, metered(22., 80.));
+        }
+        assert_eq!(
+            unreadable.reacted.len(),
+            1,
+            "the meter still staggers on its own"
+        );
+        assert_eq!(
+            unreadable.stance, None,
+            "nothing is written where nothing could be read"
+        );
+        // An enemy without authored stance flinches on every hit and keeps its stance as it is.
+        let target = test_handle(0x6000_0005);
+        let mut soft = TestModule::new(10_000);
+        soft.stance = Some(0.);
+        stance_hit(&mut soft, target, metered(22., -1.));
+        stance_hit(&mut soft, target, metered(22., -1.));
+        assert_eq!(soft.reacted.len(), 2);
+        assert_eq!(soft.stance, Some(0.));
+    }
+
     #[test]
     fn processor_immunity_and_immortality_are_preserved_without_forced_death() {
         let target = test_handle(286261344);
@@ -1443,6 +2649,7 @@ mod tests {
                 test_handle(286261344),
                 738,
                 resolved,
+                crate::stance::Reaction::Always,
                 || Err("target vanished"),
             )
         };
@@ -1460,14 +2667,21 @@ mod tests {
         let resolved = test_resolved(&mut state);
         let mut observations = 0;
         let receipt = unsafe {
-            test_sink().process_prepared(test_handle(90), target, 100, resolved, || {
-                observations += 1;
-                if observations > 1 {
-                    Err("phase retired the old module")
-                } else {
-                    Ok(test_observation(resolved.module, target))
-                }
-            })
+            test_sink().process_prepared(
+                test_handle(90),
+                target,
+                100,
+                resolved,
+                crate::stance::Reaction::Always,
+                || {
+                    observations += 1;
+                    if observations > 1 {
+                        Err("phase retired the old module")
+                    } else {
+                        Ok(test_observation(resolved.module, target))
+                    }
+                },
+            )
         }
         .unwrap();
         assert_eq!(receipt.actual_delta, 100);

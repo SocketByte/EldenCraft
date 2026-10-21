@@ -89,8 +89,8 @@ mod runtime {
         Some(unsafe { value.assume_init() })
     }
     fn archive_table(repository: usize) -> Option<(usize, usize)> {
-        // The version-pinned executable's MsgRepository lookup (2.7.1.0 RVA
-        // 0x266fc40) verifies both indices, then follows repository+8 to the
+        // The version-pinned executable's MsgRepository lookup (2.7.2.0 RVA
+        // 0x2671370) verifies both indices, then follows repository+8 to the
         // language table, language[0] to the archive table, and archive[index]
         // to FMG data. The primary CEA's bracketed read has this same extra
         // language dereference. Never interpret the outer table as an FMG.

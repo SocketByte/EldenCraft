@@ -68,6 +68,24 @@ pub extern "C" fn eldencraft_overlay_input(buttons: u32, x: f32, y: f32, wheel: 
         crate::overlay_input::publish(unsafe { GetTickCount64() }, buttons, [x, y], wheel);
     }
 }
+/// The keys the compositor samples: ECHS order, then interaction and view.
+/// Atomics only. Returns the table length, writing at most `count` entries.
+///
+/// # Safety
+/// `out` must be null or point to `count` writable `u32`s.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn eldencraft_key_bindings(out: *mut u32, count: u32) -> u32 {
+    if !out.is_null() {
+        for (i, key) in crate::key_bindings::keys()
+            .iter()
+            .take(count as usize)
+            .enumerate()
+        {
+            unsafe { out.add(i).write(*key) };
+        }
+    }
+    crate::key_bindings::COUNT as u32
+}
 /// Separate menu navigation keeps the established ECHS gameplay button layout.
 #[unsafe(no_mangle)]
 pub extern "C" fn eldencraft_menu_input(buttons: u32, x: f32, y: f32, wheel: i32) {
@@ -169,7 +187,7 @@ struct SupportedVersion;
 impl GameVersion for SupportedVersion {
     const NAME: &'static str = "elden ring";
     fn from_lang_version(language: u16, version: &str) -> Option<Self> {
-        (language == LANG_ID_EN && version == "2.7.1.0").then_some(Self)
+        (language == LANG_ID_EN && version == "2.7.2.0").then_some(Self)
     }
 }
 
@@ -295,7 +313,7 @@ fn verify_executable() -> Result<(), String> {
     SupportedVersion::detect(&pe).map_err(|e| e.to_string())?;
     {
         const ANALYZED_SHA256: &str =
-            "1a3547101327f65d0c76da2f9190ac0aa66871ea42bae2aecc61e11a8b597891";
+            "f9118fea2cfd8fa3901e8060bfadb1552cb2471771ded8a5b662c4e298ffb328";
         let expected = std::env::var("ELDENCRAFT_EXPECTED_SHA256")
             .map_err(|_| "Missing analyzed executable hash.")?;
         if !expected.eq_ignore_ascii_case(ANALYZED_SHA256) {
@@ -349,7 +367,7 @@ pub fn start(module: usize) {
     }
     log(
         &tx,
-        "Verified worldwide product version 2.7.1.0 before SDK initialization.",
+        "Verified worldwide product version 2.7.2.0 before SDK initialization.",
     );
     match crate::crash::install(&crash_folder) {
         Ok(()) => log(
@@ -536,6 +554,16 @@ pub fn start(module: usize) {
             for trace in crate::minecraft_shield::take_hit_traces() {
                 log(&combat_log, format!("Minecraft shield hit: {trace:?}"));
             }
+            // One line per accepted melee or world hit: the meter's decision beside the game's
+            // own stance before the hit, after its processor, and as we left it.
+            for trace in crate::stance::take_traces() {
+                log(&combat_log, format!("Enemy stance: {trace:?}"));
+            }
+            // Diagnostics: boss state changes beside the player's jumps. Read-only.
+            let _ = std::panic::catch_unwind(|| unsafe { crate::stance_watch::sample() });
+            for line in crate::stance::take_watch() {
+                log(&combat_log, line);
+            }
             if crate::hosting::shutting_down() {
                 crate::movement_driver::set_input_ready(false);
                 crate::overlay_input::clear_look();
@@ -656,12 +684,16 @@ pub fn start(module: usize) {
         input_sequence: 0,
         last_camera_sample: Instant::now(),
         keys: [false; KEY_COUNT],
+        key_bindings: Default::default(),
         failed: false,
         movement,
         movement_error: None,
         last_movement_sample: Instant::now(),
         healing: crate::minecraft_healing::Driver::new(),
         glide_safety: crate::glide_safety::Driver::new(),
+        springs: Default::default(),
+        spring_launches: 0,
+        spring_flight: None,
         shared_world: crate::world_bridge::Driver::new(),
         last_gate: "",
         last_diagnostic: Instant::now(),
@@ -956,13 +988,24 @@ fn key_down(key: i32) -> bool {
     unsafe { GetAsyncKeyState(key) < 0 }
 }
 const KEY_COUNT: usize = 4;
-const KEYS: [i32; KEY_COUNT] = [0x75, 0x74, 0x73, 0x52]; // F6 composition, F5 view, F4 hitboxes, R interaction.
+/// F6 composition, view (F5), F4 hitboxes, interaction (R); view and
+/// interaction follow Minecraft's bindings.
+fn hotkeys() -> [i32; KEY_COUNT] {
+    let bound = crate::key_bindings::keys();
+    [
+        0x75,
+        bound[crate::key_bindings::PERSPECTIVE] as i32,
+        0x73,
+        bound[crate::key_bindings::INTERACT] as i32,
+    ]
+}
 struct Host {
     io: Sender<IoRequest>,
     commands: Receiver<Command>,
     map: Option<u32>,
     enabled: bool,
     keys: [bool; KEY_COUNT],
+    key_bindings: crate::key_bindings::Watcher,
     failed: bool,
     last_gate: &'static str,
     last_diagnostic: Instant,
@@ -996,6 +1039,11 @@ struct Host {
     debug_hitboxes: bool,
     movement: Option<crate::movement_driver::Driver>,
     glide_safety: crate::glide_safety::Driver,
+    /// The Spiritspring regions around the mounted rider.
+    springs: crate::spiritspring::Tracker,
+    /// Leaps counted so far, and when the latest began.
+    spring_launches: u64,
+    spring_flight: Option<Instant>,
     movement_error: Option<&'static str>,
     last_movement_sample: Instant,
     healing: crate::minecraft_healing::Driver,
@@ -1226,7 +1274,8 @@ impl Host {
                 )
             });
         // Vanilla getting-hit feedback: camera tilt toward the attacker and knockback
-        // away from it (none while a raised shield takes the hit).
+        // away from it (none while a raised shield takes the hit or a Leaden
+        // Hardtear holds the player's ground).
         if self.hurt.observe(state.identity, state.hp, now_ms) && compositor_ready {
             let away = unsafe { crate::hurt::away_from_attacker() };
             if let Ok(mut camera) = self.passthrough_camera.try_lock() {
@@ -1234,6 +1283,7 @@ impl Host {
             }
             if let (Some(away), Some(driver)) = (away, self.movement.as_mut())
                 && !using_item
+                && !crate::campaign_runtime::physick_unflinching()
             {
                 driver.knockback(away);
             }
@@ -1247,9 +1297,32 @@ impl Host {
         let mut sprinting = false;
         let mut gliding = false;
         let mut mounted = false;
+        // A Spiritspring is a MountJump region of the map. Only a mounted rider is tracked, and
+        // the leap and its landing stay fall-safe.
+        let rider = compositor_ready
+            && !state.native_ladder
+            && guest_gui == Some(false)
+            && self.shared_world.player_torrent(now_ms).is_some();
+        let mut spring_events = Vec::new();
+        let spring = if rider {
+            unsafe { self.springs.update(&mut spring_events) }
+        } else {
+            self.springs.reset();
+            None
+        };
+        for event in spring_events {
+            log(&self.io, event);
+        }
         if let Some(driver) = self.movement.as_mut() {
             driver.set_fluids(self.shared_world.fluids(now_ms));
             driver.set_combat(self.shared_world.player_combat(now_ms));
+            driver.set_spring(spring);
+            let launches = driver.status().spring_launches;
+            if launches != self.spring_launches {
+                self.spring_launches = launches;
+                self.spring_flight = Some(Instant::now());
+                log(&self.io, "Spiritspring leap taken.");
+            }
             driver.set_flight(self.shared_world.player_flight(now_ms));
             driver.set_torrent(self.shared_world.player_torrent(now_ms));
             let enabled = movement_wanted && movement_input_ready;
@@ -1407,11 +1480,9 @@ impl Host {
                 let _ = unsafe { combat.authorize(compositor_ready) };
             }
         }
-        // Exact ECHS order; Y (bit 22) whistles for Torrent.
-        let input_keys = [
-            0x01, 0x02, 0x45, 0x1B, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x20,
-            0x10, 0x11, 0x57, 0x53, 0x41, 0x44, 0x51, 0x46, 0x59,
-        ];
+        // Exact ECHS order, as Minecraft binds it; bit 22 whistles for Torrent.
+        let bound = crate::key_bindings::keys();
+        let input_keys = &bound[..crate::key_bindings::GAMEPLAY];
         // ReShade owns raw input while its GUI capture blocks the game's OS input APIs.
         // Prefer that stream whenever fresh; never sample the blocked cursor during a guest GUI.
         let (mut buttons, cursor, mut wheel) = if let Some(raw) = raw {
@@ -1421,7 +1492,8 @@ impl Host {
         } else {
             (
                 input_keys.iter().enumerate().fold(0u32, |value, (i, key)| {
-                    value | ((unsafe { GetAsyncKeyState(*key) } < 0) as u32) << i
+                    value
+                        | ((*key != 0 && unsafe { GetAsyncKeyState(*key as i32) } < 0) as u32) << i
                 }),
                 cursor_normalized(),
                 0,
@@ -1506,6 +1578,18 @@ impl Host {
                     .shared_world
                     .player_combat(now_ms)
                     .is_some_and(|s| s.protect_fall);
+        // A leap is fall-safe from takeoff until the rider has been back on the ground a moment.
+        if let Some(since) = self.spring_flight
+            && (since.elapsed() > Duration::from_secs(40)
+                || since.elapsed() > Duration::from_secs(3) && state.grounded)
+        {
+            self.spring_flight = None;
+        }
+        let spring_leap = self.spring_flight.is_some()
+            || compositor_ready
+                && rider
+                && crate::spiritspring::leaping(&unsafe { crate::spiritspring::effects() });
+        let gliding = gliding || spring_leap;
         unsafe {
             self.glide_safety
                 .tick(gliding, protected_travel, state.grounded, now_ms);
@@ -1714,7 +1798,10 @@ impl Host {
             unsafe { campaign.tick(campaign_allowed && !passive_grace_reset, campaign_allowed) };
         }
         let command = self.commands.try_recv().ok();
-        let now = KEYS.map(|key| key != 0 && unsafe { GetAsyncKeyState(key) < 0 });
+        if let Some(event) = self.key_bindings.poll(unsafe { GetTickCount64() }) {
+            log(&self.io, event);
+        }
+        let now = hotkeys().map(|key| key != 0 && unsafe { GetAsyncKeyState(key) < 0 });
         let pressed: [bool; KEY_COUNT] = std::array::from_fn(|i| now[i] && !self.keys[i]);
         self.keys = now;
         if !foreground() {

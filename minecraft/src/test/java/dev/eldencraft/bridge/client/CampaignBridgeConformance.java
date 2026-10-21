@@ -20,12 +20,29 @@ public final class CampaignBridgeConformance {
 
   public static void main(String[] args) throws Exception {
     var s = decode(VALID);
+    check(s.whetblades().isEmpty(), "older hosts cannot unlock status affinities");
+    var unlocked =
+        decode(
+            VALID.replace(
+                "\"version\":1", "\"version\":1,\"whetblades\":[\"black\",\"glintstone\"]"));
+    check(
+        unlocked.whetblades().containsAll(java.util.Set.of("black", "glintstone")),
+        "native key-item acquisition unlocks affinities");
+    reject(VALID.replace("\"version\":1", "\"version\":1,\"whetblades\":[\"black\",\"black\"]"));
+    reject(VALID.replace("\"version\":1", "\"version\":1,\"whetblades\":[\"unknown\"]"));
+    reject(VALID.replace("\"version\":1", "\"version\":1,\"whetblades\":\"black\""));
     check(s.saveLoad() == 0, "older hosts retain one welcome guide per campaign session");
     check(
         decode(VALID.replace("\"seq\":1", "\"seq\":1,\"save_load\":2")).saveLoad() == 2,
         "same-save native reload has an independent presentation identity");
     reject(VALID.replace("\"seq\":1", "\"seq\":1,\"save_load\":-1"));
     reject(VALID.replace("\"seq\":1", "\"seq\":1,\"save_load\":1.5"));
+    check(s.warp() == 0, "older hosts report no teleports");
+    check(
+        decode(VALID.replace("\"seq\":1", "\"seq\":1,\"warp\":3")).warp() == 3,
+        "completed native teleports refill the flask");
+    reject(VALID.replace("\"seq\":1", "\"seq\":1,\"warp\":-1"));
+    reject(VALID.replace("\"seq\":1", "\"seq\":1,\"warp\":true"));
     String boss =
         "{\"id\":\"slot-0-boss-1\",\"name\":\"Margit, the Fell Omen\",\"hp\":4000,\"max_hp\":6000}";
     String bossFrame =
@@ -54,6 +71,25 @@ public final class CampaignBridgeConformance {
     check(s.runes() == 12000 && s.defeated().contains("margit"), "native wallet and victory");
     check(
         s.merchant().token().equals("456-1") && s.ack().amount() == 400, "menu and debit identity");
+    check(s.ack().reason().isEmpty(), "older hosts can omit purchase failure details");
+    String reason = "Dedicated save missing or ambiguous; set nativeSavePath in campaign.json";
+    check(
+        decode(VALID.replace("\"amount\":400", "\"amount\":400,\"reason\":\"" + reason + "\""))
+            .ack()
+            .reason()
+            .equals(reason),
+        "native purchase rejection survives the bridge for display and support logs");
+    check(
+        decode(VALID.replace("\"amount\":400", "\"amount\":400,\"reason\":\"\""))
+            .ack()
+            .reason()
+            .isEmpty(),
+        "successful acknowledgements can carry an empty reason");
+    reject(VALID.replace("\"amount\":400", "\"amount\":400,\"reason\":null"));
+    reject(VALID.replace("\"amount\":400", "\"amount\":400,\"reason\":1"));
+    reject(VALID.replace("\"amount\":400", "\"amount\":400,\"reason\":\"bad\\nreason\""));
+    reject(
+        VALID.replace("\"amount\":400", "\"amount\":400,\"reason\":\"" + "x".repeat(513) + "\""));
     check(
         s.guardSeq() == 3 && s.guardDamage() == 12.5,
         "zero-HP guard expenditure survives transport");

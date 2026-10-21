@@ -272,11 +272,25 @@ public final class CampaignShops {
           }
           case "rejected" -> {
             ledger.rejected(p.id());
-            status = "Purchase declined. No item was delivered.";
+            status =
+                ack.reason().isBlank()
+                    ? "Purchase declined. No item was delivered."
+                    : "Purchase declined: " + ack.reason();
+            LOG.warn("Campaign purchase {} ({}) rejected: {}", p.id(), p.offerId(), ack.reason());
             return;
           }
           case "uncertain" -> {
-            status = "Native save could not confirm this purchase. It is held for recovery.";
+            String message =
+                ack.reason().isBlank()
+                    ? "Native save could not confirm this purchase. It is held for recovery."
+                    : "Purchase held for recovery: " + ack.reason();
+            if (!status.equals(message))
+              LOG.warn(
+                  "Campaign purchase {} ({}) held for recovery: {}",
+                  p.id(),
+                  p.offerId(),
+                  ack.reason());
+            status = message;
             return;
           }
           default -> {}

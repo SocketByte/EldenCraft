@@ -15,6 +15,12 @@ public final class CampaignHud {
   private static long recoveryUntil;
   private static final long GUARD_BREAK_NANOS = 900_000_000L;
 
+  /** When the bar was last emptied by an action, 0 while it is not exhausted. */
+  private static long exhaustedSince;
+
+  /** The bright flash when an action empties the bar, then a steady pulse while recovery waits. */
+  private static final double DEPLETED_FLASH_SECONDS = .35, DEPLETED_PULSES_PER_SECOND = 2.5;
+
   private CampaignHud() {}
 
   public static void initialize() {
@@ -31,9 +37,10 @@ public final class CampaignHud {
         || !settings.enabled()) {
       TRAIL.clear();
       recoveryUntil = 0;
+      exhaustedSince = 0;
       return;
     }
-    double value = CampaignCombat.stamina(client.player),
+    double value = CampaignCombat.hudStamina(client.player),
         maximum = CampaignCombat.maximum(client.player);
     if (maximum <= 0 || gui.guiWidth() < 48 || gui.guiHeight() < 64) return;
     int width = Math.min(settings.width(), gui.guiWidth() - 24), height = settings.height();
@@ -65,14 +72,21 @@ public final class CampaignHud {
             ? 1 - (double) sinceBreak / GUARD_BREAK_NANOS
             : 0;
     if (flash > 0) left += (int) Math.round(Math.sin(sinceBreak / 1e9 * 55) * 3 * flash);
+    // An action emptied the bar: it flashes red, then pulses for as long as the longer recovery
+    // delay keeps it from refilling.
+    double depleted = depleted(now);
+    int border =
+        flash > 0 ? blend(settings.border(), settings.exhausted(), flash) : settings.border();
     frame(
         gui,
         left,
         top,
         width,
         height,
-        flash > 0 ? blend(settings.border(), settings.exhausted(), flash) : settings.border(),
-        settings.background());
+        depleted > 0 ? blend(border, settings.depleted(), depleted) : border,
+        depleted > 0
+            ? blend(settings.background(), settings.depleted(), depleted * .45)
+            : settings.background());
     int inner = width - 4, innerHeight = height - 4;
     int trailWidth = (int) Math.round(inner * trail),
         fillWidth = (int) Math.round(inner * fraction);
@@ -87,6 +101,15 @@ public final class CampaignHud {
           top + 2 + innerHeight,
           tint(fill, recovering ? 1.28 : 1.13),
           tint(fill, .72));
+    if (depleted > 0) {
+      int alpha = (int) Math.round(depleted * 0x70);
+      gui.fill(
+          left + 2,
+          top + 2,
+          left + 2 + inner,
+          top + 2 + innerHeight,
+          (alpha << 24) | (settings.depleted() & 0xffffff));
+    }
     if (flash > 0) {
       int alpha = (int) Math.round(flash * 0x90);
       gui.fill(
@@ -119,6 +142,19 @@ public final class CampaignHud {
           true);
       gui.pose().popMatrix();
     }
+  }
+
+  /** How strongly the bar shows exhaustion right now, from 0 (not exhausted) to 1. */
+  private static double depleted(long now) {
+    if (!CampaignCombat.exhausted()) {
+      exhaustedSince = 0;
+      return 0;
+    }
+    if (exhaustedSince == 0) exhaustedSince = now;
+    double seconds = (now - exhaustedSince) / 1e9;
+    double burst = Math.max(0, 1 - seconds / DEPLETED_FLASH_SECONDS);
+    double pulse = .55 + .3 * Math.cos(seconds * 2 * Math.PI * DEPLETED_PULSES_PER_SECOND);
+    return Math.max(burst, pulse);
   }
 
   static int staminaTop(

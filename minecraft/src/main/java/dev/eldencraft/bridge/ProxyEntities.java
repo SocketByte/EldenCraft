@@ -28,6 +28,7 @@ public final class ProxyEntities implements ModInitializer {
   public void onInitialize() {
     SharedWorldBlocks.initialize();
     VeinwearEasterEgg.initialize();
+    PhysickItems.initialize();
     FabricDefaultAttributeRegistry.register(
         TYPE,
         LivingEntity.createLivingAttributes()

@@ -76,7 +76,7 @@ jobs:
           2. Sign in to Steam and close both games.
           3. Double-click **EldenCraft.cmd** and follow the first-run setup.
 
-          Requires Windows 10/11 x64, Elden Ring **2.7.1.0** (Steam) and Minecraft Java Edition **26.3**.
+          Requires Windows 10/11 x64, Elden Ring **2.7.2.0** (Steam) and Minecraft Java Edition **26.3**.
           Updating? Extract into a new folder and run its \`EldenCraft.cmd\`; your worlds, saves and settings carry over.
 
           \`SHA256 $SHA256\`

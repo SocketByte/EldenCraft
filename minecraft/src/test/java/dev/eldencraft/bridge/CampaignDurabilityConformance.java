@@ -15,7 +15,8 @@ final class CampaignDurabilityConformance {
 
   static int verify(CampaignConfig shipped) throws Exception {
     checks = 0;
-    for (var item : List.of(Items.WOODEN_SWORD, Items.WOODEN_AXE, Items.WOODEN_SPEAR, Items.SHIELD)) {
+    for (var item :
+        List.of(Items.WOODEN_SWORD, Items.WOODEN_AXE, Items.WOODEN_SPEAR, Items.SHIELD)) {
       var stack = new ItemStack(item);
       stack.setDamageValue(stack.getMaxDamage() - 1);
       CampaignCombat.tune(stack);
@@ -30,7 +31,9 @@ final class CampaignDurabilityConformance {
           ignored -> {
             throw new AssertionError("unbreakable equipment invoked its break callback");
           });
-      check(stack.getCount() == 1 && stack.getDamageValue() == damage, "wear cannot consume the item");
+      check(
+          stack.getCount() == 1 && stack.getDamageValue() == damage,
+          "wear cannot consume the item");
       var saved = stack.getComponents();
       CampaignCombat.tune(stack);
       check(saved.equals(stack.getComponents()), "repeated tuning preserves all components");
@@ -38,7 +41,25 @@ final class CampaignDurabilityConformance {
     for (var item : List.of(Items.STONE_SWORD, Items.IRON_SWORD, Items.WOODEN_PICKAXE, Items.BOW)) {
       var stack = new ItemStack(item);
       CampaignCombat.tune(stack);
-      check(!stack.has(DataComponents.UNBREAKABLE) && stack.isDamageableItem(), "other gear still wears");
+      check(
+          !stack.has(DataComponents.UNBREAKABLE) && stack.isDamageableItem(),
+          "other gear still wears");
+      int base = new ItemStack(item).getMaxDamage();
+      check(
+          stack.getMaxDamage() == base * CampaignCombat.DURABILITY_SCALE,
+          "campaign gear lasts longer than vanilla");
+      CampaignCombat.tune(stack);
+      check(
+          stack.getMaxDamage() == base * CampaignCombat.DURABILITY_SCALE,
+          "repeated tuning scales durability once");
+    }
+    for (var item : List.of(Items.IRON_HELMET, Items.DIAMOND_CHESTPLATE)) {
+      var stack = new ItemStack(item);
+      int base = stack.getMaxDamage();
+      CampaignCombat.tune(stack);
+      check(
+          stack.getMaxDamage() == base * CampaignCombat.DURABILITY_SCALE,
+          "campaign armor lasts longer than vanilla");
     }
     var disabled = shipped.raw();
     disabled.addProperty("enabled", false);
@@ -47,6 +68,10 @@ final class CampaignDurabilityConformance {
       var shield = new ItemStack(Items.SHIELD);
       CampaignCombat.tune(shield);
       check(shield.isDamageableItem(), "disabled campaigns preserve vanilla shield durability");
+      var sword = new ItemStack(Items.IRON_SWORD);
+      int base = sword.getMaxDamage();
+      CampaignCombat.tune(sword);
+      check(sword.getMaxDamage() == base, "disabled campaigns preserve vanilla gear durability");
     } finally {
       CampaignConfig.install(shipped);
     }

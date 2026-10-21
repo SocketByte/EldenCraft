@@ -129,6 +129,12 @@ public final class RangedConformance {
     check(input.permits(7, 10, OWNER, 1_250_000_000), "fresh normal release remains authorized");
     check(!input.permits(7, 10, OWNER, 1_250_000_001), "stale release cannot consume ammo");
     check(!input.permits(7, 10, OWNER, 999_999_999), "clock rollback cannot authorize");
+    check(
+        input.permits(7, 10, OWNER, 1_900_000_000, RangedInput.HELD_NANOS),
+        "a held draw survives a brief host hitch");
+    check(
+        !input.permits(7, 10, OWNER, 2_000_000_001, RangedInput.HELD_NANOS),
+        "a held draw still ends when host input is lost");
     check(!input.permits(8, 10, OWNER, 1_000_000_001), "publisher replacement cannot fire");
     check(!input.permits(7, 11, OWNER, 1_000_000_001), "map replacement cannot fire");
     check(

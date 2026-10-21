@@ -10,8 +10,12 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 
-/** Only the native ESD's currently visible, enabled rows are selectable. */
+/**
+ * Only the native ESD's currently visible, enabled rows are selectable. A grace menu also offers
+ * EldenCraft's own Wondrous Physick row, which never reaches the native script.
+ */
 final class InteractionScreen extends Screen {
+  static final String PHYSICK = "physick";
   private final long session;
   private InteractionProtocol.Menu menu;
   private List<InteractionProtocol.Choice> choices;
@@ -27,7 +31,7 @@ final class InteractionScreen extends Screen {
     super(Component.literal(menu.title()));
     this.session = session;
     this.menu = menu;
-    choices = visibleChoices(menu);
+    choices = visibleChoices(menu, physickOffered());
   }
 
   long session() {
@@ -42,16 +46,47 @@ final class InteractionScreen extends Screen {
     return pending;
   }
 
-  private static List<InteractionProtocol.Choice> visibleChoices(InteractionProtocol.Menu menu) {
-    return menu.choices().stream()
-        .filter(c -> !InteractionProtocol.unusedProgression(menu, c.text()))
-        .toList();
+  /** Native rows, plus the Physick row after Sort chest (or last) at a grace with the flask. */
+  static List<InteractionProtocol.Choice> visibleChoices(
+      InteractionProtocol.Menu menu, boolean physick) {
+    var rows =
+        new ArrayList<>(
+            menu.choices().stream()
+                .filter(c -> !InteractionProtocol.unusedProgression(menu, c.text()))
+                .toList());
+    if (physick && menu.kind().equals("grace")) {
+      int at = rows.size();
+      for (int i = 0; i < rows.size(); i++)
+        if (rows.get(i).action().equals("ender_chest")) at = i + 1;
+      rows.add(
+          at,
+          new InteractionProtocol.Choice(Integer.MIN_VALUE, "Mix Wondrous Physick", true, PHYSICK));
+    }
+    return List.copyOf(rows);
+  }
+
+  private boolean physickOffered() {
+    var snapshot = CampaignInteractions.snapshot();
+    return snapshot != null
+        && snapshot.menu() != null
+        && snapshot.menu().token() == menu.token()
+        && CampaignPhysick.available(snapshot);
+  }
+
+  @Override
+  public void tick() {
+    var refreshed = visibleChoices(menu, physickOffered());
+    if (!refreshed.equals(choices)) {
+      choices = refreshed;
+      selected = Math.clamp(selected, 0, Math.max(0, choices.size() - 1));
+      rebuildWidgets();
+    }
   }
 
   void update(InteractionProtocol.Menu value) {
     if (value.equals(menu)) return;
     menu = value;
-    choices = visibleChoices(menu);
+    choices = visibleChoices(menu, physickOffered());
     selected = Math.clamp(selected, 0, Math.max(0, choices.size() - 1));
     pending = false;
     status = "";
@@ -116,6 +151,10 @@ final class InteractionScreen extends Screen {
     var choice = choices.get(index);
     if (!choice.enabled()) return;
     selected = index;
+    if (choice.action().equals(PHYSICK)) {
+      minecraft.gui.setScreen(new CampaignPhysickScreen(this, session, menu.token()));
+      return;
+    }
     if (CampaignInteractions.select(menu.token(), choice.id())) {
       pending = true;
       status = "Waiting...";
@@ -221,9 +260,7 @@ final class InteractionScreen extends Screen {
     MinecraftUi.panel(gui, layout.x(), layout.y(), layout.width(), layout.height());
     String heading =
         MinecraftUi.clipped(
-            font,
-            menu.kind().equals("dialog") ? "Interaction" : menu.title(),
-            layout.width() - 24);
+            font, menu.kind().equals("dialog") ? "Interaction" : menu.title(), layout.width() - 24);
     gui.text(font, heading, layout.x() + 12, layout.y() + 12, MinecraftUi.TEXT, false);
     if (width < 100
         || height < 90

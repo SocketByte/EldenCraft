@@ -34,6 +34,19 @@ public final class InteractionConformance {
     check(
         s.prompt().text().equals("Open door") && s.menu().choices().get(0).id() == 10,
         "native prompt and non-contiguous ESD row IDs survive");
+    check(
+        s.subtitle().equals("Welcome, traveller.") && s.speaker().isEmpty(),
+        "an older host's subtitle carries no speaker");
+    var spoken =
+        decode(
+            VALID.replace(
+                "{\"text\":\"Welcome, traveller.\"}",
+                "{\"text\":\"Welcome.\",\"speaker\":\"Kale\"}"));
+    check(
+        spoken.speaker().equals("Kale") && spoken.subtitle().equals("Welcome."),
+        "speaker survives");
+    reject(
+        VALID.replace("{\"text\":\"Welcome, traveller.\"}", "{\"text\":\"Hi\",\"speaker\":\" \"}"));
     check(InteractionProtocol.selectable(s, 2, 10), "enabled current native row can be selected");
     check(
         !InteractionProtocol.selectable(s, 1, 10)
@@ -118,6 +131,41 @@ public final class InteractionConformance {
                     <= dialogLayout.y() + dialogLayout.height() - 28,
             "long dialog body and choices stay above footer");
       }
+    for (int w : new int[] {120, 320, 640, 1920})
+      for (int h : new int[] {120, 240, 480, 1080})
+        for (int lines : new int[] {1, 3, 9})
+          for (boolean header : new boolean[] {false, true}) {
+            var box = DialogueLayout.create(w, h, 9, lines, header);
+            check(
+                box.x() >= 0
+                    && box.y() >= 0
+                    && box.x() + box.width() <= Math.max(w, 32)
+                    && box.rows() >= 1
+                    && box.rows() <= DialogueLayout.MAX_ROWS
+                    && box.textWidth() == box.width() - 2 * DialogueLayout.PADDING
+                    && DialogueLayout.textWidth(w) == box.textWidth(),
+                "dialogue box stays inside the viewport and reports its text width");
+            check(
+                box.rowY(box.rows() - 1) + 9 <= box.hintY()
+                    && (!header || box.headerY() + 9 <= box.textY())
+                    && box.hintY() + 9 <= box.y() + box.height(),
+                "dialogue header, rows and skip hint do not overlap");
+            if (h >= 240)
+              check(
+                  box.y() + box.height() <= h - 64,
+                  "dialogue box floats above the status rows and hotbar");
+          }
+    check(
+        DialogueLayout.pageAt(new int[] {100}, 99999) == 0
+            && DialogueLayout.pageAt(new int[0], 5) == 0
+            && DialogueLayout.pageAt(new int[] {100, 100, 100}, 0) == 0
+            && DialogueLayout.pageAt(new int[] {100, 100, 100}, 6499) == 0
+            && DialogueLayout.pageAt(new int[] {100, 100, 100}, 6500) == 1
+            && DialogueLayout.pageAt(new int[] {100, 100, 100}, 13000) == 2
+            && DialogueLayout.pageAt(new int[] {100, 100, 100}, 10_000_000) == 2
+            && DialogueLayout.pageAt(new int[] {1, 1}, 1799) == 0
+            && DialogueLayout.pageAt(new int[] {1, 1}, 1800) == 1,
+        "a long speech pages by reading time and rests on its last page");
     var health = new InteractionFeedHealth();
     check(
         health.observe(123, true, false, 0) == InteractionFeedHealth.Change.NONE

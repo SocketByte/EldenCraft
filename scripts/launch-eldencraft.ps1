@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $config = Get-Content -LiteralPath (Join-Path $repo 'config\local.json') -Raw | ConvertFrom-Json
 $gameExe = Join-Path $config.elden_ring_game_dir 'eldenring.exe'
-$supportedHash = '1a3547101327f65d0c76da2f9190ac0aa66871ea42bae2aecc61e11a8b597891'
+$supportedHash = 'f9118fea2cfd8fa3901e8060bfadb1552cb2471771ded8a5b662c4e298ffb328'
 if (-not (Test-Path -LiteralPath $gameExe)) { throw 'Configured Elden Ring executable does not exist.' }
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath $gameExe).Hash -ine $supportedHash) {
     throw 'The game executable changed. Revalidate SDK compatibility before launching the native host.'

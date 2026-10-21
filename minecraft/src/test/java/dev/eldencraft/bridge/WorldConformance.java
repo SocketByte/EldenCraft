@@ -63,6 +63,59 @@ public final class WorldConformance {
     }
   }
 
+  /** An unchanged terrain is sent once; later frames name it and the reader's copy fills in. */
+  private static void omittedTerrain() throws Exception {
+    var full = fixture();
+    var boxes = new JsonArray();
+    boxes.add(JsonWire.vector(0, -1, 0, 1, -.9375, 1));
+    boxes.add(JsonWire.vector(1, -1, 0, 2, -.9375, 1));
+    var materials = new JsonArray();
+    materials.add(3);
+    materials.add(65535);
+    full.add("terrain_boxes", boxes);
+    full.add("terrain_materials", materials);
+    full.addProperty("terrain_revision", 7);
+    var first = host(full);
+    var cached = WorldProtocol.Terrain.of(first);
+    var omitted = fixture();
+    omitted.addProperty("terrain_revision", 7);
+    omitted.addProperty("terrain_omitted", true);
+    omitted.add("terrain_materials", new JsonArray());
+    var reused = WorldProtocol.decode(bytes(omitted), 1000, cached);
+    check(
+        reused.terrain().equals(first.terrain())
+            && reused.terrainMaterials().equals(first.terrainMaterials())
+            && reused.terrainRevision() == 7,
+        "omitted terrain is the cached copy");
+    check(
+        WorldProtocol.decode(bytes(full), 1000, cached).terrain().size() == 2,
+        "a full frame still decodes with a cache");
+    invalid(bytes(omitted), 1000, "omitted terrain needs a cache");
+    for (var other :
+        new WorldProtocol.Terrain[] {
+          new WorldProtocol.Terrain(2, 1, 100, 7, cached.boxes(), cached.materials()),
+          new WorldProtocol.Terrain(1, 2, 100, 7, cached.boxes(), cached.materials()),
+          new WorldProtocol.Terrain(1, 1, 101, 7, cached.boxes(), cached.materials()),
+          new WorldProtocol.Terrain(1, 1, 100, 6, cached.boxes(), cached.materials())
+        }) {
+      try {
+        WorldProtocol.decode(bytes(omitted), 1000, other);
+        throw new AssertionError(
+            "another host, epoch, map or revision cannot fill omitted terrain");
+      } catch (java.io.IOException expected) {
+        checks++;
+      }
+    }
+    var smuggled = omitted.deepCopy();
+    smuggled.add("terrain_boxes", boxes);
+    try {
+      WorldProtocol.decode(bytes(smuggled), 1000, cached);
+      throw new AssertionError("an omitted frame carries no boxes");
+    } catch (java.io.IOException expected) {
+      checks++;
+    }
+  }
+
   public static void main(String[] args) throws Exception {
     var base = fixture();
     var h = host(base);
@@ -125,6 +178,7 @@ public final class WorldConformance {
     } catch (java.io.IOException expected) {
       checks++;
     }
+    omittedTerrain();
     var origin =
         new WorldOrigin(
             2, 100, 1, new WorldOrigin.Vec(100, -30, 200), new WorldOrigin.Vec(4096, 64, 0));
@@ -197,6 +251,17 @@ public final class WorldConformance {
     check(
         !SharedTerrain.shape(columns).isEmpty(),
         "a block holds refined floor columns from neighbouring host cells");
+    var stepwise = net.minecraft.world.phys.shapes.Shapes.empty();
+    for (var piece : columns)
+      stepwise =
+          net.minecraft.world.phys.shapes.Shapes.or(
+              stepwise, net.minecraft.world.phys.shapes.Shapes.create(piece));
+    var built = SharedTerrain.shape(columns);
+    check(
+        !net.minecraft.world.phys.shapes.Shapes.joinIsNotEmpty(
+                stepwise, built, net.minecraft.world.phys.shapes.BooleanOp.NOT_SAME)
+            && stepwise.optimize().toAabbs().equals(built.toAabbs()),
+        "one final optimize yields the same terrain shape as merging piece by piece");
     columns.add(new net.minecraft.world.phys.AABB(0, 0, 0, 1, .1, 1));
     try {
       SharedTerrain.shape(columns);

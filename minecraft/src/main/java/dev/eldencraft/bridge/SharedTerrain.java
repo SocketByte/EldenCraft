@@ -68,7 +68,8 @@ public final class SharedTerrain {
           || box.getXsize() <= 0
           || box.getYsize() <= 0
           || box.getZsize() <= 0) throw new IllegalArgumentException("Terrain shape bounds");
-      out = Shapes.or(out, Shapes.create(box));
+      // One optimize at the end: the union is the same, without re-merging after every piece.
+      out = Shapes.joinUnoptimized(out, Shapes.create(box), BooleanOp.OR);
     }
     return out.optimize();
   }

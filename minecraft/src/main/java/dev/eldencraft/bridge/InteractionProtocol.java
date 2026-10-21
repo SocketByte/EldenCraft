@@ -28,6 +28,7 @@ public final class InteractionProtocol {
       Prompt prompt,
       Menu menu,
       String subtitle,
+      String speaker,
       boolean blocking,
       Input input) {}
 
@@ -83,8 +84,12 @@ public final class InteractionProtocol {
           new Menu(
               integer(m, "token", 1, Long.MAX_VALUE), kind, text(m, "title", 4096, true), choices);
     }
-    String subtitle = "";
-    if (present(j, "subtitle")) subtitle = text(object(j, "subtitle"), "text", 4096, true);
+    String subtitle = "", speaker = "";
+    if (present(j, "subtitle")) {
+      var line = object(j, "subtitle");
+      subtitle = text(line, "text", 4096, true);
+      if (present(line, "speaker")) speaker = text(line, "speaker", 256, false).strip();
+    }
     boolean blocking = j.has("blocking") && bool(j, "blocking");
     Input input = null;
     if (present(j, "input")) {
@@ -104,6 +109,7 @@ public final class InteractionProtocol {
         prompt,
         menu,
         subtitle,
+        speaker,
         blocking,
         input);
   }

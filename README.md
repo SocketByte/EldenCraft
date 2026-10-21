@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img alt="Elden Ring 2.7.1.0" src="https://img.shields.io/badge/Elden_Ring-2.7.1.0-c9a24a?style=flat-square&labelColor=1b1a17">
+  <img alt="Elden Ring 2.7.2.0" src="https://img.shields.io/badge/Elden_Ring-2.7.2.0-c9a24a?style=flat-square&labelColor=1b1a17">
   <img alt="Minecraft Java 26.3" src="https://img.shields.io/badge/Minecraft_Java-26.3-62b47a?style=flat-square&labelColor=1b1a17">
   <img alt="Windows 10 and 11 x64" src="https://img.shields.io/badge/Windows-10%20%7C%2011%20x64-0078d6?style=flat-square&labelColor=1b1a17">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-6c757d?style=flat-square&labelColor=1b1a17"></a>
@@ -108,11 +108,13 @@ We also took a novel approach to modelling the world, which means no janky colli
 | --- | --- |
 | **Progression** | From wood to netherite across **159** boss rewards. Every remembrance is a milestone. |
 | **Arsenal** | Swords, shields, bows, crossbows, TNT, ender pearls, elytra, golden and enchanted golden apples, and totems of undying: all real Minecraft items. A totem in either hand cheats death from an Elden Ring blow too, and its absorption hearts soak up the next hits. |
+| **Enchantments** | Sharpness, Looting (bonus runes), Unbreaking and Protection, plus native Poison, Bleeding and Frostbite statuses and Fire, Lightning, Magic and Holy elements unlocked by Elden Ring whetblades. Shields have their own: Guarding Ability, Healing, Explosive, Riposte, Second Wind, Stalwart, Resounding and Last Hurrah. Tables explain unlocks; weapon tooltips show scaled damage, attack speed, stamina and enchantment effects. |
 | **Enemy drops** | Ordinary enemies drop bread, arrows, crafting junk and the occasional golden apple where they fall; better food joins as you climb the material tiers. Boss rewards go straight to your inventory. |
 | **Boss bars** | Native boss health in Minecraft boss bars, with the yellow damage trail. |
 | **Minecraftified menus** | Sites of Grace, NPC conversations and confirmations become Minecraft screens; the original quest scripts still decide the outcome. |
 | **Map and fast travel** | Elden Ring's own map on <kbd>M</kbd> or <kbd>G</kbd>, with the Minecraft overlay out of the way so it is fully clickable. |
 | **Ender Chest at every grace** | Sort chest becomes your persistent Ender Chest. |
+| **Flask of Wondrous Physick** | Find the flask and Crystal Tears in Elden Ring, mix two at any grace, and drink them as a Minecraft flask. All 29 base-game tears work: buffs, heals, the Opaline bubble, elemental boosts, and Twiggy's rune protection through the real native effect. |
 | **Weather sync** | When it rains or storms in the Lands Between, it rains or thunders in Minecraft too. |
 | **First or third person** | <kbd>F5</kbd> works the way your muscle memory expects. |
 | **Shared GPU composition** | Both renderers merge through shared GPU textures with depth-aware composition. |
@@ -128,6 +130,7 @@ ground to dismount.
 
 - **Gallop** with WASD at about 11 m/s; hold <kbd>Ctrl</kbd> to **dash** at about 16 m/s in any direction.
 - **Jump** with <kbd>Space</kbd>, then press it again in the air to **double jump** and steer toward the held direction.
+- **Spiritsprings**, the little whirlwinds of the Lands Between, fling Torrent high into the air when you press <kbd>Space</kbd> inside one, three times the height the map authors for it, and the landing is safe: no fall damage.
 - Crouching and a raised shield don't slow him, and hits don't knock him back.
 - The camera rises to saddle height, and hoofbeats replace your footsteps.
 
@@ -139,7 +142,7 @@ He can't open an elytra glide and is never saved with the world.
 ## Quick start
 
 > [!IMPORTANT]
-> You need **owned copies of both games**: Elden Ring on Steam (executable **2.7.1.0**)
+> You need **owned copies of both games**: Elden Ring on Steam (executable **2.7.2.0**)
 > and Minecraft **Java Edition**. EldenCraft is **offline singleplayer only** (Seamless Coop might be added in the near future though!).
 > Online Elden Ring and Minecraft LAN/server sessions turn the bridge off.
 
@@ -181,7 +184,7 @@ file picker, or you can pass the path:
 | Component | Supported configuration |
 | --- | --- |
 | Windows | Windows 10/11 x64, build 19041 or newer |
-| Elden Ring | Owned Steam installation, executable product version **2.7.1.0** |
+| Elden Ring | Owned Steam installation, executable product version **2.7.2.0** |
 | Minecraft | Owned **Java Edition** account; the launcher installs **26.3** |
 | Graphics | DirectX 12 for Elden Ring, OpenGL for Minecraft; SDR output |
 | Resources | Enough memory and GPU headroom to run both games at once |
@@ -207,13 +210,15 @@ file picker, or you can pass the path:
 | <kbd>F4</kbd> | Toggle combat hitbox diagnostics |
 | <kbd>F11</kbd> | Toggle the ReShade compositor |
 
+These are the defaults. Rebind them in Minecraft's **Options → Controls → Key Binds**: movement, attack, use, inventory, hotbar, drop, swap, sprint, sneak, jump and perspective use vanilla's own entries, and **Summon Torrent** and **Elden Ring Interaction** are under **EldenCraft**. Elden Ring picks up a change within half a second. Escape, chat, the map keys and the F4/F6/F11 toggles stay fixed.
+
 <details>
 <summary><b>Menus and the map</b></summary>
 
 - In menus: <kbd>Enter</kbd> / <kbd>R</kbd> confirms; <kbd>Up</kbd> / <kbd>Down</kbd>, <kbd>W</kbd> / <kbd>S</kbd> or <kbd>Tab</kbd> navigate; <kbd>Escape</kbd> / <kbd>E</kbd> closes. Camera and gameplay controls stay locked while a menu is open.
 - The map is Elden Ring's own, with its normal mouse controls and fast travel. Close it with <kbd>M</kbd>, <kbd>G</kbd> or <kbd>Escape</kbd>; Minecraft comes back once the key is released.
 - Merchants offer a single **Shop** row that opens the Minecraft shop; native selling is not offered.
-- Grace menus drop level-up, flask and memorize-spell rows; Sort chest opens your Ender Chest. Specialist screens such as equipment and Great Runes keep their native interface for now.
+- Grace menus drop level-up, flask and memorize-spell rows; Sort chest opens your Ender Chest, and **Mix Wondrous Physick** opens the flask's mixing screen. Specialist screens such as equipment and Great Runes keep their native interface for now.
 - Signs: place one and type its text directly; Escape or **Done** saves it.
 - The Minecraft world keeps running when you switch windows. Its pause menu closes when you switch away; inventory and chat stay open.
 
@@ -256,6 +261,12 @@ active, the native movement capsule is limited to Minecraft's 0.6-block width
 and 1.8-block standing height, so open doors and two-block doorways have normal
 clearance; closed doors retain their actual collision shape.
 
+Arrows strike Elden Ring enemies through their Minecraft hitboxes: an enemy's
+native body is never treated as cover, and arrows ignore the half-second hurt
+cooldown vanilla gives mobs, so a quick follow-up shot no longer bounces off.
+An ender pearl that hits a wall lands you just in front of it, and one that
+stops in the air sets you down on the ground up to 3 m below.
+
 In creative mode, double-tap **Space** to toggle flight. Hold **Space** to ascend
 or **Shift** to descend, use the movement keys to fly, and hold sprint to fly
 faster. Releasing the controls lets you hover; landing ends flight.
@@ -273,9 +284,9 @@ faster. Releasing the controls lets you hover; landing ends flight.
 <details>
 <summary><b>"Unsupported executable"</b></summary>
 
-This release needs executable product version **2.7.1.0** (title-screen App Ver.
-**1.17.1**). Product version **2.7.0.0** is the older **1.17** patch: update in
-Steam, then verify installed files. If you have multiple copies, use `-GamePath`
+This release needs executable product version **2.7.2.0** (title-screen App Ver.
+**1.17.2**). Product versions **2.7.1.0** (**1.17.1**) and **2.7.0.0** (**1.17**)
+are older patches: update in Steam, then verify installed files. If you have multiple copies, use `-GamePath`
 to select the updated Steam installation. Newer game updates need a matching
 EldenCraft release.
 

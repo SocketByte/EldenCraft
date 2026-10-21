@@ -30,7 +30,7 @@ Invalid configuration is rejected. Keep the JSON below 256 KiB, use vanilla `min
 
 ## Balance
 
-`weapons` maps item IDs to fully charged base damage and attack speed. Damage includes the player's base attack point. These become Minecraft item attributes before ordinary attack cooldown and critical-hit calculations. Wooden swords, axes and spears, and shields, are unbreakable while the campaign is enabled. Other equipment retains vanilla durability.
+`weapons` maps item IDs to fully charged base damage and attack speed. Damage includes the player's base attack point. These become Minecraft item attributes before ordinary attack cooldown and critical-hit calculations. Wooden swords, axes and spears, and shields, are unbreakable while the campaign is enabled. Other weapons, tools and armor have three times their vanilla durability (`CampaignCombat.DURABILITY_SCALE`). An item's existing wear carries over unchanged, and Unbreaking applies to the larger pool.
 
 | Material | Sword damage | Axe damage | Spear damage | Sword speed | Axe speed | Spear speed |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -42,9 +42,9 @@ Invalid configuration is rejected. Keep the JSON below 256 KiB, use vanilla `min
 | Diamond | 12.675 | 20.475 | 13.65 | 1.6 | 1.0 | 1.0 |
 | Netherite | 15.6 | 23.725 | 18.525 | 1.6 | 1.0 | 1.0 |
 
-Spears retain vanilla's jab, piercing targets, minimum/maximum reach, charging delay, relative-speed damage, enchantments and durability. A jab costs 18 stamina, including a miss. A charging contact costs 18 once for the component's group of hits, with at least ten ticks between paid contacts; vanilla's own contact cooldown still applies. Spear item-use movement retains its real `use_effects` sprint and speed rules. Wooden spears join the starter kit; every material is sold and can drop at its progression gate.
+Spears retain vanilla's jab, piercing targets, minimum/maximum reach, charging delay, relative-speed damage, enchantments and durability. A jab costs the spear share of your stamina (20%), including a miss. A charging contact costs that once for the component's group of hits, with at least ten ticks between paid contacts; vanilla's own contact cooldown still applies. Spear item-use movement retains its real `use_effects` sprint and speed rules. Wooden spears join the starter kit; every material is sold and can drop at its progression gate.
 
-The mace has 6 base damage, 0.6 attack speed and costs 28 stamina. It unlocks in shops and rare ordinary drops after Radahn, Morgott or Maliketh; Radahn also awards one. Vanilla calculates smash damage and enchantments from continuously observed native falling. Landing, teleports, map changes and bridge gaps reset that fall. A successful smash consumes it and sends the actual vanilla vertical rebound to native movement once, with fall protection for that impulse.
+The mace has 6 base damage, 0.6 attack speed and costs half your maximum stamina per attack. It unlocks in shops and rare ordinary drops after Radahn, Morgott or Maliketh; Radahn also awards one. Vanilla calculates smash damage and enchantments from continuously observed native falling. Landing, teleports, map changes and bridge gaps reset that fall. A successful smash consumes it and sends the actual vanilla vertical rebound to native movement once, with fall protection for that impulse.
 
 `combat.nativeDamageScale` converts the resolved Minecraft hit into native HP damage. The supplied value is 36: a full wooden sword hit becomes 144 native HP and a netherite sword about 562, before any existing native damage-path behavior. The same scale converts Minecraft hazards that reach native enemies, after the hazard scales below. `combat.bowBaseDamage` (vanilla 2) and `combat.crossbowBaseDamage` (vanilla 4) are supplied at 3 and 6. Both retain ordinary arrow velocity and critical calculations. These are tuning values, still requiring live boss playtests before claiming equivalence to a specific level-100 Elden Ring build.
 
@@ -69,32 +69,59 @@ This is a remaining combat limitation: native armor and stat defenses are not ne
 
 Guard expenditure uses raw incoming damage in fixed Minecraft HP units, before armor. Vigor growth therefore does not reduce the stamina cost of blocking the same attack. Individual native hits wear Minecraft armor using vanilla durability rules; shields remain unbreakable and can still suffer a stamina guard break. Ordinary food regeneration is forwarded to native HP; the existing golden-apple regeneration path remains separate. An enchanted golden apple's Regeneration II is forwarded like food for its full 20 seconds (16 Minecraft HP), and its 16 absorption hearts absorb native hits like a totem's. Its Resistance and Fire Resistance only affect Minecraft hazards, because native hits use the campaign armor percentage alone.
 
+## Stance
+
+Native enemies stagger through stance, the game's own authored `superArmorDurability` poise. A Minecraft hit carries no poise damage, so each enemy carries a stance meter instead. Every accepted hit adds its **stance damage**, and the enemy staggers only when the meter reaches its stance (most soldiers have 30, bosses 80 to 300). Hits below that still deal HP damage and play their usual hit feedback but do not flinch the enemy. A meter that is left alone for `recoverySeconds` empties. Enemies with no authored stance keep flinching on every hit. Rennala's scholars also flinch on every hit, because her first phase ends only once three glowing scholars have reacted to a hit.
+
+| JSON field | Default | Meaning |
+| --- | ---: | --- |
+| `weapons.<item>.stance` | per weapon | Stance damage of one hit with this item |
+| `combat.stance.enabled` | `true` | `false` restores a stagger on every hit |
+| `combat.stance.default` | 6 | Fists, tools and any item without its own `stance` |
+| `combat.stance.projectile` | 10 | Arrow and crossbow bolt hits |
+| `combat.stance.explosion` | 40 | Explosion hits |
+| `combat.stance.recoverySeconds` | 6 | Quiet time after which an enemy's meter is full again |
+| `combat.stance.capacityScale` | 1 | Multiplies every enemy's stance, so 0.5 breaks them twice as easily |
+
+The supplied weapons: every sword 8, every axe 16, every spear 10 and the mace 35, whatever the material. Stance comes only from an accepted weapon, arrow or explosion hit. Moving, jumping and standing close to an enemy never change its meter. Weapon tooltips show a Stance damage row.
+
+The game still keeps a stance value of its own for each enemy, and its own hits spend it with poise damage. A hit that breaks the meter carries poise damage past the enemy's whole stance, at the request offsets the game's own hits use, so the game's damage processor breaks the stance itself and the enemy plays the real stance break instead of a flinch. A hit that does not break the meter is given back whatever the game's processor took from it, so only the meter can stagger an enemy from a Minecraft hit. Enemies with no authored stance, and the legacy stagger-on-every-hit mode, leave the game's value alone. A boss's own animations can also forbid flinching (hyper armor, active during many attacks), so a stance break also lifts hyper armor and raises the game's forced-break flag for the moment the stagger is requested and puts both back straight after.
+
+Minecraft owns the player's melee, but the game's own jump was found to land a real hit from the player's equipped weapon on whatever stands next to the player: about 2 to 3 HP, ten stance and a flinch, once per jump. The bridge stops these. Any hit from the local player's equipped weapon that reaches an enemy outside the bridge's own damage calls has its damage, poise and reaction zeroed before the game's processor sees it. Hits from other sources, and status effects such as poison or bleed, are left alone.
+
+Three log lines in `eldencraft-native.log` make this checkable. Every accepted hit writes `Enemy stance:` with the stance damage, the enemy's capacity, what the meter holds, and the game's state (stance, toughness, damage level, hyper armor, forced break, animation) before the hit and after its processor. While a boss with a health bar is within 60 m, `Enemy watch:` lines record each drop in its stance or toughness, each change of damage level, forced-break flag or animation, and the player's ground contact and height speed beside it, at most 40 lines a second. Any hit the game's damage processor applies to an enemy outside the bridge's own calls is written as `Native hit on enemy:`, with who it came from, its damage, whether it was stopped, and the non-zero words of the raw request; after the first 40 it shrinks to one short line a second. A stagger that has no `Enemy stance:` line did not come from a Minecraft hit.
+
 ## Stamina
 
 | JSON field | Default | Meaning |
 | --- | ---: | --- |
-| `stamina.costs.sword` | 12 | Each sword attack, including a miss |
-| `stamina.costs.spear` | 18 | A jab or paid charging contact |
-| `stamina.costs.mace` | 28 | A mace attack |
-| `stamina.costs.axe` | 24 | Each axe attack |
-| `stamina.costs.bow` | 24 | A released arrow |
-| `stamina.costs.crossbow` | 24 | A fired shot, once per volley |
-| `stamina.costs.other` | 12 | Other melee attacks |
-| `stamina.regenPerSecond` | 20 | Recovery per second |
+| `stamina.costs.sword` | 20 | Each sword attack, including a miss, as a **percentage of maximum stamina** |
+| `stamina.costs.spear` | 20 | A jab or paid charging contact |
+| `stamina.costs.axe` | 40 | Each axe attack |
+| `stamina.costs.mace` | 50 | A mace attack |
+| `stamina.costs.bow` | 20 | A released arrow |
+| `stamina.costs.crossbow` | 25 | A fired shot, once per volley |
+| `stamina.costs.other` | 20 | Other melee attacks |
+| `stamina.regenPerSecond` | 30 | Recovery per second |
 | `stamina.regenDelaySeconds` | 0.5 | Delay after expenditure |
+| `stamina.exhaustedDelayMultiplier` | 2 | The delay is this many times longer (1 to 10) after an attack or shot empties the bar |
 | `stamina.guardBase` | 4 | Cost per blocked hit |
 | `stamina.guardPerDamage` | 1.5 | Additional cost per raw incoming Minecraft HP |
 | `stamina.guardRecovery` | 5 | Balance needed to raise an exhausted guard again |
+| `stamina.shieldRaiseSeconds` | 0 | Shield cast time: the delay between raising a shield and it blocking, 0 to 5 seconds. 0 blocks the moment the shield is raised |
+| `stamina.brokenShieldDelaySeconds` | 0.25 | After a guard break, how long the shield stays unusable once the guard has recovered, 0 to 5 seconds |
 
-Swords and axes trade efficiency for throughput. A sword hit costs half as much stamina per point of damage, leaving more for blocking. The axe's slower cooldown lets stamina recover between swings, so it deals slightly more in a 1.5 s opening (wood: 14 against 12) and over a 10 s exchange (56 against 48 at mid-game capacity).
+Attack costs are a share of the player's **maximum** stamina, the same for every weapon of a family and for every material: a sword or spear swing takes a fifth of the bar and an axe swing two fifths, so the cost grows with the capacity that boss victories add (59 to 169). Weapon tooltips show both forms, such as "20% (21)". Guard costs below stay in fixed points.
 
-Holding a shield or drawing/loading a ranged weapon pauses regeneration. Insufficient stamina prevents a new attack or shot. A shield hit costs `guardBase + guardPerDamage` per raw damage. If the remaining balance covers it, the hit is fully blocked. Otherwise stamina absorbs only the share it pays for, drops to zero, and the rest of the hit goes through as ordinary damage after armor. Either way, emptying stamina with a block breaks the guard. The shield is knocked down with vanilla's shield-break sound and a hotbar cooldown lasting until stamina reaches `guardRecovery` again, and the stamina bar shakes, flashes and shows "Guard broken". While a shield is held, a small shield icon beside the crosshair shows its state in the stamina colors: a faint outline when available, filling during vanilla's 0.25 s raise delay, solid with a short flash once it blocks, and the exhausted color refilling while a broken guard recovers. Native guard events include blocked hits with zero HP loss. Sprinting, jumping, normal Minecraft movement, mining and placing blocks do not spend this stamina; the swings of holding attack on a block (Minecraft or Elden Ring terrain) are never charged as missed attacks.
+Swords and axes trade efficiency for throughput. A sword hit costs half as much stamina per point of damage, leaving more for blocking. The axe's slower cooldown lets stamina recover between swings, which offsets some of its doubled share of the bar.
 
-Shield activation retains vanilla's raise delay and frontal blocking rule. The client reports its actual raised shield; the integrated server separately verifies a held, usable blocking item and available stamina. The server's later copy of the raise timer does not impose a second delay on an already admitted client guard. A brief combat mailbox read miss preserves an already raised shield within the last observation's freshness window; reconnecting while the shield is raised accepts that current held state without replaying attacks. Explicit release, menus, expired observations, item cooldowns and exhausted stamina still prevent blocking. Publishing fresh shield and campaign state uses short state locks so a simultaneous update cannot itself let a hit through.
+Holding a shield pauses regeneration; drawing a bow or loading a crossbow does not. A bow cannot be drawn on an empty bar, so a draw never ends in a release that fires nothing. As in Elden Ring, any stamina left pays for one more attack or shot, even one that costs more: the action goes through and empties the bar. An empty bar allows nothing until it recovers. An attack, shot or paid spear contact that empties the bar (overdrawn or exactly) exhausts you: recovery waits `regenDelaySeconds × exhaustedDelayMultiplier` (1 s by default) instead of the ordinary delay, the guard is down until stamina reaches `guardRecovery`, and the stamina bar flashes red, then pulses red for as long as that longer delay runs. The longer delay covers one wait; later expenditures wait the ordinary delay again. A guard broken by a blocked hit keeps its own feedback and the ordinary delay. A shield hit costs `guardBase + guardPerDamage` per raw damage. If the remaining balance covers it, the hit is fully blocked. Otherwise stamina absorbs only the share it pays for, drops to zero, and the rest of the hit goes through as ordinary damage after armor. Either way, emptying stamina with a block breaks the guard. The shield is knocked down with vanilla's shield-break sound and a hotbar cooldown lasting until stamina reaches `guardRecovery` again, and the stamina bar shakes, flashes and shows "Guard broken". While a shield is held, a small shield icon beside the crosshair shows its state in the stamina colors: a faint outline when available, filling during a cast time, solid with a short flash once it blocks, and the exhausted color refilling while a broken guard recovers. With the default instant raise the icon appears only after a guard break: while the guard recovers and through the shield delay that follows. Native guard events include blocked hits with zero HP loss. Sprinting, jumping, normal Minecraft movement, mining and placing blocks do not spend this stamina; the swings of holding attack on a block (Minecraft or Elden Ring terrain) are never charged as missed attacks.
+
+Shields block the moment they are raised by default (`shieldRaiseSeconds: 0`). This cast time replaces the shield item's raise delay on the client and the integrated server alike, and vanilla's frontal blocking rule is kept. A guard break adds a shield delay instead of a slower raise: once the broken guard has recovered, the shield still cannot be raised for `brokenShieldDelaySeconds`, after which it raises and blocks as usual. The hotbar cooldown covers the recovery and this delay. An attack that empties the bar lowers the guard without the extra delay.
 
 During active Minecraft gameplay, native weapon attacks, guard, skills and item use are reserved by the bridge. The native Use Item binding, normally R, cannot trigger a flask. These changes use Elden Ring's existing logical bindings and restore them when Minecraft gameplay capture ends.
 
-Verified native death refills stamina for the next attempt. Merely switching windows or losing the bridge does not refill it.
+Verified native death refills stamina for the next attempt. Merely switching windows or losing the bridge does not refill it. Resting at a Site of Grace (opening its menu) and a verified native death also refill the hunger bar to 20 food and 5 saturation, as a Minecraft respawn does. Fast travel alone does not.
 
 ## HUD and popups
 
@@ -111,6 +138,7 @@ The stamina bar has a pixel frame, green recovery shading, an amber exhausted st
 | `hud.stamina.trailHoldSeconds` | 0.12 | Pause before the drain trail catches up |
 | `hud.stamina.trailPerSecond` | 1.75 | Trail movement in fractions of a full bar per second |
 | `hud.stamina.recoveryHighlightSeconds` | 0.12 | Keep recovery shading steady between stamina updates; 0 disables it |
+| `hud.stamina.depleted` | `#D8392B` | Red the bar flashes and pulses while an exhausting attack delays recovery |
 | `hud.bossBar.enabled` | `true` | Show native boss bars |
 | `hud.bossBar.width`, `height` | 320, 10 | Outer frame dimensions |
 | `hud.bossBar.top` | 12 | Top of the first boss name |
@@ -142,7 +170,7 @@ Minecraft maximum HP = baseMinecraftHealth * HP(vigor) / HP(startVigor)
 maximum stamina = Stamina(endurance)
 ```
 
-`healthCurve` and `staminaCurve` are editable ordered arrays of `{ "level": ..., "value": ... }` anchors. Values interpolate between anchors. The default starts at equivalent Vigor 10 / Endurance 10 and ends at Vigor 60 / Endurance 30. The supplied health curve is Elden Ring's Vigor curve plus a flat 414 HP: 828 native HP and 40 internal Minecraft HP at the start, 2314 native HP and approximately 111.79 internal Minecraft HP at the end, with 103 stamina. The HUD presents this as 10 full hearts initially and at most 30 full hearts (three rows), mapping capacity growth between these endpoints and preserving the current health fraction. Absorption and the stamina bar's layout use the same display scale. This affects HUD reads only: maximum-health attributes, native HP, damage, guard costs, food, apples, absorption pools and totems keep their existing arithmetic. Each remembrance still adds the same native HP as the unmodified curve. One internal Minecraft HP remains 20.7 native HP. The supplied stamina curve is campaign tuning, starting at 54 and ending at 103; its values can be changed independently of the Endurance labels. Native attribute levels, damage stats and equip load are not awarded. Capacity growth preserves current HP rather than healing it.
+`healthCurve` and `staminaCurve` are editable ordered arrays of `{ "level": ..., "value": ... }` anchors. Values interpolate between anchors. The default starts at equivalent Vigor 10 / Endurance 10 and ends at Vigor 60 / Endurance 30. The supplied health curve is Elden Ring's Vigor curve plus a flat 414 HP: 828 native HP and 40 internal Minecraft HP at the start, 2314 native HP and approximately 111.79 internal Minecraft HP at the end, with 169 stamina. The HUD presents this as 10 full hearts initially and at most 30 full hearts (three rows), mapping capacity growth between these endpoints and preserving the current health fraction. Absorption and the stamina bar's layout use the same display scale. This affects HUD reads only: maximum-health attributes, native HP, damage, guard costs, food, apples, absorption pools and totems keep their existing arithmetic. Each remembrance still adds the same native HP as the unmodified curve. One internal Minecraft HP remains 20.7 native HP. The supplied stamina curve is campaign tuning, starting at 59 and ending at 169; its values can be changed independently of the Endurance labels. Native attribute levels, damage stats and equip load are not awarded. Capacity growth preserves current HP rather than healing it.
 
 Boss state comes from native completion event flags, not remembrance inventory items. The native journal retains unique victories across sessions and NG+ so neither duplicated remembrances nor repeated clears award more capacity. Optional bosses increase capacity; completing the main route does not require every optional remembrance.
 
@@ -233,11 +261,109 @@ An ordinary Limgrave enemy drops something on 40% of kills; about one in 70 kill
 
 Each native session numbers ordinary kills. Minecraft saves its loot cursor in the same world save as the delivered or dropped items, so a reload cannot replay a kill. Each roll is seeded by the character, session and kill, so a Minecraft crash before the save delivers the same items again rather than a reroll. Native keeps the latest 64 kills; kills older than that before Minecraft observes them are forfeited, as are kills from before a new native session's baseline.
 
-Lapis ore also follows vanilla mining XP rules. Merchants sell an enchanting table, books and bookshelves after early major victories. Vanilla enchanting remains available, but the supplied weapon and boss balance does not assume enchantments.
+Lapis ore also follows vanilla mining XP rules. Merchants sell an enchanting table, books and bookshelves after early major victories. Tables still spend Minecraft levels and lapis, with bookshelf power controlling available levels. Lapis is deliberately scarce until the end: every remembrance boss awards 9, field bosses award none, and merchants only sell it after the Elden Beast. Before that, mined lapis ore and remembrance rewards are the only supply, so an early enchantment is a commitment.
+
+## Enchantments and affinities
+
+Campaign equipment keeps Sharpness, Looting, Unbreaking and Protection. Other vanilla enchantments are removed from carried items, stored books, menu slots and the cursor in the paired campaign world. Other Minecraft worlds retain vanilla enchanting. Sharpness adds 1.5 times its vanilla damage bonus (+1.5, 2.25, 3, 3.75 and 4.5 Minecraft damage at levels I to V) before `combat.nativeDamageScale`; Unbreaking retains vanilla durability behavior. Protection reduces the damage remaining after configured armor by 4% per enchantment level (vanilla's total protection cap of 20), including native attacks.
+
+| Affinity | Unlock in Elden Ring | Effect |
+| --- | --- | --- |
+| Poison I–III | Black Whetblade | Native poison buildup and damage over time after the resistance threshold is reached |
+| Bleeding I–III | Black Whetblade | Native hemorrhage buildup and burst damage at the threshold |
+| Frostbite I–III | Glintstone Whetblade | Native frost buildup, burst damage and the native damage vulnerability debuff |
+| Magic I–III | Glintstone Whetblade | Splits each melee hit into 90%/85%/80% physical plus 15%/22%/30% magic damage, scaled by the enemy's magic absorption |
+| Fire I–III | Red-Hot Whetblade | The same split with fire damage, scaled by fire absorption |
+| Lightning I–III | Sanctified Whetblade | The same split with lightning damage, scaled by lightning absorption |
+| Holy I–III | Sanctified Whetblade | The same split with holy damage, scaled by holy absorption |
+
+Swords, axes, spears and maces may carry one affinity, status or element. Sharpness, Looting and Unbreaking can coexist with it. Whetblades are read from the current Elden Ring character's acquired key items; they are permanent unlocks and are never consumed. The table filters locked affinities, and the anvil checks the same unlocks when applying an enchanted book. A stale bridge cannot grant an affinity unlock. Existing allowed affinities remain on items during a disconnect, but their native effects require a current matching character and unlock.
+
+As in Elden Ring, an element converts part of the physical damage rather than adding a free bonus. The element part uses the target's authored NpcParam damage cut rate for that element (Paramdex names holy "dark"): 1 is neutral, 0.8 means 20% absorption and 1.2 a 20% weakness. A 500-damage hit with Fire III becomes 400 physical and 150 fire, so it deals 550 to a neutral enemy, 520 with 20% fire absorption, 580 to one weak to fire and only 400 to a fire-immune enemy. Rates above 2 count as 2. A malformed or unreadable row, a missing whetblade or a stale bridge deals the original unsplit hit. The split is applied before campaign enemy tuning and the native frost vulnerability, and Sharpness raises the hit before it is split. Weapon tooltips show attack power as physical plus the element's share, for example `400 (+150)`, before enemy absorption; a dormant element shows the unsplit damage.
+
+Native statuses use the game's own buildup, resistance, immunity and proc behavior rather than substituting Minecraft potion effects. Levels I–III apply nominal buildup of 35/50/65 per accepted melee hit, before native status mitigation; levels increase buildup, not the percentage of a status proc. Looting I–III grants an additional 10%/20%/30% of the enemy's authored rune reward, including its native area/New Game scaling, on attributed native kills. The damage receipt records the weapon's enchantments before durability wear, so breaking a weapon on the final hit retains the correct status and rune credit. Deferred poison deaths retain their last accepted melee attribution; a later Minecraft projectile or hazard hit supersedes it.
+
+Opening the enchanting table shows whetblade help and current unlocks. Equipment tooltips and infusion offers use charcoal panels, engraved gold frames and a bundled icon font. Poison, blood loss and frost use distinct green, red and ice-blue accents; fire, lightning, magic and holy use ember, storm-yellow, arcane-blue and radiant-gold accents. A Guide seal opens the full rules; larger screens also show acquired/undiscovered whetblade cards, while compact screens show the same information as a tooltip. Offer hovers separate the revealed effect from its required offering and retain vanilla affordability warnings.
+
+Weapon tooltips display a short weapon description, scaled Elden Ring damage, attack cadence, stamina per attack and descriptions of each enchantment. Damage values describe a fully charged ordinary hit; target tuning, criticals, spear motion, mace height and projectile flight can change the actual result. The icon glyphs are 9×9 pixel art drawn at the font's native scale and explicitly scoped to their own font; ordinary text retains Minecraft's standard font, including when Unicode font mode is enabled. Every icon has the same advance, so labels and their indented details align. An affinity whose whetblade the paired Elden Ring character does not own is marked dormant in red, since its hits carry no status buildup or elemental damage.
+
+### Shield enchantments
+
+Shields carry their own enchantments. They need no whetblade, can be combined freely on one shield, and act only while the paired campaign is running; other Minecraft worlds ignore them. The campaign gives the shield vanilla's missing enchantability (14, a sword's range) so it can be placed on an enchanting table. A shield on the table is offered these enchantments only, since a campaign shield is unbreakable and Unbreaking would be wasted. Books can carry them to an anvil. Swords, axes, spears, maces and armor lose them like any other retired enchantment.
+
+| Enchantment | Levels | Effect |
+| --- | --- | --- |
+| Guarding Ability | I–III | Blocking costs 5%/10%/15% less stamina, both the per-hit base and the per-damage part. A discount that makes the remaining stamina cover a hit turns a partial block into a full one |
+| Healing | I–III | Each block restores 1%/1.5%/2% of maximum health, at most once every 0.5 s. It uses the same genuine-heal path as potions, so native HP rises with it |
+| Explosive | I | A block sets off a small blast (power 1.5; a creeper is 3) just in front of you, at most once every 2 s. It spares you and the terrain. Enemies take it as ordinary explosion damage, scaled for native enemies by `combat.explosionDamageScale` |
+| Riposte | I–III | After a block, your next melee or spear hit within 3 s deals +10%/20%/30% damage. Spent by that hit |
+| Second Wind | I–III | Each block restores 2%/4%/6% of maximum stamina. It cannot mend an already broken guard. Unlike Guarding Ability's proportional discount, the refund is flat, so it favours many light blocks while Guarding Ability favours a few heavy ones |
+| Stalwart | I | While the guard can block, native hits queue no knockback, the same native flag as the Leaden Hardtear |
+| Resounding | I | Each block rings a bell. Blocks less than 3 s apart climb a nine-note pentatonic scale; past the top note a chime joins in. Purely for fun |
+| Last Hurrah | I | When the guard breaks, the shield detonates in a blast of power 2.5 that spares you and the terrain |
+
+A block is either a native hit Elden Ring reports as blocked or a Minecraft hit vanilla blocks. Both run the same effects after the hit's stamina has been charged, so a Second Wind refund is never lost to a full bar. A hit that stamina could only partly cover still counts as a block when any of it was absorbed, and a guard it breaks also fires Last Hurrah. Blasts are queued and detonate at the end of the same server tick instead of inside the hit's own damage handling. Guarding Ability only discounts the Java-side charge: native keeps counting the raw guard damage it reported, which is why it never authorizes a block the player could not afford.
+
+The numbers live in `CampaignShields` and the enchantment descriptions read them, so tooltips and effects cannot disagree. The tuning constants (cooldowns, blast powers, percentages) are not configurable in `campaign.json`.
+
+Possible later additions (not implemented): **Scarlet Rot**, a slower poison-like affinity with a stronger lasting effect; **Sleep**, a crowd-control affinity for susceptible enemies; **Stancebreaker**, greater posture pressure at a higher stamina cost; and **Blood Tax**, limited healing on confirmed hits. Utility enchantments can be balanced separately from the single affinity slot.
+
+## Flask of Wondrous Physick
+
+The Flask of Wondrous Physick is a Minecraft item mixed from the Crystal Tears your Elden Ring character has found. Pick up the flask at the Third Church of Marika as usual. Once the native inventory holds it (Goods 250 or 251), the paired player receives the Minecraft flask; a missing one is replaced, because Elden Ring's flask cannot be lost. Tears stay in the Elden Ring save. Minecraft only reads which ones the character owns, as it reads whetblades.
+
+At a Site of Grace the menu adds **Mix Wondrous Physick** after Sort chest. The mixing screen shows all 29 base-game tears in Elden Ring's order, with undiscovered ones locked. Choose one or two tears and press Mix. Crimson, Cerulean and Ruptured exist twice in Elden Ring, so with both copies found the same tear can fill both slots for its stronger paired effect. The integrated server checks the grace, the pairing and native ownership again before it saves the mixture.
+
+The flask holds one charge. Hold use to drink it in 1.6 seconds, like a potion. Opening any grace menu refills it with the same mixture, and so does a death, whether Elden Ring's or a Minecraft respawn. Fast travel and every other Elden Ring teleport (waygates, teleport traps) refill it as well, once the character arrives; loading a save from the title screen does not. An Elden Ring death also ends every active effect, the tears' and any potion, beacon or food effect alike. The charge and mixture belong to the paired player rather than to one item, so extra flasks share them. Drinking needs a connected campaign.
+
+| Tear | Elden Ring | Minecraft | Duration | Route |
+| --- | --- | --- | --- | --- |
+| Crimson Crystal Tear | Restores half of max HP. | Heals 50% of max health. Both Crimson tears: a full heal. | Instant | Ready |
+| Crimsonspill Crystal Tear | Raises max HP by 10%. | Absorption hearts worth about 10% of max health. | 3:00 | Ready |
+| Crimsonburst Crystal Tear | Restores HP over time. | Regeneration I. | 3:00 | Ready |
+| Cerulean Crystal Tear | Restores FP. | Restores 10 food and 5 saturation. Both Cerulean tears: a full food bar. | Instant | Minecraft |
+| Greenspill Crystal Tear | Raises max stamina. | +15% stamina capacity. | 3:00 | Minecraft |
+| Greenburst Crystal Tear | Speeds stamina recovery. | +30% stamina recovery. | 3:00 | Minecraft |
+| Strength-knot Crystal Tear | Raises Strength. | Strength I: +3 attack, carried into native damage. | 3:00 | Ready |
+| Dexterity-knot Crystal Tear | Raises Dexterity. | Haste I: the attack cooldown recharges faster. | 3:00 | Ready |
+| Intelligence-knot Crystal Tear | Raises Intelligence. | +25% Magic damage and Frostbite buildup from affinity weapons. | 3:00 | Native combat |
+| Faith-knot Crystal Tear | Raises Faith. | +25% Holy and Fire damage from affinity weapons. | 3:00 | Native combat |
+| Opaline Hardtear | Boosts all damage negation. | Resistance I: 20% less damage, native hits included. | 3:00 | Ready |
+| Speckled Hardtear | Raises resistances and cures ailments. | Cures harmful effects and blocks them; also the tear's own native effect. | 3:00 | Native effect |
+| Leaden Hardtear | Boosts poise. | No knockback from Minecraft or native hits. | 0:10 | Native combat |
+| Magic-Shrouding Cracked Tear | Boosts magic damage. | +20% Magic damage from affinity weapons. | 3:00 | Native combat |
+| Flame-Shrouding Cracked Tear | Boosts fire damage. | +20% Fire damage from affinity weapons. | 3:00 | Native combat |
+| Lightning-Shrouding Cracked Tear | Boosts lightning damage. | +20% Lightning damage from affinity weapons. | 3:00 | Native combat |
+| Holy-Shrouding Cracked Tear | Boosts holy damage. | +20% Holy damage from affinity weapons. | 3:00 | Native combat |
+| Stonebarb Cracked Tear | Attacks break stances more easily. | Knockback +1, and your hits disable Minecraft shields. | 0:30 | Minecraft |
+| Spiked Cracked Tear | Enhances charged attacks. | Critical (falling) hits deal +20%. | 3:00 | Minecraft |
+| Thorny Cracked Tear | Successive attacks grow stronger. | Each hit within 2 s of the last adds +4% damage, up to +20%. | 3:00 | Minecraft |
+| Twiggy Cracked Tear | Runes are kept upon death. | The tear's own native effect: runes are not lost on death. | 3:00 | Native effect |
+| Winged Crystal Tear | Reduces equip load. | Jump Boost II. | 3:00 | Ready |
+| Windy Crystal Tear | Enhances dodge rolls. | Speed I. | 3:00 | Ready |
+| Crimson Bubbletear | Restores HP when near death. | Once, below 20% health: heals 30% of max health. | 3:00 | Minecraft |
+| Crimsonwhorl Bubbletear | Turns non-physical damage taken into HP. | Fire, lava, lightning and magic damage heal you instead. | 0:15 | Minecraft |
+| Opaline Bubbletear | Greatly negates the next hit taken. | The next hit, native or Minecraft, loses 90%. | 3:00 | Native combat |
+| Cerulean Hidden Tear | Eliminates FP consumption. | No hunger drain, arrow use or durability loss. | 0:10 | Minecraft |
+| Purifying Crystal Tear | Purifies Mohg's curse. | The tear's own native effect against Mohg's Nihil. | Until death | Native effect |
+| Ruptured Crystal Tear | Makes the concoction explode. | A blast around you that spares you and your blocks. Both Ruptured tears: a bigger blast. | Instant | Minecraft |
+
+The route says how far each effect reaches:
+
+- **Ready** tears use vanilla effects and heals that already reach native combat and HP: Strength, Haste, Resistance, Speed, Jump Boost, Regeneration, Absorption and potion healing.
+- **Minecraft** tears change Minecraft-side rules: stamina, melee damage, knockback, food, durability, arrows, explosions and hazard damage.
+- **Native combat** tears travel with the combat state. Intelligence- and Faith-knots raise the elemental part of an affinity hit by 25% (Intelligence also raises frostbite buildup), Shrouding tears raise their element by 20%, and the total stays at or below 1.5. The Opaline bubble takes 90% of the next native hit after armor, and the same share of the next Minecraft hit. Leaden stops native knockback as well as Minecraft knockback.
+- **Native effect** tears apply the tear's own Elden Ring SpEffect, read from its Goods row. Twiggy keeps your runes, Speckled raises native resistances and Purifying works against Mohg exactly as in Elden Ring. Each also shows a Minecraft status icon.
+
+Heals arrive at 10 health per tick through the same genuine-heal path as potions, because native ignores a heal publication above 20 health at once. Arcane-knot and the other Shadow of the Erdtree tears are not included. Every boss balance number in this guide still assumes no Physick, as it assumes no enchantments.
+
+`tools/generate_physick_icons.py` draws the pixel art: the flask's glass and gold frame, two greyscale liquid halves that the item model tints with the mixture's colours, an empty flask, one sprite per tear and an 18×18 status icon for each EldenCraft effect.
 
 ## Shops
 
-The merchant's Purchase row is shown as **Shop** and its native Purchase command opens the custom Minecraft screen; the native Sell row is hidden. Talk and quest dialogue continue through Elden Ring. The shop uses dark pixel panels with bright cream text and gold rune prices. It displays vanilla item icons, prerequisites and stock, with single-bundle and stack purchases. Inventory delivery runs on the integrated server.
+The merchant's Purchase row is shown as **Shop** and its native Purchase command opens the custom Minecraft screen; the native Sell row is hidden. Talk and quest dialogue continue through Elden Ring. The shop uses dark pixel panels with bright cream text and gold rune prices. It displays vanilla item icons, prerequisites and stock, with single-bundle and stack purchases. Inventory delivery runs on the integrated server. NPC lines appear in a Minecraft dialogue box above the status rows, headed by the speaker's name. A speech longer than the box turns pages, and follows the game's own page changes. The box stays in step with the voice; skipping lines with a key is not offered, because the voice clip cannot be cut and the text would run ahead of it.
+
+The welcome guide opens once per save: it is recorded on the paired Minecraft player, so reloading the game, dying or reconnecting never repeats it. Saves that predate this record see it one more time.
 
 The catalog and selected-item details have separate panels, with purchase feedback above the vanilla inventory grid. Page buttons and scrolling navigate the catalog. Bulk labels show the quantity currently affordable within stock and item stack limits; unavailable purchases explain their reason in the feedback strip or tooltip. Smaller GUI dimensions show a readable prompt to increase window size or reduce GUI scale, with Close and Escape available.
 
@@ -264,7 +390,9 @@ Standard vanilla firework rockets are available from the start in bundles of eig
 
 The native host independently validates merchant context, prerequisites, configured price, stock and wallet balance. It writes a durable purchase intent, debits the real wallet and requests a native save. Minecraft delivers only after the confirmed debit. The inventory save records a purchase UUID before shop stock commits, allowing safe retries after a disconnect or crash. An ambiguous native save quarantines the purchase instead of debiting again or delivering free items. Keep journals when restoring paired saves; manually mixing different save generations cannot be reconciled automatically.
 
-Native save discovery uses the dedicated `EldenCraft.sl2`. If it cannot be found uniquely, set optional top-level `nativeSavePath` to its absolute path. Purchases wait for save discovery rather than accepting an unrelated Elden Ring save as proof.
+Native save discovery reads the current account from the running game's initialized Steam session through [`ISteamUser::GetSteamID`](https://partner.steamgames.com/doc/api/ISteamUser#GetSteamID). It selects `%APPDATA%/EldenRing/<SteamID>/EldenCraft.sl2` before each purchase and keeps that path through save confirmation. Other account folders and file modification times do not influence selection. The correct path is retained even before a new account's first save creates the file; an unready Steam session or missing/unreadable current save declines the purchase before spending runes, without falling back to another account's file.
+
+Normal installations need no `nativeSavePath`. The optional top-level field remains an explicit override for custom save locations; remove an old manually pinned account path when returning to automatic selection, then restart both games. The shop status and Minecraft log include the native failure reason; hover over a clipped status to read it in full. A held purchase retains its journal and must be reconciled with the matching saves rather than manually cleared.
 
 An offer can optionally specify `native_item_lot` for an existing native **map item lot** containing Goods/key rewards, and `native_name` for its display name. Its vanilla `item` is only the GUI icon in this case, and `count` must be 1. Native validates the lot and grants it through the native dialogue award command; Minecraft does not create a substitute quest item. Weapon and armor lots are not supported. Use verified lot IDs appropriate to the supported game, including their award flags. The default catalog contains Minecraft goods only and leaves native quest-key acquisition in the world intact.
 

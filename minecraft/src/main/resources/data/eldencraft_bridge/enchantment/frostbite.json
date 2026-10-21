@@ -1,0 +1,13 @@
+{
+  "anvil_cost": 4,
+  "description": { "text": "Frostbite" },
+  "effects": {},
+  "exclusive_set": "#eldencraft_bridge:exclusive_set/affinity",
+  "max_cost": { "base": 33, "per_level_above_first": 9 },
+  "max_level": 3,
+  "min_cost": { "base": 8, "per_level_above_first": 9 },
+  "primary_items": "#eldencraft_bridge:affinity_weapons",
+  "slots": ["mainhand"],
+  "supported_items": "#eldencraft_bridge:affinity_weapons",
+  "weight": 5
+}

@@ -37,7 +37,7 @@ public final class CampaignWeapons {
       long tick = player.level().getGameTime();
       Long last = LAST_CHARGE.get(player.getUUID());
       if (a.kinetic && last != null && tick >= last && tick - last < 10) return false;
-      if (a.kinetic && !CampaignCombat.spend(player, "spear")) return false;
+      if (a.kinetic && !CampaignCombat.spend(player, player.getMainHandItem())) return false;
       if (a.kinetic) LAST_CHARGE.put(player.getUUID(), tick);
       a.charged = true;
     }

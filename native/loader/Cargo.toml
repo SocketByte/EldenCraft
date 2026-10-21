@@ -12,5 +12,6 @@ name = "eldencraft_native"
 crate-type = ["cdylib", "rlib"]
 
 [target.'cfg(windows)'.dependencies]
-eldenring = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }
-fromsoftware-shared = { git = "https://github.com/vswarte/fromsoftware-rs", rev = "59fbd3b3b7daaf14aca47c9f73530493dba6bc79" }
+# Same SDK revision as the core; see native/Cargo.toml.
+eldenring = { git = "https://github.com/Dasaav-dsv/fromsoftware-rs", rev = "5baf0dd2243e2affa8bc436d27d7305c2eab9490" }
+fromsoftware-shared = { git = "https://github.com/Dasaav-dsv/fromsoftware-rs", rev = "5baf0dd2243e2affa8bc436d27d7305c2eab9490" }

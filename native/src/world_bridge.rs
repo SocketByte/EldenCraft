@@ -23,6 +23,15 @@ const WORLD_RADIUS: f64 = 64.;
 // not fit Java's positive signed long. Never serialize that native handle.
 const PLAYER_ID: u64 = 1;
 
+/// One host frame: the native scene plus the bridge's targets, receipts and ACKs.
+#[derive(serde::Serialize)]
+struct Publication<'a> {
+    #[serde(flatten)]
+    scene: &'a world_native::Snapshot,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, serde_json::Value>,
+}
+
 fn packed(h: targets::Handle) -> u64 {
     u64::from(h.selector) | (u64::from(h.block_id as u32) << 32)
 }
@@ -408,12 +417,16 @@ impl Driver {
         let native_player = packed(sampled.player_handle);
         let mut mob_snapshot_active = false;
         let mut desired_mobs = 0;
+        let mut guest_terrain = None;
         if let Some(envelope) = self.reader.poll() {
             // The producer can publish while the seqlock copy is in progress.
             // Sample time after that copy, never label a legitimate newer frame
             // as future relative to the tick's earlier timestamp.
             let now = transport::now();
             let guest = &envelope.guest;
+            if guest.host_pid == transport::pid() {
+                guest_terrain = guest.terrain_cache;
+            }
             let matching = guest.host_pid == transport::pid()
                 && guest.epoch == scene.epoch
                 && guest.map == scene.map
@@ -609,12 +622,20 @@ impl Driver {
                         Ok(()) => match path {
                             Err(e) => Err(e),
                             Ok(path) => {
+                                // An arrow that struck an enemy may graze its native body first.
+                                let slack =
+                                    if event.kind == "projectile" && event.target != PLAYER_ID {
+                                        crate::projectile_path::ENTITY_IMPACT_SLACK
+                                    } else {
+                                        0.
+                                    };
                                 let clear = match path {
                                     Some(p) => unsafe {
                                         verify_path(
                                             &p,
                                             &scene,
                                             &mut ray_budget,
+                                            slack,
                                             self.flight_rays.as_ref().map_err(|e| *e),
                                         )
                                     },
@@ -710,6 +731,8 @@ impl Driver {
                         let hit=unsafe{api.ray(world,origin,delta,query_filter)}?;
                         if let Some(h)=hit{
                             let body=unsafe{api.body_evidence(world,h.body)}?;
+                            // An enemy's own capsule is not cover; its Minecraft hitbox takes the arrow.
+                            if body.character(query_filter){return Ok(None);}
                             events.push_back(format!("Native projectile contact uuid={} body={} filter={} query_filter={query_filter} motion_id={} body_flags={} user_data_present={} shape_key={} segment_start={:?} segment_end={:?} point={:?} normal={:?}",projectile.projectile,h.body,body.filter,body.motion_id,body.flags,body.user_data_present,h.shape_key,origin,std::array::from_fn::<_,3,_>(|i|origin[i]+delta[i]),h.point,h.normal));
                             Ok(Some(flight::Hit{point:std::array::from_fn(|i|h.point[i]+offset[i]),normal:h.normal}))
                         }else{Ok(None)}
@@ -833,11 +856,17 @@ impl Driver {
         }
         self.mobs
             .retain(|_, (_, time)| now.saturating_sub(*time) < 2000);
-        let mut payload =
-            serde_json::to_value(&scene).map_err(|_| "world snapshot serialization failed")?;
-        let object = payload
-            .as_object_mut()
-            .ok_or("world snapshot not an object")?;
+        // The guest still holds this exact terrain: leave its boxes out. Nothing below reads
+        // them, and any new revision, epoch or map is sent in full again.
+        let terrain_omitted =
+            guest_terrain == Some([scene.epoch, u64::from(scene.map), scene.terrain_revision]);
+        if terrain_omitted {
+            scene.terrain_boxes = Vec::new();
+            scene.terrain_materials = Vec::new();
+        }
+        let mut extra = serde_json::Map::new();
+        let object = &mut extra;
+        object.insert("terrain_omitted".into(), terrain_omitted.into());
         object.insert(
             "targets".into(),
             serde_json::to_value(&published).map_err(|_| "world target serialization failed")?,
@@ -882,7 +911,15 @@ impl Driver {
             .publisher
             .as_mut()
             .ok_or("world host mapping unavailable")?;
-        let frame = publisher.publish(true, &payload)?;
+        // Serialized straight into the frame: an intermediate Value tree of every terrain
+        // coordinate cost more than the JSON text itself.
+        let frame = publisher.publish(
+            true,
+            &Publication {
+                scene: &scene,
+                extra,
+            },
+        )?;
         self.launch_history.push_back(LaunchHistory {
             frame,
             time: now,
@@ -1219,6 +1256,7 @@ impl Driver {
                 handle(e.target),
                 amount,
                 Some(origin),
+                crate::campaign_runtime::world_stance(&e.kind),
             )
         }?;
         if receipt.applied_delta() > 0 {
@@ -1277,16 +1315,23 @@ unsafe fn verify_path(
     path: &Path,
     scene: &world_native::Snapshot,
     budget: &mut RayBudget,
+    slack: f64,
     api: Result<&crate::native_colliders::Api, &'static str>,
 ) -> Result<(), &'static str> {
     let api = api?;
     let world = unsafe { api.world() }?;
     let filter = unsafe { api.character_filter(world) }?;
-    path.verify(budget, |segment| {
+    path.verify_near_impact(budget, slack, |segment| {
         let p: [f64; 3] = std::array::from_fn(|i| segment.origin[i] - scene.offset[i]);
         let delta: [f64; 3] = std::array::from_fn(|i| segment.end[i] - segment.origin[i]);
-        unsafe { api.ray(world, p, delta, filter) }
-            .map(|h| h.map(|h| std::array::from_fn(|i| h.point[i] + scene.offset[i])))
+        let Some(h) = (unsafe { api.ray(world, p, delta, filter) })? else {
+            return Ok(None);
+        };
+        // Character capsules are not cover, as for the live flight check.
+        if unsafe { api.body_evidence(world, h.body) }?.character(filter) {
+            return Ok(None);
+        }
+        Ok(Some(std::array::from_fn(|i| h.point[i] + scene.offset[i])))
     })
     .map_err(|e| match e {
         CheckError::Deferred => "projectile ray budget unexpectedly exhausted",

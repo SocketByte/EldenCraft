@@ -72,6 +72,15 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
   private final Map<Mob, Goal> goals = new IdentityHashMap<>();
   private Set<BlockPos> terrainCells = new HashSet<>();
 
+  private record CellShape(List<AABB> pieces, VoxelShape shape) {}
+
+  /**
+   * The previous revision's shape for each cell. Moving one cell, or riding Torrent, publishes a
+   * new revision almost every tick while nearly every cell keeps identical pieces, and building a
+   * shape costs several microseconds per piece.
+   */
+  private Map<Long, CellShape> cellShapes = new HashMap<>();
+
   /** Chunk sections already cleared of terrain cells saved by earlier sessions. */
   private Set<Long> scrubbedSections = new HashSet<>();
 
@@ -123,7 +132,7 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
             if (CampaignProgression.characterPermitted(player)
                 && player.level().dimension().equals(SharedWorldBlocks.DIMENSION))
               CampaignBridge.publishCombat(
-                  CampaignCombat.armorReduction(player),
+                  CampaignCombat.nativeDamageReduction(player),
                   0,
                   player.getMaxHealth(),
                   CampaignCombat.nativeGuardPermitted(player),
@@ -131,7 +140,8 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
                   player.isUsingItem(),
                   player.getAbsorptionAmount(),
                   CampaignTotem.held(player),
-                  CampaignPotions.resistance(player));
+                  CampaignPotions.resistance(player),
+                  CampaignPhysick.combat(player));
           }
         });
     ServerLifecycleEvents.SERVER_STOPPED.register(
@@ -436,6 +446,8 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
       json.addProperty("map", reference.map());
       json.addProperty("host_pid", reference.pid());
       json.addProperty("session", EVENTS.session());
+      var terrainCache = MAILBOX.terrainReport(reference);
+      if (terrainCache != null) json.add("terrain_cache", terrainCache);
       if (!matches) {
         json.addProperty("observed_frame", reference.frame());
         json.addProperty("terrain_revision", reference.terrainRevision());
@@ -531,6 +543,7 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
         origins = new WorldOrigins(game);
         proxies.clear();
         terrainCells = new HashSet<>();
+        cellShapes = new HashMap<>();
         scrubbedSections = new HashSet<>();
         TerrainMaterials.clear();
         TerrainMining.clear();
@@ -802,8 +815,19 @@ public final class SharedWorldClient implements WorldDamageAuthority.Adapter {
         pieces.remove(pos);
       }
     var shapes = new HashMap<Long, VoxelShape>();
-    for (var entry : pieces.entrySet())
-      shapes.put(entry.getKey().asLong(), SharedTerrain.shape(entry.getValue()));
+    var nextShapes = new HashMap<Long, CellShape>();
+    for (var entry : pieces.entrySet()) {
+      long key = entry.getKey().asLong();
+      var previous = cellShapes.get(key);
+      // The shape is a pure function of the pieces, so identical pieces reuse it.
+      var cell =
+          previous != null && previous.pieces().equals(entry.getValue())
+              ? previous
+              : new CellShape(entry.getValue(), SharedTerrain.shape(entry.getValue()));
+      shapes.put(key, cell.shape());
+      nextShapes.put(key, cell);
+    }
+    cellShapes = nextShapes;
     SharedTerrain.publish(shapes);
     var steepCells = new HashSet<Long>();
     steepVotes.forEach(

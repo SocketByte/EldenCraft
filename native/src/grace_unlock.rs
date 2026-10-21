@@ -53,7 +53,9 @@ pub(crate) struct Unlocked {
 /// Called only inside the campaign's current-character, loaded offline game task.
 #[cfg(windows)]
 pub(crate) unsafe fn unlock_all() -> Result<Unlocked, &'static str> {
-    use eldenring::cs::{BonfireWarpParam, CSEventFlagMan, SoloParamRepository, WorldMapPieceParam};
+    use eldenring::cs::{
+        BonfireWarpParam, CSEventFlagMan, SoloParamRepository, WorldMapPieceParam,
+    };
     use fromsoftware_shared::FromStatic;
     let params = unsafe { SoloParamRepository::instance() }
         .map_err(|_| "Site of Grace parameters are unavailable")?;
@@ -64,7 +66,11 @@ pub(crate) unsafe fn unlock_all() -> Result<Unlocked, &'static str> {
     }))?;
     let grace_flags = flags.clone();
     let mut map_flags = BTreeSet::new();
-    for (index, (_, row)) in params.rows::<WorldMapPieceParam>().take(MAX_ROWS + 1).enumerate() {
+    for (index, (_, row)) in params
+        .rows::<WorldMapPieceParam>()
+        .take(MAX_ROWS + 1)
+        .enumerate()
+    {
         if index == MAX_ROWS {
             return Err("Map reveal table exceeds the debug limit");
         }
